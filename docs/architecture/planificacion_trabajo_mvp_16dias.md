@@ -1,12 +1,12 @@
 # PLANIFICACIÓN DE TRABAJO DEL MVP (16 DÍAS)
 ## Nexus v3.0 — Sistema de Gestión Comercial Modular (Retail México)
-### Especificación Detallada de Tareas, Subtareas, Contexto, Objetivos e Historias de Usuario
+### Especificación con Trazabilidad Constitucional, Historias de Usuario y Anclas Anti-Alucinación
 
 > **Duración Total:** 16 Días Laborales  
 > **Jornada Diaria:** 6 Horas / Día por Desarrollador  
 > **Capacidad Total:** 96 Horas / Desarrollador (192 Horas Totales del Equipo)  
 > **Metodología:** Flujo de Trabajo Agéntico Asistido (Spec-Driven + Clean Architecture)  
-> **Regla de Granularidad:** Toda tarea de 4 o más horas está rigurosamente subdividida en subtareas de $\le 2-3$ horas con contexto, justificación, objetivo técnico/negocio e historia de usuario asociada.
+> **Trazabilidad Obligatoria:** Cada tarea y subtarea está vinculada a una sección y regla inquebrantable exacta de la **Constitución de Nexus** y del **Documento Maestro** para erradicar cualquier caso de alucinación o desviación por parte de agentes de IA.
 
 ---
 
@@ -16,6 +16,14 @@
 |---|---|---|
 | **Alan** | Co-Fundador & Lead Architect | **Backend & Core Engineering:** PostgreSQL DDL con RLS, FastAPI Modular, Servicios de Negocio, Algoritmo de Consenso Crowdsourced, Webhooks SPEI/OXXO y Seguridad. |
 | **Eduardo** | Co-Fundador & Lead Operations | **Frontend, UX & QA:** Flutter Feature-First, Riverpod State, UI Components, Wizard Banxico, Google ML Kit OCR On-Device, Dictado de Voz y Pruebas en Campo. |
+
+---
+
+## 🔗 ÍNDICE DE ANCLAS DE TRAZABILIDAD DOCUMENTAL
+
+Para garantizar que ningún modelo agentico invente requerimientos o use tecnologías no autorizadas:
+* **Constitución:** [Constitucion Nexus v1-0.md](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md) (Artículos I a VIII y Anexos).
+* **Documento Maestro (SDD):** [Documento Maestro Nexus v3-0.md](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md) (Requisitos RF-01 a RF-31, Sub-requisitos SR-01 a SR-09 y Esquema DDL).
 
 ---
 
@@ -64,6 +72,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Ninguna (Inicio del proyecto)
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.3: Multi-tenant desde el Día 1)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. II (Sección 2.2: Arquitectura Multi-tenant RLS)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#22-arquitectura-multi-tenant).
+  - 📋 **Documento Maestro:** [Sección 2.2 (Arquitectura Multi-tenant)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#22-arquitectura-multi-tenant), [Sección 7.1 (Script DDL)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-01 / CU-01: Aislamiento Multi-tenant de Datos`  
   *"Como dueño de una tiendita de abarrotes, quiero que toda la información de mis ventas, costos e inventarios esté completamente aislada y protegida de otros comercios para garantizar la confidencialidad de mi negocio."*
 - **Contexto y Justificación:** En un modelo SaaS Multi-tenant compartido, la seguridad no puede depender solo de filtros manuales `WHERE tenant_id = ...` en el código de la aplicación. Se requiere seguridad nativa en la base de datos (PostgreSQL Row-Level Security) desde el primer commit para evitar fugas de datos irreversibles (Constitución Art. I, Principio 3).
@@ -85,6 +96,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Ninguna (Inicio del proyecto)
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.5: Mobile-First)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. II (Sección 2.1: Stack Flutter)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#21-stack-tecnologico-obligatorio).
+  - 📋 **Documento Maestro:** [Sección 1.2 (Mercado Objetivo y Dispositivo Principal)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#12-mercado-objetivo-y-alcance), [Sección 2.1 (Stack Tecnológico)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#21-stack-tecnologico).
 - **Historia de Usuario / Caso de Uso:** `HU-02 / CU-02: Inicio de Sesión y Experiencia Visual Mobile-First`  
   *"Como cajero o dueño de tienda, quiero una interfaz moderna, limpia y rápida que me permita iniciar sesión en mi smartphone y navegar de forma fluida."*
 - **Contexto y Justificación:** La aplicación móvil es el punto de contacto directo del comerciante. El diseño visual debe coincidir estrictamente con la paleta de colores oscuros/claros, espaciados y tipografías corporativas, además de contar con un cliente HTTP seguro que administre tokens JWT.
@@ -108,6 +122,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 1.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VI (Sección 6.3: Ciclo de Vida y Máquina de Estados de Suscripción: ACTIVE, SOFT_LOCK, HARD_LOCK)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#63-ciclo-de-vida-y-maquina-de-estados-de-suscripcion).
+  - 📋 **Documento Maestro:** [Sección 3 (Planes de Suscripción)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#3-planes-de-suscripción-saas), [Sección 9.2 (Matriz de Permisos RBAC Granular)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#92-matriz-de-permisos-rbac-granular).
 - **Historia de Usuario / Caso de Uso:** `HU-03 / CU-03: Control de Roles y Control de Acceso por Suscripción`  
   *"Como dueño de negocio, quiero crear cuentas para mis cajeros limitando su acceso para que solo puedan cobrar y registrar ventas, impidiéndoles ver mis costos de compra o borrar inventario."*
 - **Contexto y Justificación:** Los pequeños comercios tienen empleados con diferentes niveles de confianza. Asimismo, el SaaS requiere aplicar la máquina de estados de cobro (`ACTIVE`, `SOFT_LOCK` tras 10 días, `HARD_LOCK`) para proteger el modelo de negocio sin borrar datos del usuario.
@@ -129,6 +146,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 1.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.9: Cero Fricción en Setup)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. VII (Sección 7.6: Gamificación del Onboarding)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#76-gamificacion-del-onboarding-y-setup-asistido).
+  - 📋 **Documento Maestro:** [Sección 6 (SR-01: Onboarding Gamificado con Recompensas)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-04 / CU-04: Onboarding Gamificado contra el Síndrome del Panel Vacío`  
   *"Como comerciante que recién instala Nexus, quiero un asistente visual divertido con una barra de progreso que me guíe paso a paso para configurar mi tienda y me dé recompensas al avanzar."*
 - **Contexto y Justificación:** La principal causa de abandono de software de inventario es la frustración de ver una pantalla en blanco ("Cold Start"). Convertir la configuración en un juego con recompensas inmediatas (gamificación) eleva drásticamente la retención y activación de clientes (SR-01).
@@ -152,6 +172,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 2.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.4: Moneda Base Nativa MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. II (Sección 2.3: Manejo de Moneda Nativa MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#23-manejo-de-moneda-nativa-mxn-y-precios-historicos), [Art. VII (Sección 7.3: Registro Minimalista de 3 Campos)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#73-registro-minimalista-de-3-campos-y-lazy-loading-en-punto-de-venta).
+  - 📋 **Documento Maestro:** [Sección 5.1 (RF-02: Moneda Base Nativa MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#51-módulo-de-inventario-y-abastecimiento-core), [Sección 6 (SR-08: Formulario Minimalista de 3 Campos Vitales)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción), [Sección 7.1 (DDL products)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-05 / CU-05: Registro de Productos Minimalista en Pesos Mexicanos`  
   *"Como comerciante, quiero registrar mis productos indicando únicamente Nombre, Precio ($ MXN) y Cantidad para no perder tiempo llenando formularios complejos de 20 campos."*
 - **Contexto y Justificación:** En tienditas de abarrotes mexicanas, los empleados no tienen tiempo para clasificar impuestos complejos, marcas o SKUs largos al inicio. El sistema debe operar con la regla sagrada de los "3 Campos Vitales" y moneda nativa MXN (RF-02, SR-08).
@@ -173,6 +196,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 1.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.8: Rapidez y Eficiencia para el Usuario)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables).
+  - 📋 **Documento Maestro:** [Sección 5.1 (RF-02: Precios en MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#51-módulo-de-inventario-y-abastecimiento-core), [Sección 6 (SR-02: Dashboard en MXN, SR-08: Formulario Minimalista)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-05 / CU-06: Consulta y Gestión Visual de Inventario`  
   *"Como tendero, quiero ver la lista de mis productos con fotos, buscador por cámara y filtros de stock bajo, y poder ver el desglose de margen de ganancia de cada artículo."*
 - **Contexto y Justificación:** La pantalla de inventario debe ser visualmente rica, permitiendo identificar rápidamente productos agotados y revisar la rentabilidad de cada producto según el boceto aprobado.
@@ -196,6 +222,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.2: Consistencia ACID sobre Velocidad)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. VII (Sección 7.1: Inventario, Multi-almacén, Stock Reservado TTL 15 min y Kardex)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#71-inventario-y-control-de-stock).
+  - 📋 **Documento Maestro:** [Sección 5.1 (RF-03: Combos y Promociones, RF-06: Stock Reservado TTL)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#51-módulo-de-inventario-y-abastecimiento-core), [Sección 7.1 (DDL inventory_movements)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-07 / CU-07: Control de Combos, Trazabilidad en Kardex y Stock Reservado`  
   *"Como comerciante, quiero vender promociones o combos (ej. 2 refrescos + 1 botana) que descuenten automáticamente los productos individuales, y que las compras no concretadas liberen el stock en 15 minutos."*
 - **Contexto y Justificación:** Las promociones comerciales son comunes en México. Se debe asegurar la consistencia ACID del stock para no vender artículos inexistentes, registrando cada movimiento en el Kardex histórico (RF-03, RF-06).
@@ -217,6 +246,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.1: Multi-almacén y Movimientos de Stock)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#71-inventario-y-control-de-stock).
+  - 📋 **Documento Maestro:** [Sección 5.1 (RF-05: Reportes de Inventario, RF-07: Multi-almacén)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#51-módulo-de-inventario-y-abastecimiento-core).
 - **Historia de Usuario / Caso de Uso:** `HU-06 / CU-08: Operaciones de Almacén y Etiquetas para Mostrador`  
   *"Como encargado de bodega, quiero realizar ajustes de stock por mermas o conteos físicos, trasladar mercancía a mi mostrador e imprimir etiquetas con código de barras para mis anaqueles."*
 - **Contexto y Justificación:** La cuadrícula 2x2 de acciones de la ficha de producto (*Ajustar stock*, *Imprimir etiqueta*, *Trasladar*, *Ver movimientos*) debe responder de inmediato con modales limpios y comprensibles.
@@ -240,6 +272,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.5: Tier 1 Catálogo Semilla Maestro EAN-13 Oficial)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#75-motor-hibrido-de-catalogo-semilla-y-red-comunitaria-two-tier-engine).
+  - 📋 **Documento Maestro:** [Sección 5.1 (RF-01: Importación con Mapeo Visual Flexible)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#51-módulo-de-inventario-y-abastecimiento-core), [Sección 5.7 (RF-29: Catálogo Semilla Maestro EAN-13)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#57-módulos-de-setup-asistido-y-red-comunitaria-nuevos-requisitos-indispensables).
 - **Historia de Usuario / Caso de Uso:** `HU-09 / CU-09: Carga Masiva sin Plantillas Rígidas y Catálogo Semilla EAN`  
   *"Como comerciante con una lista en Excel de mi proveedor, quiero subir mi archivo directamente sin tener que adaptarlo a una plantilla estricta, y que los códigos de barras de marcas mexicanas se reconozcan al instante."*
 - **Contexto y Justificación:** Los usuarios rechazan las importaciones cuando fallan por nombres de columnas ("Plantilla inválida"). El sistema debe permitir subir cualquier Excel con mapeo dinámico y contar con un catálogo semilla precargado de los Top 1,000 abarrotes de México (RF-01, RF-29 Tier 1).
@@ -261,6 +296,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.2, 5.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. II (Sección 2.5: Escaneo de Góndola)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#25-escaneo-de-codigo-de-barras-y-gondola), [Art. VII (Sección 7.8: Modo Escaneo de Góndola)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#78-escaneo-continuo-y-clonacion-entre-sucursales).
+  - 📋 **Documento Maestro:** [Sección 5.1 (RF-01: Mapeo Visual)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#51-módulo-de-inventario-y-abastecimiento-core), [Sección 5.7 (RF-30: Modo Escaneo Continuo de Góndola)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#57-módulos-de-setup-asistido-y-red-comunitaria-nuevos-requisitos-indispensables).
 - **Historia de Usuario / Caso de Uso:** `HU-10 / CU-10: Escaneo Continuo en Anaqueles y Mapeador Visual`  
   *"Como dueño de tienda, quiero caminar por los pasillos con mi celular escaneando código tras código para cargar mi inventario en minutos, o subir mi Excel con una interfaz que me pregunte qué columna es cada dato."*
 - **Contexto y Justificación:** El setup físico de un negocio de abarrotes se logra caminando frente a los estantes. El "Modo Góndola" permite capturar productos continuamente sin tocar la pantalla entre lecturas (RF-30).
@@ -281,6 +319,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.1, 4.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.2: ACID, 1.2.8: Rapidez)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. VII (Sección 7.3: Inventario Orgánico Just-in-Time)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#73-registro-minimalista-de-3-campos-y-lazy-loading-en-punto-de-venta).
+  - 📋 **Documento Maestro:** [Sección 5.2 (RF-09: Inventario Orgánico Just-in-Time, RF-12: Máquina de Estados de Venta)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#52-módulo-de-ventas-y-comisiones-core), [Sección 7.1 (DDL sales, sale_items)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-11 / CU-11: Cobro Transaccional Atómico y Creación al Vuelo en Venta`  
   *"Como cajero, quiero procesar una venta en mostrador de forma instantánea descontando el stock, y si un cliente me pide un producto que no está registrado, poder cobrarlo al momento pidiendo solo nombre y precio sin perder la venta."*
 - **Contexto y Justificación:** El Punto de Venta es el corazón transaccional del negocio. No se puede detener una fila de clientes por falta de catálogo previo. El sistema debe permitir el "Lazy Loading / Inventario Orgánico" creando el producto silenciosamente en background (RF-09, RF-12).
@@ -302,6 +343,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.8: Rapidez y Eficiencia)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. VII (Sección 7.3: Búsqueda Trigramas)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#73-registro-minimalista-de-3-campos-y-lazy-loading-en-punto-de-venta).
+  - 📋 **Documento Maestro:** [Sección 2.4 (Registro al Vuelo)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#24-registro-de-productos-al-vuelo-sin-ia), [Sección 5.2 (RF-09: POS)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#52-módulo-de-ventas-y-comisiones-core), [Sección 6 (SR-04: Checkout Ininterrumpido)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-11 / CU-12: Terminal de Punto de Venta Móvil Ágil`  
   *"Como cajero, quiero una pantalla de venta intuitiva con escáner siempre activo, buscador de productos rápido, visualización clara del carrito y botón para agregar productos al vuelo."*
 - **Contexto y Justificación:** El cajero opera bajo presión de tiempo con filas de clientes. La interfaz debe ser minimalista, con botones grandes, respuesta táctil instantánea y acceso inmediato al escáner de cámara (SR-04).
@@ -325,6 +369,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 6.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. III (Sección 3.1 & 3.2: Separación Financiera - El Sistema NO es Pasarela en POS)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#articulo-iii-separacion-de-responsabilidades-financieras).
+  - 📋 **Documento Maestro:** [Sección 4 (Separación de Responsabilidades)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#4-separación-de-responsabilidades-financieras), [Sección 5.2 (RF-13: Registro Contable Pagos POS, RF-14: Pagos Mixtos)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#52-módulo-de-ventas-y-comisiones-core).
 - **Historia de Usuario / Caso de Uso:** `HU-13 / CU-13: Registro de Pagos Mixtos y Canales de Cobro en México`  
   *"Como cajero, quiero registrar cuando un cliente me paga una parte en efectivo y otra por transferencia SPEI o tarjeta Clip, para que la cuenta cuadre con exactitud."*
 - **Contexto y Justificación:** En México es frecuente que una compra de $350 MXN se pague con $200 en efectivo y $150 vía transferencia SPEI o tarjeta de débito. El sistema debe soportar cobros fraccionados como registro contable estricto (RF-13, RF-14).
@@ -346,6 +393,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 6.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.2: Calculadora de Vuelto con Billetes Comunes de México)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#72-ventas-caja-y-denominaciones-de-banxico).
+  - 📋 **Documento Maestro:** [Sección 5.2 (RF-14: Pagos Mixtos y Vuelto en MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#52-módulo-de-ventas-y-comisiones-core), [Sección 6 (SR-04: Calculadora con Billetes $50, $100, $200, $500 MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-13 / CU-14: Calculadora Rápida de Cambio con Billetes de México`  
   *"Como cajero, quiero que al cobrar en efectivo aparezcan botones de billetes mexicanos ($50, $100, $200, $500 MXN) para tocar el billete que me dio el cliente y saber el cambio de inmediato sin hacer cuentas mentales."*
 - **Contexto y Justificación:** Los errores de cambio en efectivo generan pérdidas diarias en una tiendita. Los atajos táctiles de billetes nacionales aceleran el cobro a menos de 3 segundos (SR-04).
@@ -369,6 +419,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 7.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VIII (Sección 8.2: Prohibición de CFDI 4.0 / SAT - Solo Notas de Venta)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#82-lo-que-el-sistema-no-debe-hacer-prohibiciones-inquebrantables).
+  - 📋 **Documento Maestro:** [Sección 1.2 (Alcance Fiscal)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#12-mercado-objetivo-y-alcance), [Sección 5.2 (RF-08: Notas de Venta y Comprobantes Internos, RF-10: Cálculo de Comisiones Dinámicas)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#52-módulo-de-ventas-y-comisiones-core).
 - **Historia de Usuario / Caso de Uso:** `HU-14 / CU-15: Emisión de Notas de Venta y Liquidación de Comisiones`  
   *"Como dueño de tienda, quiero emitir notas de venta con folio consecutivo para control administrativo y calcular automáticamente las comisiones que le corresponden a cada uno de mis vendedores."*
 - **Contexto y Justificación:** Aunque el timbrado CFDI 4.0 está diferido a fases posteriores, el comercio minorista requiere comprobantes claros tipo "Nota de Venta" y un sistema que incentive a los empleados calculando sus comisiones por ventas (RF-08, RF-10).
@@ -390,6 +443,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 7.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VIII (Sección 8.2: Notas de Venta Administrativas)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#82-lo-que-el-sistema-no-debe-hacer-prohibiciones-inquebrantables).
+  - 📋 **Documento Maestro:** [Sección 5.2 (RF-08: Ticket 58mm/80mm y PDF)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#52-módulo-de-ventas-y-comisiones-core), [Sección 6 (SR-05: Tablero de Rendimiento de Empleados)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-14 / CU-16: Formato de Ticket Térmico y Tablero de Rendimiento`  
   *"Como cajero, quiero ver el ticket de venta en formato térmico para imprimirlo o enviárselo al cliente por WhatsApp, y poder ver en mi perfil cuánto llevo acumulado de comisiones hoy."*
 - **Contexto y Justificación:** La entrega del comprobante finaliza el ciclo de venta. El ticket debe adaptarse a impresoras térmicas estándar (58mm/80mm) y permitir el envío digital instantáneo (SR-05).
@@ -413,6 +469,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 7.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.2: Arqueo de Caja con Cono Monetario Oficial de Banxico)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#72-ventas-caja-y-denominaciones-de-banxico).
+  - 📋 **Documento Maestro:** [Sección 5.4 (RF-18: Arqueo con Cono Monetario Banxico)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#54-módulo-de-caja-y-tesorería-plan-comercio), [Sección 7.1 (DDL cash_session_denominations)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-15 / CU-17: Apertura y Cierre de Turno con Cono Monetario Oficial`  
   *"Como cajero o supervisor, quiero abrir mi turno registrando mi fondo de caja en pesos y cerrarlo desglosando físicamente cada billete y moneda de México para que el arqueo sea exacto y transparente."*
 - **Contexto y Justificación:** La caja registradora es el punto crítico de control de efectivo. Registrar el desglose exacto de cada denominación oficial del Banco de México (Banxico) elimina los errores de conteo y permite auditorías impecables (RF-18).
@@ -434,6 +493,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 7.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.2: Arqueo con Cono Banxico)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#72-ventas-caja-y-denominaciones-de-banxico).
+  - 📋 **Documento Maestro:** [Sección 5.4 (RF-19: Asistente Visual de Cierre)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#54-módulo-de-caja-y-tesorería-plan-comercio), [Sección 6 (SR-07: Asistente Visual de Cierre de Caja con Iconos Banxico)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-15 / CU-18: Asistente Visual de Arqueo de Caja (Wizard)`  
   *"Como cajero al final del turno, quiero un asistente visual guiado con fotos de los billetes y monedas mexicanas donde solo tenga que teclear cuántas piezas tengo de cada uno y el sistema sume todo automáticamente."*
 - **Contexto y Justificación:** El arqueo de caja al final del día es tedioso y propenso a equivocaciones mentales. Un wizard interactivo con ilustraciones oficiales del cono monetario de Banxico hace que el cierre de turno tome menos de 3 minutos (RF-19, SR-07).
@@ -457,6 +519,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 9.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.2: Consistencia ACID)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. VII (Sección 7.2: Arqueo y Cierre)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#72-ventas-caja-y-denominaciones-de-banxico).
+  - 📋 **Documento Maestro:** [Sección 5.4 (RF-18: Auditoría de Descuadres y Turnos)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#54-módulo-de-caja-y-tesorería-plan-comercio).
 - **Historia de Usuario / Caso de Uso:** `HU-16 / CU-19: Auditoría de Caja, Faltantes/Sobrantes y Movimientos Menores`  
   *"Como dueño de negocio, quiero ver el balance exacto de cada turno para saber si el dinero físico coincide con lo vendido, registrar salidas de caja menor (ej. pagar el hielo o refrescos) y detectar si hubo faltantes o sobrantes."*
 - **Contexto y Justificación:** El control del efectivo exige comparar el saldo teórico esperado versus el dinero real contado. Además, durante el día se realizan retiros para gastos menores que deben quedar formalmente justificados (RF-18).
@@ -478,6 +543,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 9.2, 10.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.2: Arqueo y Reportes Internos)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#72-ventas-caja-y-denominaciones-de-banxico).
+  - 📋 **Documento Maestro:** [Sección 5.4 (RF-18, RF-19: Visualización de Cierre)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#54-módulo-de-caja-y-tesorería-plan-comercio).
 - **Historia de Usuario / Caso de Uso:** `HU-16 / CU-20: Visualización de Corte de Caja e Impresión de Corte Z`  
   *"Como supervisor, quiero ver el resumen del cierre de turno en pantalla con indicadores claros en verde/rojo si cuadró o hubo descuadre, e imprimir el ticket de corte Z para graparlo al sobre de dinero."*
 - **Contexto y Justificación:** La transparencia en los cortes de turno previene conflictos laborales entre cajeros y dueños. El reporte debe mostrar claramente cada peso contado y permitir la impresión física inmediata.
@@ -501,6 +569,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.4: Moneda Base Nativa MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables).
+  - 📋 **Documento Maestro:** [Sección 5.3 (RF-15: Órdenes de Compra, RF-16: Cuentas por Pagar a Proveedores en MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#53-módulo-de-compras-y-proveedores-core), [Sección 7.1 (DDL suppliers, purchase_orders)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-17 / CU-21: Registro de Compras, Abastecimiento y Cuentas por Pagar`  
   *"Como tendero, quiero registrar los pedidos de mercancía que le compro a mis distribuidores (Bimbo, Coca-Cola, Sabritas), que el stock aumente automáticamente al recibir la entrega y llevar la cuenta de lo que les debo a crédito."*
 - **Contexto y Justificación:** El reabastecimiento alimenta el inventario. Manejar compras y cuentas por pagar a proveedores en pesos mexicanos permite saber los costos reales y evitar desabasto en la tienda (RF-15, RF-16).
@@ -522,6 +593,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.2
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.8: Rapidez y Eficiencia)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables).
+  - 📋 **Documento Maestro:** [Sección 5.3 (RF-15: Órdenes de Compra, RF-16: Cuentas por Pagar, RF-17: Carga Manual)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#53-módulo-de-compras-y-proveedores-core).
 - **Historia de Usuario / Caso de Uso:** `HU-17 / CU-22: Gestión Visual de Proveedores y Facturas por Pagar`  
   *"Como dueño, quiero una lista de mis proveedores con sus teléfonos para llamarlos rápido, ver mis facturas pendientes de pago con un semáforo de vencimientos y registrar nuevas compras fácilmente."*
 - **Contexto y Justificación:** El tendero interactúa semanalmente con múltiples repartidores de empresas de consumo masivo. La interfaz debe facilitar el registro de remisiones y el seguimiento de deudas comerciales.
@@ -545,6 +619,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 11.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. IV (Sección 4.2: Prohibición de APIs Cloud de Visión de Pago / Enfoque Bootstrap)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#42-decisiones-de-arquitectura-limitadas-por-presupuesto), [Art. VII (Sección 7.7: OCR On-Device)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#77-ocr-on-device-y-dictado-de-voz-nativo).
+  - 📋 **Documento Maestro:** [Sección 5.7 (RF-28: Extracción OCR On-Device de Facturas)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#57-módulos-de-setup-asistido-y-red-comunitaria-nuevos-requisitos-indispensables).
 - **Historia de Usuario / Caso de Uso:** `HU-18 / CU-23: Procesamiento Estructurado de Facturas de Proveedores`  
   *"Como comerciante, quiero que el texto extraído de la foto de la factura de mi proveedor se convierta automáticamente en una lista de productos con cantidad y costo listos para ingresar a mi inventario."*
 - **Contexto y Justificación:** Las facturas y notas de entrega físicas de repartidores (Bimbo, Coca-Cola, Lala) contienen tablas con patrones de texto repetitivos. Un parser heurístico robusto en el backend estructura estos datos sin requerir LLMs o APIs en la nube de alto costo (RF-28).
@@ -566,7 +643,10 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 11.2, 12.1
-- **Historia de Usuario / Caso de Uso:** `HU-18 / CU-24: Escaneo de Facturas con la Cámara del Celular y Dictado por Voz`  
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. II (Sección 2.1: Google ML Kit Text Recognition)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#21-stack-tecnologico-obligatorio), [Art. VII (Sección 7.7: Dictado de Voz Nativo)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#77-ocr-on-device-y-dictado-de-voz-nativo).
+  - 📋 **Documento Maestro:** [Sección 2.1 (Stack Tecnológico)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#21-stack-tecnologico), [Sección 5.7 (RF-28: Extracción OCR)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#57-módulos-de-setup-asistido-y-red-comunitaria-nuevos-requisitos-indispensables), [Sección 6 (SR-09: Captura por Dictado de Voz Nativo)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
+- **Historia de Usuario / Caso de Uso:** `HU-18, 19 / CU-24: Escaneo de Facturas con Cámara Offline y Dictado de Voz`  
   *"Como comerciante, quiero tomarle una foto a la factura de mi repartidor con la cámara de mi celular para que la app extraiga los datos sin conexión a internet y a costo cero, o dictarle por voz mis productos para no tener que escribir."*
 - **Contexto y Justificación:** Cumpliendo con el principio Bootstrap (Art. IV), el OCR debe ejecutarse 100% en el procesador del smartphone mediante `google_mlkit_text_recognition` sin pagar por peticiones cloud. Asimismo, el dictado por voz nativo acelera la captura manual (RF-28, SR-09).
 - **Objetivo:** Integrar Google ML Kit Text Recognition y el motor nativo de reconocimiento de voz en la aplicación Flutter.
@@ -589,6 +669,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 3.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.4: Catálogo Digital WhatsApp)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#74-catalogo-digital-whatsapp).
+  - 📋 **Documento Maestro:** [Sección 5.6 (RF-23: Catálogo Digital Público, RF-24: Pedidos por WhatsApp, RF-26: SEO y Previews)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#56-módulo-de-catálogo-digital-whatsapp-plan-comercio).
 - **Historia de Usuario / Caso de Uso:** `HU-20 / CU-25: Catálogo Web Público y Pedidos Estructurados por WhatsApp`  
   *"Como cliente de la tiendita, quiero entrar a un enlace web desde mi celular, ver los productos y precios actualizados del negocio, armar mi carrito y mandar el pedido directamente al WhatsApp de la tienda."*
 - **Contexto y Justificación:** La digitalización del pequeño comercio en México ocurre a través de WhatsApp. Un catálogo web público y responsivo sincronizado en tiempo real permite al tendero recibir pedidos estructurados sin pagar comisiones a apps de delivery (RF-23, RF-24, RF-25).
@@ -610,6 +693,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 1.2, 13.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.4: Catálogo Digital WhatsApp)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#74-catalogo-digital-whatsapp).
+  - 📋 **Documento Maestro:** [Sección 5.6 (RF-24: Pedidos por WhatsApp, RF-25: Sincronización Automática en $ MXN, RF-27: Botón de Compartir)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#56-módulo-de-catálogo-digital-whatsapp-plan-comercio).
 - **Historia de Usuario / Caso de Uso:** `HU-20 / CU-26: Vitrina Digital Responsiva y Envío de Pedido a WhatsApp`  
   *"Como comerciante, quiero un botón para compartir el enlace de mi catálogo en mis estados de WhatsApp o Facebook, y que mis clientes tengan una experiencia de compra móvil limpia y rápida."*
 - **Contexto y Justificación:** La página pública debe ser ultra liviana, cargar en menos de 1 segundo en smartphones con datos móviles y tener un botón prominente de "Pedir por WhatsApp" (RF-26, RF-27).
@@ -633,6 +719,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 2.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. III (Sección 3.2 Flujo A: Suscripciones SaaS)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#a-cobro-de-suscripciones-saas-nexus--tenant), [Art. V (Sección 5.2: Matriz de Medios de Pago SaaS Aceptados)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#52-matriz-de-medios-de-pago-saas-aceptados), [Art. VI (Sección 6.1: Estructura de Planes en MXN: $199, $399, $699)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#61-estructura-de-planes-en-pesos-mexicanos-mxn).
+  - 📋 **Documento Maestro:** [Sección 3 (Planes de Suscripción SaaS)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#3-planes-de-suscripción-saas), [Sección 4.1 (Panel de Administración Interno)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#41-panel-de-administración-interno-para-fundadores).
 - **Historia de Usuario / Caso de Uso:** `HU-21 / CU-27: Cobro de Suscripciones SaaS y Conciliación Automática en México`  
   *"Como fundadores (Alan y Eduardo), queremos cobrar las mensualidades de los comercios mediante transferencias SPEI automatizadas con CLABE o pagos en efectivo en tiendas OXXO, y que las cuentas se activen automáticamente al confirmarse el pago."*
 - **Contexto y Justificación:** La viabilidad del negocio SaaS en México depende de ofrecer métodos de pago familiares (SPEI y OXXO Pay) con conciliación automatizada por webhooks y control del ciclo de vida de la suscripción (Constitución Art. V y VI).
@@ -654,6 +743,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 1.2, 14.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. V (Sección 5.3: Panel de Administración Interno para Fundadores)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#53-panel-de-administracion-interno-para-fundadores), [Art. VI (Sección 6.3: Ciclo de Vida y Morosidad)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#63-ciclo-de-vida-y-maquina-de-estados-de-suscripcion).
+  - 📋 **Documento Maestro:** [Sección 3 (Planes de Suscripción)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#3-planes-de-suscripción-saas), [Sección 4.1 (Panel de Administración Interno)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#41-panel-de-administración-interno-para-fundadores).
 - **Historia de Usuario / Caso de Uso:** `HU-22 / CU-28: Panel Administrativo de Fundadores y Checkout de Suscripción`  
   *"Como comerciante, quiero una pantalla clara para pagar mi mensualidad viendo la cuenta CLABE para SPEI o el código de barras para OXXO; y como fundadores, queremos un panel exclusivo para ver nuestros ingresos mensuales (MRR) y comercios activos."*
 - **Contexto y Justificación:** Los fundadores necesitan visibilidad financiera en tiempo real para gestionar el crecimiento del SaaS y los clientes necesitan una experiencia de pago sin trabas.
@@ -677,6 +769,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 5.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. VII (Sección 7.5: Tier 2 Red Comunitaria con Consenso Automático, Sección 7.8: Clonación)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#75-motor-hibrido-de-catalogo-semilla-y-red-comunitaria-two-tier-engine), [Art. VIII (Sección 8.2: Prohibición de Moderación Manual por Fundadores)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#82-lo-que-el-sistema-no-debe-hacer-prohibiciones-inquebrantables).
+  - 📋 **Documento Maestro:** [Sección 2.4 (Two-Tier Engine)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#24-motor-de-catálogo-de-dos-niveles-two-tier-engine), [Sección 5.7 (RF-29: Red Comunitaria, RF-31: Clonación de Catálogo Base)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#57-módulos-de-setup-asistido-y-red-comunitaria-nuevos-requisitos-indispensables), [Sección 7.1 (DDL community_catalog_submissions, community_verified_catalog)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#71-script-ddl-de-migración-a-pesos-mexicanos-y-red-comunitaria-postgresql).
 - **Historia de Usuario / Caso de Uso:** `HU-23 / CU-29: Red Comunitaria con Consenso de 3 Comercios y Clonación`  
   *"Como comerciante, quiero que si otros 3 comercios ya registraron un código de barras nuevo, el sistema me sugiera el nombre verificado automáticamente para no tener que escribirlo; y si abro una segunda tienda, poder clonar mi catálogo en 1 clic."*
 - **Contexto y Justificación:** Para que la base de datos crezca sola sin que Alan y Eduardo tengan que moderar productos manualmente, se implementa el algoritmo de consenso automático: una sugerencia solo se hace pública cuando al menos 3 comercios independientes coinciden en el mismo código y nombre (RF-29 Tier 2, RF-31).
@@ -698,6 +793,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Tarea 6.2, 15.1
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.3: Privacidad y Aislamiento Sagrado)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. VII (Sección 7.5: Red Comunitaria)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#75-motor-hibrido-de-catalogo-semilla-y-red-comunitaria-two-tier-engine).
+  - 📋 **Documento Maestro:** [Sección 5.5 (RF-20: Reportes de Rentabilidad Real, RF-21: Dashboard Analítico en Tiempo Real)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#55-módulo-de-analítica-avanzada-plan-corporativo), [Sección 6 (SR-02: Dashboard en MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#6-sub-requisitos-ux-y-setup-sin-fricción).
 - **Historia de Usuario / Caso de Uso:** `HU-23 / CU-30: Experiencia de Autocompletado Colaborativo y Reportes de Ganancias`  
   *"Como cajero, quiero ver un distintivo cuando un producto sugerido proviene de la comunidad de Nexus para confiar en el nombre, y como dueño, ver gráficas claras de mis ganancias netas del mes."*
 - **Contexto y Justificación:** La interfaz debe comunicar confianza al usuario mostrando el origen de las sugerencias y entregar analítica de negocio clara en pesos mexicanos (SR-02, RF-21).
@@ -721,6 +819,9 @@ gantt
 - **Responsable:** Alan
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Todos los módulos Backend
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.3: RLS)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Art. IV (Sección 4.1 & 4.2: Hosting VPS y Backups en Cloudflare R2)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#articulo-iv-restricciones-presupuestarias-bootstrap).
+  - 📋 **Documento Maestro:** [Sección 8.1 (Presupuesto Mensual Inicial ~$200 MXN)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#81-presupuesto-mensual-inicial), [Sección 8.3 (Script de Backup Manual a R2)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#83-script-de-backup-manual-fase-1), [Sección 9.1 (Autenticación y Cifrado)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#91-autenticación-y-cifrado).
 - **Historia de Usuario / Caso de Uso:** `HU-25 / CU-31: Blindaje de Seguridad, Rendimiento y Despliegue en Servidor`  
   *"Como equipo fundador, queremos asegurar que el backend soporte la carga en producción sin lentitud, tenga copias de seguridad diarias automáticas y que ninguna consulta vulnere el aislamiento multi-tenant."*
 - **Contexto y Justificación:** Antes de lanzar el piloto con comercios reales, es imperativo auditar la seguridad, optimizar consultas pesadas y automatizar los backups en la nube a costo $0 (Constitución Art. IV).
@@ -742,6 +843,9 @@ gantt
 - **Responsable:** Eduardo
 - **Tiempo Total Estimado:** 6 Horas
 - **Dependencias:** Todos los módulos Frontend
+- **Trazabilidad Documental (Anti-Alucinación):**
+  - 📜 **Constitución:** [Art. I (Principio 1.2.5: Mobile-First, Principio 1.2.6: Bootstrap)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#12-principios-fundamentales-inquebrantables), [Anexo B (Checklist para Nuevas Funcionalidades)](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#anexo-b-checklist-para-nuevas-funcionalidades).
+  - 📋 **Documento Maestro:** [Sección 10 (Hoja de Ruta e Implementación Técnica)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#10-hoja-de-ruta-e-implementación-técnica), [Sección 11 (Convenciones de Código)](file:///d:/aland/Documents/Proyectos/Nexus/Documento%20Maestro%20Nexus%20v3-0.md#11-convenciones-de-código).
 - **Historia de Usuario / Caso de Uso:** `HU-25 / CU-32: Validación de Experiencia de Usuario en Campo y Release del MVP`  
   *"Como equipo fundador, queremos probar la aplicación completa en teléfonos Android reales de gama baja en tienditas piloto para asegurar que la cámara escanee rápido, la app no se trabe y el comerciante pueda vender sin problemas."*
 - **Contexto y Justificación:** La prueba de fuego del software ocurre en el mostrador real frente a los clientes. Se debe verificar la fluidez de la app en hardware modesto antes de la entrega final (Constitución Art. I, Principio 5).
@@ -761,15 +865,15 @@ gantt
 
 ## 📊 RESUMEN DE DISTRIBUCIÓN HORARIA Y COBERTURA DE REQUISITOS
 
-| Módulo Funcional | Tareas Alan (Backend) | Tareas Eduardo (Frontend) | Total Horas | Historias de Usuario / Casos de Uso Cubiertos |
-|---|---|---|---|---|
-| **M01: Core, Auth & Onboarding** | 12.0 h | 12.0 h | **24.0 h** | `HU-01`, `HU-02`, `HU-03`, `HU-04` / `CU-01` a `CU-04` |
-| **M02: Inventario & Góndola** | 18.0 h | 18.0 h | **36.0 h** | `HU-05`, `HU-06`, `HU-07`, `HU-08`, `HU-09`, `HU-10` / `CU-05` a `CU-10` |
-| **M03: POS, Checkout & Vuelto** | 18.0 h | 18.0 h | **36.0 h** | `HU-11`, `HU-12`, `HU-13`, `HU-14` / `CU-11` a `CU-16` |
-| **M04: Caja & Cono Banxico** | 12.0 h | 12.0 h | **24.0 h** | `HU-15`, `HU-16` / `CU-17` a `CU-20` |
-| **M05: Compras, Proveedores & OCR** | 12.0 h | 12.0 h | **24.0 h** | `HU-17`, `HU-18`, `HU-19` / `CU-21` a `CU-24` |
-| **M06: Catálogo Web WhatsApp** | 6.0 h | 6.0 h | **12.0 h** | `HU-20` / `CU-25`, `CU-26` |
-| **M07: Suscripciones SaaS** | 6.0 h | 6.0 h | **12.0 h** | `HU-21`, `HU-22` / `CU-27`, `CU-28` |
-| **M08: Red Comunitaria & Consenso** | 6.0 h | 6.0 h | **12.0 h** | `HU-23`, `HU-24` / `CU-29`, `CU-30` |
-| **M09: Hardening, Release & Piloto** | 6.0 h | 6.0 h | **12.0 h** | `HU-25` / `CU-31`, `CU-32` |
-| **TOTAL GENERAL** | **96.0 h** | **96.0 h** | **192.0 h** | **100% Requisitos SDD y Constitución** |
+| Módulo Funcional | Tareas Alan (Backend) | Tareas Eduardo (Frontend) | Total Horas | Historias de Usuario / Casos de Uso Cubiertos | Trazabilidad SDD y Constitución |
+|---|---|---|---|---|---|
+| **M01: Core, Auth & Onboarding** | 12.0 h | 12.0 h | **24.0 h** | `HU-01`, `HU-02`, `HU-03`, `HU-04` / `CU-01` a `CU-04` | Constitución Art. I (1.2.3, 1.2.5, 1.2.9), Art. II (2.1, 2.2), Art. VI (6.3), Art. VII (7.6) \| Doc Maestro Sec. 1.2, 2.1, 2.2, 3, 6 (SR-01), 7.1, 9.2 |
+| **M02: Inventario & Góndola** | 18.0 h | 18.0 h | **36.0 h** | `HU-05`, `HU-06`, `HU-07`, `HU-08`, `HU-09`, `HU-10` / `CU-05` a `CU-10` | Constitución Art. I (1.2.2, 1.2.4), Art. II (2.3, 2.5), Art. VII (7.1, 7.3, 7.5, 7.8) \| Doc Maestro Sec. 5.1 (RF-01 a 07), Sec. 5.7 (RF-29, 30), Sec. 6 (SR-08), Sec. 7.1 |
+| **M03: POS, Checkout & Vuelto** | 18.0 h | 18.0 h | **36.0 h** | `HU-11`, `HU-12`, `HU-13`, `HU-14` / `CU-11` a `CU-16` | Constitución Art. I (1.2.8), Art. III (3.1, 3.2), Art. VII (7.2, 7.3), Art. VIII (8.2) \| Doc Maestro Sec. 2.4, 4, 5.2 (RF-08 a 14), Sec. 6 (SR-04, SR-05), Sec. 7.1 |
+| **M04: Caja & Cono Banxico** | 12.0 h | 12.0 h | **24.0 h** | `HU-15`, `HU-16` / `CU-17` a `CU-20` | Constitución Art. I (1.2.2), Art. VII (7.2 Cono Banxico) \| Doc Maestro Sec. 5.4 (RF-18, RF-19), Sec. 6 (SR-07), Sec. 7.1 (DDL cash_session_denominations) |
+| **M05: Compras, Proveedores & OCR** | 12.0 h | 12.0 h | **24.0 h** | `HU-17`, `HU-18`, `HU-19` / `CU-21` a `CU-24` | Constitución Art. I (1.2.4, 1.2.8), Art. II (2.1 ML Kit), Art. IV (4.2), Art. VII (7.7 OCR On-Device & Voz) \| Doc Maestro Sec. 5.3 (RF-15 a 17), Sec. 5.7 (RF-28), Sec. 6 (SR-09) |
+| **M06: Catálogo Web WhatsApp** | 6.0 h | 6.0 h | **12.0 h** | `HU-20` / `CU-25`, `CU-26` | Constitución Art. VII (7.4 Catálogo WhatsApp) \| Doc Maestro Sec. 5.6 (RF-23 a RF-27) |
+| **M07: Suscripciones SaaS** | 6.0 h | 6.0 h | **12.0 h** | `HU-21`, `HU-22` / `CU-27`, `CU-28` | Constitución Art. III (3.2 Flujo A), Art. V (5.1 a 5.3), Art. VI (6.1 a 6.3) \| Doc Maestro Sec. 3, Sec. 4.1 |
+| **M08: Red Comunitaria & Consenso** | 6.0 h | 6.0 h | **12.0 h** | `HU-23`, `HU-24` / `CU-29`, `CU-30` | Constitución Art. I (1.2.3 Privacidad), Art. VII (7.5 Tier 2, 7.8 Clonación), Art. VIII (8.2 Cero Moderación) \| Doc Maestro Sec. 2.4, Sec. 5.5 (RF-20, 21), Sec. 5.7 (RF-29, 31), Sec. 7.1 |
+| **M09: Hardening, Release & Piloto** | 6.0 h | 6.0 h | **12.0 h** | `HU-25` / `CU-31`, `CU-32` | Constitución Art. I (1.2.3, 1.2.5, 1.2.6), Art. IV (4.1, 4.2), Anexo B (Checklist) \| Doc Maestro Sec. 8.1, 8.3, 9.1, 10, 11 |
+| **TOTAL GENERAL** | **96.0 h** | **96.0 h** | **192.0 h** | **100% Historias de Usuario Cubiertas** | **100% Anclado a la Constitución y SDD** |
