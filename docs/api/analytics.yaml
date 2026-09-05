@@ -1,0 +1,744 @@
+# =============================================================================
+# MÓDULO ANALÍTICA — RENTABILIDAD, DASHBOARD KPIS Y COMISIONES
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # DASHBOARD PRINCIPAL DE KPIS
+  # ---------------------------------------------------------------------------
+  /analytics/dashboard:
+    get:
+      tags: [Analítica & Reportes]
+      summary: Dashboard principal con KPIs del negocio
+      description: |
+        Retorna los indicadores clave de rendimiento (KPIs) para el dashboard principal.
+        Métricas calculadas en tiempo real con datos del período seleccionado.
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [TODAY, YESTERDAY, WEEK, MONTH, QUARTER, YEAR, CUSTOM]
+            default: TODAY
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Fecha inicio para período CUSTOM.
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Fecha fin para período CUSTOM.
+        - name: compare_previous
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Incluir comparación con período anterior.
+      responses:
+        '200':
+          description: KPIs del dashboard principal.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          period_info:
+                            type: object
+                            properties:
+                              period:
+                                type: string
+                              start_date:
+                                type: string
+                                format: date
+                              end_date:
+                                type: string
+                                format: date
+                          sales_metrics:
+                            type: object
+                            properties:
+                              total_revenue_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              total_orders:
+                                type: integer
+                              average_ticket_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              revenue_change_percent:
+                                type: number
+                                format: float
+                                nullable: true
+                                description: Cambio vs período anterior.
+                          profitability:
+                            type: object
+                            properties:
+                              gross_profit_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              gross_margin_percent:
+                                type: number
+                                format: float
+                              net_profit_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                nullable: true
+                              profit_margin_percent:
+                                type: number
+                                format: float
+                                nullable: true
+                          inventory_metrics:
+                            type: object
+                            properties:
+                              total_products:
+                                type: integer
+                              products_with_stock:
+                                type: integer
+                              low_stock_alerts:
+                                type: integer
+                              inventory_value_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              turnover_rate:
+                                type: number
+                                format: float
+                                nullable: true
+                          top_products:
+                            type: array
+                            description: Top 5 productos por ingresos del período.
+                            items:
+                              type: object
+                              properties:
+                                product_name:
+                                  type: string
+                                units_sold:
+                                  type: integer
+                                revenue_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                profit_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # ANÁLISIS DE RENTABILIDAD POR PRODUCTO
+  # ---------------------------------------------------------------------------
+  /analytics/product-profitability:
+    get:
+      tags: [Analítica & Reportes]
+      summary: Análisis de rentabilidad por producto
+      description: |
+        Retorna análisis detallado de rentabilidad por producto, incluyendo 
+        margen bruto, rotación, contribución a ingresos totales.
+        Solo disponible en Plan COMERCIO y CORPORATIVO.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: period_days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+          description: Número de días para el análisis.
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [revenue, profit, margin, units_sold, turnover_rate]
+            default: profit
+        - name: sort_direction
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filtrar por categoría específica.
+        - name: min_sales
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: Mínimo de unidades vendidas para incluir en reporte.
+      responses:
+        '200':
+          description: Análisis de rentabilidad por producto.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          summary:
+                            type: object
+                            properties:
+                              total_products_analyzed:
+                                type: integer
+                              period_days:
+                                type: integer
+                              total_revenue_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              total_profit_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              overall_margin_percent:
+                                type: number
+                                format: float
+                          products:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/ProductProfitability'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          description: Plan actual no incluye análisis de rentabilidad.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # ANÁLISIS DE VENTAS POR PERÍODO
+  # ---------------------------------------------------------------------------
+  /analytics/sales-trends:
+    get:
+      tags: [Analítica & Reportes]
+      summary: Análisis de tendencias de ventas
+      description: |
+        Retorna tendencias de ventas agrupadas por día, semana o mes.
+        Útil para identificar patrones temporales y estacionalidad.
+      parameters:
+        - name: granularity
+          in: query
+          schema:
+            type: string
+            enum: [daily, weekly, monthly]
+            default: daily
+        - name: date_from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: include_forecasting
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Incluir proyección basada en tendencias (solo Plan CORPORATIVO).
+      responses:
+        '200':
+          description: Tendencias de ventas por período.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          period_summary:
+                            type: object
+                            properties:
+                              granularity:
+                                type: string
+                              total_periods:
+                                type: integer
+                              date_from:
+                                type: string
+                                format: date
+                              date_to:
+                                type: string
+                                format: date
+                          trends:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                period:
+                                  type: string
+                                  description: Fecha o rango del período.
+                                  example: "2026-09-15"
+                                revenue_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                orders_count:
+                                  type: integer
+                                average_ticket_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                gross_profit_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                units_sold:
+                                  type: integer
+                          forecast:
+                            type: array
+                            nullable: true
+                            description: Proyección de próximos períodos (si include_forecasting=true).
+                            items:
+                              type: object
+                              properties:
+                                period:
+                                  type: string
+                                projected_revenue_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                confidence_level:
+                                  type: number
+                                  format: float
+                                  description: Nivel de confianza de la proyección (0.0-1.0).
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+  # ---------------------------------------------------------------------------
+  # REPORTE DE COMISIONES
+  # ---------------------------------------------------------------------------
+  /analytics/commissions:
+    get:
+      tags: [Analítica & Reportes]
+      summary: Reporte de comisiones de vendedores
+      description: |
+        Calcula y retorna las comisiones devengadas por vendedores/cajeros 
+        en el período especificado. Solo disponible en Plan CORPORATIVO.
+      parameters:
+        - name: period_month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-09"
+          description: Mes para calcular comisiones (formato YYYY-MM).
+        - name: cashier_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por cajero/vendedor específico.
+        - name: include_details
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Incluir desglose detallado de ventas que generaron comisiones.
+      responses:
+        '200':
+          description: Reporte de comisiones calculadas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          period:
+                            type: string
+                            example: "2026-09"
+                          total_commissions_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          cashiers:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                cashier_id:
+                                  type: string
+                                  format: uuid
+                                cashier_name:
+                                  type: string
+                                total_sales_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                commission_rate_percent:
+                                  type: number
+                                  format: float
+                                  description: Tasa de comisión aplicada.
+                                earned_commission_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                sales_count:
+                                  type: integer
+                                average_ticket_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                commission_details:
+                                  type: array
+                                  nullable: true
+                                  description: Desglose por venta (si include_details=true).
+                                  items:
+                                    type: object
+                                    properties:
+                                      sale_id:
+                                        type: string
+                                        format: uuid
+                                      sale_folio:
+                                        type: string
+                                      sale_date:
+                                        type: string
+                                        format: date-time
+                                      sale_amount_mxn:
+                                        $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                      commission_mxn:
+                                        $ref: '../components.yaml#/components/schemas/AmountMXN'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          description: Plan actual no incluye reporte de comisiones.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # ANÁLISIS ABC DE PRODUCTOS
+  # ---------------------------------------------------------------------------
+  /analytics/abc-analysis:
+    get:
+      tags: [Analítica & Reportes]
+      summary: Análisis ABC de productos por ingresos
+      description: |
+        Clasifica productos en categorías A, B y C según su contribución 
+        a los ingresos totales. Herramienta clave para gestión de inventario.
+        
+        **Clasificación:**
+        - **Clase A:** 20% de productos que generan 80% de ingresos
+        - **Clase B:** 30% de productos que generan 15% de ingresos  
+        - **Clase C:** 50% de productos que generan 5% de ingresos
+        
+        Solo disponible en Plan COMERCIO y CORPORATIVO.
+      parameters:
+        - name: period_days
+          in: query
+          schema:
+            type: integer
+            minimum: 30
+            maximum: 365
+            default: 90
+          description: Período en días para el análisis.
+        - name: classification_metric
+          in: query
+          schema:
+            type: string
+            enum: [revenue, profit, units_sold]
+            default: revenue
+          description: Métrica base para la clasificación ABC.
+      responses:
+        '200':
+          description: Análisis ABC de productos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          analysis_summary:
+                            type: object
+                            properties:
+                              period_days:
+                                type: integer
+                              classification_metric:
+                                type: string
+                              total_products:
+                                type: integer
+                              total_metric_value_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          categories:
+                            type: object
+                            properties:
+                              class_a:
+                                type: object
+                                properties:
+                                  product_count:
+                                    type: integer
+                                  percentage_of_products:
+                                    type: number
+                                    format: float
+                                  metric_contribution_mxn:
+                                    $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  percentage_of_total:
+                                    type: number
+                                    format: float
+                                  products:
+                                    type: array
+                                    items:
+                                      $ref: '../components.yaml#/components/schemas/ABCProduct'
+                              class_b:
+                                type: object
+                                properties:
+                                  product_count:
+                                    type: integer
+                                  percentage_of_products:
+                                    type: number
+                                    format: float
+                                  metric_contribution_mxn:
+                                    $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  percentage_of_total:
+                                    type: number
+                                    format: float
+                                  products:
+                                    type: array
+                                    items:
+                                      $ref: '../components.yaml#/components/schemas/ABCProduct'
+                              class_c:
+                                type: object
+                                properties:
+                                  product_count:
+                                    type: integer
+                                  percentage_of_products:
+                                    type: number
+                                    format: float
+                                  metric_contribution_mxn:
+                                    $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  percentage_of_total:
+                                    type: number
+                                    format: float
+                                  products:
+                                    type: array
+                                    items:
+                                      $ref: '../components.yaml#/components/schemas/ABCProduct'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+  # ---------------------------------------------------------------------------
+  # EXPORTAR REPORTES
+  # ---------------------------------------------------------------------------
+  /analytics/export:
+    post:
+      tags: [Analítica & Reportes]
+      summary: Exportar reporte analítico
+      description: |
+        Genera y exporta reportes analíticos en diferentes formatos.
+        Útil para análisis externos o presentaciones gerenciales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report_type, format]
+              properties:
+                report_type:
+                  type: string
+                  enum: [DASHBOARD, PRODUCT_PROFITABILITY, SALES_TRENDS, COMMISSIONS, ABC_ANALYSIS]
+                format:
+                  type: string
+                  enum: [PDF, EXCEL, CSV]
+                parameters:
+                  type: object
+                  description: Parámetros específicos del tipo de reporte (igual que los endpoints GET).
+                include_charts:
+                  type: boolean
+                  default: true
+                  description: Incluir gráficos en el reporte (solo PDF y Excel).
+                email_to:
+                  type: string
+                  format: email
+                  nullable: true
+                  description: Email para envío automático del reporte.
+      responses:
+        '200':
+          description: Reporte generado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          export_id:
+                            type: string
+                            format: uuid
+                          report_type:
+                            type: string
+                          format:
+                            type: string
+                          file_size_bytes:
+                            type: integer
+                          download_url:
+                            type: string
+                            format: uri
+                            description: URL para descarga (válida por 24 horas).
+                          expires_at:
+                            type: string
+                            format: date-time
+                          email_sent:
+                            type: boolean
+                            description: Indica si se envió por email.
+              example:
+                success: true
+                data:
+                  export_id: "exp_12345678-abcd-efgh-ijkl-mnopqrstuvwx"
+                  report_type: "PRODUCT_PROFITABILITY"
+                  format: "EXCEL"
+                  file_size_bytes: 245760
+                  download_url: "https://api.nexus.dev/exports/exp_12345678-abcd-efgh-ijkl-mnopqrstuvwx/download"
+                  expires_at: "2026-09-16T15:30:00Z"
+                  email_sent: true
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '422':
+          description: Parámetros del reporte inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # ALERTAS Y NOTIFICACIONES ANALÍTICAS
+  # ---------------------------------------------------------------------------
+  /analytics/alerts:
+    get:
+      tags: [Analítica & Reportes]
+      summary: Obtener alertas analíticas activas
+      description: |
+        Retorna alertas automáticas generadas por el sistema analítico.
+        Ejemplos: productos con baja rotación, caída en ventas, alta rentabilidad.
+      parameters:
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [LOW, MEDIUM, HIGH, CRITICAL]
+          description: Filtrar por severidad de alerta.
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [INVENTORY, SALES, PROFITABILITY, CASH_FLOW]
+          description: Filtrar por categoría de alerta.
+        - name: unread_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Mostrar solo alertas no leídas.
+      responses:
+        '200':
+          description: Lista de alertas analíticas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          summary:
+                            type: object
+                            properties:
+                              total_alerts:
+                                type: integer
+                              unread_count:
+                                type: integer
+                              critical_count:
+                                type: integer
+                          alerts:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                  format: uuid
+                                title:
+                                  type: string
+                                  example: "Productos con rotación baja"
+                                message:
+                                  type: string
+                                  example: "15 productos no han tenido ventas en los últimos 30 días"
+                                severity:
+                                  type: string
+                                  enum: [LOW, MEDIUM, HIGH, CRITICAL]
+                                category:
+                                  type: string
+                                  enum: [INVENTORY, SALES, PROFITABILITY, CASH_FLOW]
+                                created_at:
+                                  type: string
+                                  format: date-time
+                                is_read:
+                                  type: boolean
+                                action_url:
+                                  type: string
+                                  format: uri
+                                  nullable: true
+                                  description: URL para acción recomendada.
+                                data:
+                                  type: object
+                                  nullable: true
+                                  description: Datos adicionales contextuales.
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+    post:
+      tags: [Analítica & Reportes]
+      summary: Marcar alerta como leída
+      description: |
+        Marca una o varias alertas como leídas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [alert_ids]
+              properties:
+                alert_ids:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    format: uuid
+                mark_all:
+                  type: boolean
+                  default: false
+                  description: Marcar todas las alertas como leídas (ignora alert_ids).
+      responses:
+        '200':
+          description: Alertas marcadas como leídas exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          marked_count:
+                            type: integer
+                            description: Número de alertas marcadas como leídas.
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'

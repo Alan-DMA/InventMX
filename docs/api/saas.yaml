@@ -1,0 +1,696 @@
+# =============================================================================
+# MÓDULO SAAS BILLING — SUSCRIPCIONES, WEBHOOKS SPEI/OXXO Y CICLO DE VIDA
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # INFORMACIÓN DE LA SUSCRIPCIÓN ACTUAL
+  # ---------------------------------------------------------------------------
+  /subscription:
+    get:
+      tags: [SaaS & Facturación]
+      summary: Obtener información de la suscripción actual
+      description: |
+        Retorna los detalles de la suscripción activa del tenant, 
+        incluyendo plan, estado, fecha de vencimiento y límites de uso.
+      responses:
+        '200':
+          description: Información de la suscripción.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Subscription'
+              example:
+                success: true
+                data:
+                  id: "sub_12345678-abcd-efgh-ijkl-mnopqrstuvwx"
+                  plan: "COMERCIO"
+                  status: "ACTIVE"
+                  current_period_start: "2026-09-01T00:00:00Z"
+                  current_period_end: "2026-10-01T00:00:00Z"
+                  monthly_fee_mxn: 299.00
+                  usage_stats:
+                    products_count: 1250
+                    products_limit: 5000
+                    monthly_sales_mxn: 45650.00
+                    monthly_sales_limit_mxn: 100000.00
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          description: Suscripción no encontrada (cuenta sin plan activo).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: NO_ACTIVE_SUBSCRIPTION
+                  message: "No tienes una suscripción activa. Contacta al equipo de Nexus."
+
+  # ---------------------------------------------------------------------------
+  # CAMBIO DE PLAN DE SUSCRIPCIÓN
+  # ---------------------------------------------------------------------------
+  /subscription/change-plan:
+    post:
+      tags: [SaaS & Facturación]
+      summary: Solicitar cambio de plan de suscripción
+      description: |
+        Solicita un cambio de plan (upgrade o downgrade).
+        
+        **Proceso:**
+        1. Valida si el cambio es permitido según uso actual
+        2. Calcula prorrateado del nuevo plan
+        3. Genera nueva factura si aplica
+        4. Programa el cambio para el siguiente ciclo de facturación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_plan]
+              properties:
+                new_plan:
+                  $ref: '../components.yaml#/components/schemas/SubscriptionPlan'
+                change_immediately:
+                  type: boolean
+                  default: false
+                  description: Aplicar cambio inmediatamente o al final del período actual.
+                reason:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  example: "Necesito más límites de productos"
+      responses:
+        '200':
+          description: Cambio de plan procesado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          subscription:
+                            $ref: '../components.yaml#/components/schemas/Subscription'
+                          plan_change:
+                            type: object
+                            properties:
+                              from_plan:
+                                $ref: '../components.yaml#/components/schemas/SubscriptionPlan'
+                              to_plan:
+                                $ref: '../components.yaml#/components/schemas/SubscriptionPlan'
+                              effective_date:
+                                type: string
+                                format: date-time
+                              prorated_amount_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                nullable: true
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '422':
+          description: Cambio de plan no permitido por límites de uso actual.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              examples:
+                downgrade_blocked:
+                  value:
+                    success: false
+                    error:
+                      code: DOWNGRADE_BLOCKED_BY_USAGE
+                      message: "No puedes cambiar a plan BÁSICO. Tienes 3,500 productos y el límite es 1,000."
+
+  # ---------------------------------------------------------------------------
+  # HISTORIAL DE FACTURAS
+  # ---------------------------------------------------------------------------
+  /billing/invoices:
+    get:
+      tags: [SaaS & Facturación]
+      summary: Listar facturas de suscripción
+      description: |
+        Retorna el historial de facturas mensuales de la suscripción.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/InvoiceStatus'
+        - name: year
+          in: query
+          schema:
+            type: integer
+            minimum: 2025
+          description: Filtrar por año específico.
+        - name: month
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+          description: Filtrar por mes específico (requiere year).
+      responses:
+        '200':
+          description: Lista paginada de facturas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/Invoice'
+                          summary:
+                            type: object
+                            properties:
+                              total_paid_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              pending_amount_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              overdue_count:
+                                type: integer
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # DETALLE DE FACTURA ESPECÍFICA
+  # ---------------------------------------------------------------------------
+  /billing/invoices/{id}:
+    get:
+      tags: [SaaS & Facturación]
+      summary: Obtener detalle de factura específica
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle completo de la factura.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Invoice'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # GENERAR MÉTODO DE PAGO PARA FACTURA
+  # ---------------------------------------------------------------------------
+  /billing/invoices/{id}/payment-methods:
+    post:
+      tags: [SaaS & Facturación]
+      summary: Generar método de pago para factura pendiente
+      description: |
+        Genera las opciones de pago disponibles para una factura pendiente.
+        
+        **Métodos disponibles:**
+        - **SPEI:** Transferencia bancaria con CLABE interbancaria
+        - **OXXO:** Referencia de pago en tiendas OXXO
+        - **Tarjeta:** Pago con tarjeta de débito/crédito (próximamente)
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_method]
+              properties:
+                payment_method:
+                  type: string
+                  enum: [SPEI, OXXO, CARD]
+                  description: Método de pago preferido.
+                customer_email:
+                  type: string
+                  format: email
+                  description: Email para envío de referencia (requerido para OXXO).
+      responses:
+        '200':
+          description: Método de pago generado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/PaymentMethod'
+              examples:
+                spei_method:
+                  value:
+                    success: true
+                    data:
+                      payment_method: "SPEI"
+                      reference_id: "NX202609150001"
+                      amount_mxn: 299.00
+                      clabe: "646180157000000004"
+                      bank_name: "STP"
+                      concept: "Nexus Plan COMERCIO Sep-2026"
+                      expires_at: "2026-09-18T23:59:59Z"
+                oxxo_method:
+                  value:
+                    success: true
+                    data:
+                      payment_method: "OXXO"
+                      reference_id: "NX202609150001"
+                      amount_mxn: 299.00
+                      barcode: "7501234567890123456"
+                      reference_number: "98765432109876543210"
+                      expires_at: "2026-09-30T23:59:59Z"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Factura ya está pagada o método no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # WEBHOOK DE CONFIRMACIÓN DE PAGO SPEI
+  # ---------------------------------------------------------------------------
+  /webhooks/spei/payment-confirmation:
+    post:
+      tags: [SaaS & Webhooks]
+      summary: Webhook de confirmación de pago SPEI
+      description: |
+        **WEBHOOK INTERNO:** Endpoint para recibir notificaciones de pagos SPEI.
+        Procesado automáticamente por el sistema bancario/STP.
+        
+        **Flujo:**
+        1. Cliente realiza transferencia SPEI
+        2. Banco/STP notifica a este endpoint
+        3. Sistema valida y confirma el pago
+        4. Actualiza estado de factura a PAID
+        5. Reactiva suscripción si estaba suspendida
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference_id, amount, payment_date, bank_confirmation]
+              properties:
+                reference_id:
+                  type: string
+                  description: ID de referencia del pago generado.
+                  example: "NX202609150001"
+                amount:
+                  type: number
+                  format: float
+                  description: Monto transferido en MXN.
+                  example: 299.00
+                payment_date:
+                  type: string
+                  format: date-time
+                  description: Fecha y hora del pago confirmado.
+                bank_confirmation:
+                  type: string
+                  description: Número de confirmación bancaria.
+                  example: "RASTxxxxx12345"
+                sender_account:
+                  type: string
+                  nullable: true
+                  description: Cuenta de origen (últimos 4 dígitos).
+                sender_bank:
+                  type: string
+                  nullable: true
+                  description: Banco de origen.
+                webhook_signature:
+                  type: string
+                  description: Firma de seguridad del webhook.
+      responses:
+        '200':
+          description: Pago procesado exitosamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "PAYMENT_CONFIRMED"
+                  invoice_id:
+                    type: string
+                    format: uuid
+                  subscription_status:
+                    type: string
+                    example: "ACTIVE"
+        '400':
+          description: Datos del webhook inválidos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid webhook signature"
+        '404':
+          description: Referencia de pago no encontrada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Payment reference not found"
+        '422':
+          description: Pago ya procesado anteriormente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Payment already processed"
+
+  # ---------------------------------------------------------------------------
+  # WEBHOOK DE CONFIRMACIÓN DE PAGO OXXO
+  # ---------------------------------------------------------------------------
+  /webhooks/oxxo/payment-confirmation:
+    post:
+      tags: [SaaS & Webhooks]
+      summary: Webhook de confirmación de pago OXXO
+      description: |
+        **WEBHOOK INTERNO:** Endpoint para recibir notificaciones de pagos en OXXO.
+        Procesado automáticamente por el proveedor de servicios OXXO.
+        
+        **Flujo:**
+        1. Cliente paga en tienda OXXO
+        2. Proveedor OXXO notifica a este endpoint
+        3. Sistema valida y confirma el pago
+        4. Actualiza estado de factura a PAID
+        5. Reactiva suscripción si estaba suspendida
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference_id, amount, payment_date, store_confirmation]
+              properties:
+                reference_id:
+                  type: string
+                  description: ID de referencia del pago generado.
+                  example: "NX202609150001"
+                amount:
+                  type: number
+                  format: float
+                  description: Monto pagado en MXN.
+                  example: 299.00
+                payment_date:
+                  type: string
+                  format: date-time
+                  description: Fecha y hora del pago.
+                store_confirmation:
+                  type: string
+                  description: Número de confirmación de la tienda.
+                  example: "OX789456123"
+                store_id:
+                  type: string
+                  nullable: true
+                  description: ID de la tienda OXXO donde se realizó el pago.
+                barcode:
+                  type: string
+                  description: Código de barras utilizado.
+                webhook_signature:
+                  type: string
+                  description: Firma de seguridad del webhook.
+      responses:
+        '200':
+          description: Pago procesado exitosamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "PAYMENT_CONFIRMED"
+                  invoice_id:
+                    type: string
+                    format: uuid
+                  subscription_status:
+                    type: string
+                    example: "ACTIVE"
+        '400':
+          description: Datos del webhook inválidos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid webhook signature"
+        '404':
+          description: Referencia de pago no encontrada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Payment reference not found"
+
+  # ---------------------------------------------------------------------------
+  # GESTIÓN DE CICLO DE VIDA DE SUSCRIPCIÓN
+  # ---------------------------------------------------------------------------
+  /subscription/suspend:
+    post:
+      tags: [SaaS & Facturación]
+      summary: Suspender suscripción por falta de pago
+      description: |
+        **ENDPOINT INTERNO:** Suspende automáticamente suscripciones con facturas vencidas.
+        Ejecutado por proceso automatizado (cron job).
+        
+        **Efectos de la suspensión:**
+        - Bloquea acceso a funcionalidades premium
+        - Mantiene datos intactos (solo lectura)
+        - Permite pagos para reactivación
+        - Envía notificaciones al tenant
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, reason]
+              properties:
+                tenant_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+                  enum: [PAYMENT_OVERDUE, PLAN_DOWNGRADE, ADMIN_ACTION]
+                overdue_days:
+                  type: integer
+                  minimum: 1
+                  description: Días de atraso en el pago.
+                grace_period_ends:
+                  type: string
+                  format: date-time
+                  description: Fecha límite antes de restricciones mayores.
+      responses:
+        '200':
+          description: Suscripción suspendida exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          subscription:
+                            $ref: '../components.yaml#/components/schemas/Subscription'
+                          suspended_features:
+                            type: array
+                            items:
+                              type: string
+                            example: ["PUBLIC_CATALOG", "CASH_SESSIONS", "ADVANCED_REPORTS"]
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  /subscription/reactivate:
+    post:
+      tags: [SaaS & Facturación]
+      summary: Reactivar suscripción tras pago confirmado
+      description: |
+        **ENDPOINT INTERNO:** Reactiva suscripción tras confirmación de pago.
+        Llamado automáticamente por webhooks de pago SPEI/OXXO.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, invoice_id]
+              properties:
+                tenant_id:
+                  type: string
+                  format: uuid
+                invoice_id:
+                  type: string
+                  format: uuid
+                payment_confirmation:
+                  type: string
+                  description: Número de confirmación del pago.
+      responses:
+        '200':
+          description: Suscripción reactivada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          subscription:
+                            $ref: '../components.yaml#/components/schemas/Subscription'
+                          reactivated_features:
+                            type: array
+                            items:
+                              type: string
+                          next_billing_date:
+                            type: string
+                            format: date-time
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # LÍMITES Y USO DE SUSCRIPCIÓN
+  # ---------------------------------------------------------------------------
+  /subscription/usage:
+    get:
+      tags: [SaaS & Facturación]
+      summary: Obtener estadísticas de uso de la suscripción
+      description: |
+        Retorna el uso actual vs. límites del plan para todas las métricas medibles.
+        Usado para mostrar alertas de proximidad a límites.
+      responses:
+        '200':
+          description: Estadísticas de uso detalladas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          current_period:
+                            type: object
+                            properties:
+                              start_date:
+                                type: string
+                                format: date
+                              end_date:
+                                type: string
+                                format: date
+                          metrics:
+                            type: object
+                            properties:
+                              products:
+                                type: object
+                                properties:
+                                  current:
+                                    type: integer
+                                  limit:
+                                    type: integer
+                                  percentage_used:
+                                    type: number
+                                    format: float
+                              monthly_sales_mxn:
+                                type: object
+                                properties:
+                                  current:
+                                    $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  limit:
+                                    $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  percentage_used:
+                                    type: number
+                                    format: float
+                              api_calls:
+                                type: object
+                                properties:
+                                  current:
+                                    type: integer
+                                  limit:
+                                    type: integer
+                                  percentage_used:
+                                    type: number
+                                    format: float
+                          warnings:
+                            type: array
+                            description: Alertas por proximidad a límites (>80% de uso).
+                            items:
+                              type: object
+                              properties:
+                                metric:
+                                  type: string
+                                message:
+                                  type: string
+                                severity:
+                                  type: string
+                                  enum: [WARNING, CRITICAL]
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'

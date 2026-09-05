@@ -1,0 +1,527 @@
+# =============================================================================
+# MÓDULO CAJA Y TESORERÍA — SESIONES, DENOMINACIONES BANXICO Y ARQUEOS
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # LISTADO DE SESIONES DE CAJA
+  # ---------------------------------------------------------------------------
+  /cash/sessions:
+    get:
+      tags: [Caja & Tesorería]
+      summary: Listar sesiones de caja del comercio
+      description: |
+        Retorna las sesiones de caja (turnos) con filtros opcionales.
+        Solo disponible en Plan COMERCIO y CORPORATIVO.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - $ref: '../components.yaml#/components/parameters/DateFromParam'
+        - $ref: '../components.yaml#/components/parameters/DateToParam'
+        - name: cashier_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por cajero específico.
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/CashSessionStatus'
+        - name: warehouse_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lista paginada de sesiones de caja.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/CashSession'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+
+  # ---------------------------------------------------------------------------
+  # APERTURA DE SESIÓN DE CAJA
+  # ---------------------------------------------------------------------------
+  /cash/open-session:
+    post:
+      tags: [Caja & Tesorería]
+      summary: Abrir nueva sesión de caja (inicio de turno)
+      description: |
+        Inicia una nueva sesión de caja con el fondo inicial en efectivo.
+        Solo disponible en Plan COMERCIO y CORPORATIVO.
+        
+        **Reglas:**
+        - Solo puede haber 1 sesión activa por caja/almacén.
+        - El cajero debe cerrar su sesión anterior antes de abrir una nueva.
+        - El fondo inicial debe registrarse con las denominaciones exactas de Banxico.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [opening_amount_mxn, opening_denominations]
+              properties:
+                opening_amount_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  description: Total del fondo inicial calculado.
+                  example: 500.00
+                opening_denominations:
+                  $ref: '../components.yaml#/components/schemas/BanxicoDenominations'
+                  description: Desglose físico del fondo inicial por denominación.
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Almacén/caja asociada. Por defecto usa el principal.
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  example: "Apertura de turno matutino"
+            example:
+              opening_amount_mxn: 500.00
+              opening_denominations:
+                bills_500: 1
+                bills_100: 0
+                bills_50: 0
+                bills_20: 0
+                coins_20: 0
+                coins_10: 0
+                coins_5: 0
+                coins_2: 0
+                coins_1: 0
+                coins_050: 0
+              warehouse_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+      responses:
+        '201':
+          description: Sesión de caja abierta exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/CashSession'
+              example:
+                success: true
+                data:
+                  id: "11111111-2222-3333-4444-555555555555"
+                  cashier_name: "María López"
+                  status: "OPEN"
+                  opening_amount_mxn: 500.00
+                  expected_cash_mxn: 500.00
+                  opened_at: "2026-09-15T08:00:00Z"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '403':
+          description: Plan actual no incluye módulo de caja.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CASH_MODULE_NOT_AVAILABLE
+                  message: "El módulo de Caja solo está disponible en planes COMERCIO y CORPORATIVO."
+        '422':
+          description: Ya existe una sesión activa para este cajero/caja.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: ACTIVE_SESSION_EXISTS
+                  message: "Ya tienes una sesión de caja activa. Ciérrala antes de abrir una nueva."
+
+  # ---------------------------------------------------------------------------
+  # CIERRE DE SESIÓN DE CAJA
+  # ---------------------------------------------------------------------------
+  /cash/close-session:
+    post:
+      tags: [Caja & Tesorería]
+      summary: Cerrar sesión de caja (fin de turno con arqueo Banxico)
+      description: |
+        Cierra la sesión activa del cajero registrando el conteo físico 
+        de efectivo con las denominaciones oficiales de Banxico.
+        
+        **Proceso de arqueo:**
+        1. El cajero cuenta físicamente billetes y monedas.
+        2. Registra la cantidad exacta de cada denominación.
+        3. El sistema calcula el total físico y lo compara con el teórico.
+        4. Se determina si hay cuadre exacto, faltante o sobrante.
+        
+        **Cono monetario Banxico:**
+        - Billetes: $20, $50, $100, $200, $500, $1000 MXN
+        - Monedas: $0.50, $1, $2, $5, $10, $20 MXN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [physical_denominations]
+              properties:
+                physical_denominations:
+                  $ref: '../components.yaml#/components/schemas/BanxicoDenominations'
+                  description: Conteo físico exacto de billetes y monedas.
+                digital_payments_summary:
+                  type: object
+                  description: Resumen de cobros digitales del turno (informativo).
+                  properties:
+                    spei_total_mxn:
+                      $ref: '../components.yaml#/components/schemas/AmountMXN'
+                    card_tpv_total_mxn:
+                      $ref: '../components.yaml#/components/schemas/AmountMXN'
+                    codi_total_mxn:
+                      $ref: '../components.yaml#/components/schemas/AmountMXN'
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+            example:
+              physical_denominations:
+                bills_1000: 1
+                bills_500: 3
+                bills_200: 4
+                bills_100: 8
+                bills_50: 10
+                bills_20: 15
+                coins_20: 2
+                coins_10: 10
+                coins_5: 20
+                coins_2: 25
+                coins_1: 30
+                coins_050: 20
+              digital_payments_summary:
+                spei_total_mxn: 850.00
+                card_tpv_total_mxn: 1200.00
+                codi_total_mxn: 0.00
+      responses:
+        '200':
+          description: Sesión de caja cerrada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          session:
+                            $ref: '../components.yaml#/components/schemas/CashSession'
+                          balance_summary:
+                            type: object
+                            properties:
+                              expected_cash_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              physical_cash_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              difference_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              balance_result:
+                                $ref: '../components.yaml#/components/schemas/CashBalanceResult'
+                              sales_count:
+                                type: integer
+                                description: Número de ventas en efectivo del turno.
+              example:
+                success: true
+                data:
+                  session:
+                    id: "11111111-2222-3333-4444-555555555555"
+                    status: "CLOSED"
+                    physical_cash_mxn: 4510.00
+                    closed_at: "2026-09-15T20:00:00Z"
+                  balance_summary:
+                    expected_cash_mxn: 4500.00
+                    physical_cash_mxn: 4510.00
+                    difference_mxn: 10.00
+                    balance_result: "OVER"
+                    sales_count: 47
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          description: No hay sesión activa para cerrar.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: NO_ACTIVE_SESSION
+                  message: "No tienes una sesión de caja activa para cerrar."
+
+  # ---------------------------------------------------------------------------
+  # DETALLE DE SESIÓN ESPECÍFICA
+  # ---------------------------------------------------------------------------
+  /cash/sessions/{id}:
+    get:
+      tags: [Caja & Tesorería]
+      summary: Obtener detalle de sesión de caja específica
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle completo de la sesión.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/CashSession'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # MOVIMIENTOS DE CAJA MENOR
+  # ---------------------------------------------------------------------------
+  /cash/sessions/{id}/movements:
+    get:
+      tags: [Caja & Tesorería]
+      summary: Listar movimientos de caja menor de una sesión
+      description: |
+        Retorna retiros y depósitos extraordinarios realizados durante el turno.
+        Ejemplos: pago a proveedores, compra de cambio, gastos menores.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Lista de movimientos de caja menor.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/CashMovement'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    post:
+      tags: [Caja & Tesorería]
+      summary: Registrar movimiento de caja menor
+      description: |
+        Registra un retiro (WITHDRAWAL) o depósito (DEPOSIT) extraordinario 
+        durante el turno que afecta el saldo esperado de efectivo.
+        
+        **Casos comunes:**
+        - WITHDRAWAL: Pago a proveedor, gastos operativos, compra de insumos.
+        - DEPOSIT: Entrada de cambio, abono de cliente, fondeo adicional.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, amount_mxn, description]
+              properties:
+                type:
+                  type: string
+                  enum: [WITHDRAWAL, DEPOSIT]
+                amount_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                description:
+                  type: string
+                  maxLength: 200
+                  example: "Pago de hielo al proveedor"
+                authorized_by_user_id:
+                  type: string
+                  format: uuid
+                  description: Usuario que autorizó el movimiento (opcional, por defecto el cajero actual).
+            example:
+              type: "WITHDRAWAL"
+              amount_mxn: 50.00
+              description: "Compra de bolsas para empaque"
+      responses:
+        '201':
+          description: Movimiento registrado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/CashMovement'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Movimiento excede el efectivo disponible en caja.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INSUFFICIENT_CASH_FOR_WITHDRAWAL
+                  message: "Retiro de $300.00 MXN excede el efectivo disponible en caja ($150.00 MXN)."
+
+  # ---------------------------------------------------------------------------
+  # REPORTE DE CORTE Z
+  # ---------------------------------------------------------------------------
+  /cash/sessions/{id}/report:
+    get:
+      tags: [Caja & Tesorería]
+      summary: Generar reporte de corte Z de sesión de caja
+      description: |
+        Genera el reporte consolidado del turno (Corte Z) con:
+        
+        **Contenido del reporte:**
+        - Resumen de ventas por método de pago
+        - Desglose de denominaciones físicas contadas
+        - Movimientos de caja menor realizados
+        - Balance final: cuadre, faltante o sobrante
+        - Métricas del turno: número de ventas, ticket promedio
+        
+        **Formatos disponibles:**
+        - JSON: Datos estructurados
+        - PDF: Reporte imprimible para archivo
+        - THERMAL: Formato optimizado para impresora térmica
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, pdf, thermal]
+            default: json
+        - name: include_denominations
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Incluir desglose detallado de denominaciones.
+      responses:
+        '200':
+          description: Reporte de corte Z generado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          session_id:
+                            type: string
+                            format: uuid
+                          cashier_name:
+                            type: string
+                          opened_at:
+                            type: string
+                            format: date-time
+                          closed_at:
+                            type: string
+                            format: date-time
+                          duration_hours:
+                            type: number
+                            format: float
+                          sales_summary:
+                            type: object
+                            properties:
+                              total_sales_count:
+                                type: integer
+                              cash_sales_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              digital_sales_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              average_ticket_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          cash_balance:
+                            type: object
+                            properties:
+                              opening_amount_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              expected_closing_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              physical_closing_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              difference_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              balance_result:
+                                $ref: '../components.yaml#/components/schemas/CashBalanceResult'
+                          denominations_breakdown:
+                            $ref: '../components.yaml#/components/schemas/BanxicoDenominations'
+                          movements_summary:
+                            type: object
+                            properties:
+                              total_withdrawals_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              total_deposits_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              movements_count:
+                                type: integer
+                          pdf_url:
+                            type: string
+                            format: uri
+                            nullable: true
+                            description: URL del reporte PDF (si format=pdf o thermal).
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+                description: Archivo PDF del corte Z (si format=pdf o thermal).
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'

@@ -1,0 +1,530 @@
+# =============================================================================
+# MÓDULO SALES & POS — CHECKOUT TRANSACCIONAL, LAZY LOADING Y GESTIÓN DE VENTAS
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # LISTADO DE VENTAS
+  # ---------------------------------------------------------------------------
+  /sales:
+    get:
+      tags: [Ventas & POS]
+      summary: Listar ventas del comercio
+      description: |
+        Retorna las ventas realizadas con filtros opcionales por fecha, estado y cajero.
+        Incluye información de pagos y totales en MXN.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - $ref: '../components.yaml#/components/parameters/DateFromParam'
+        - $ref: '../components.yaml#/components/parameters/DateToParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/SaleStatus'
+          description: Filtrar por estado específico de venta.
+        - name: cashier_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por cajero específico.
+        - name: warehouse_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por almacén específico.
+        - name: payment_method
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/PaymentMethodType'
+          description: Filtrar por método de pago.
+      responses:
+        '200':
+          description: Lista paginada de ventas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/Sale'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # CHECKOUT TRANSACCIONAL (CORAZÓN DEL SISTEMA POS)
+  # ---------------------------------------------------------------------------
+  /sales/checkout:
+    post:
+      tags: [Ventas & POS]
+      summary: Procesar venta en punto de venta (POS)
+      description: |
+        **Endpoint transaccional ACID principal del sistema.**
+
+        ## Flujo de procesamiento:
+        1. **Validación de stock:** Verifica disponibilidad para cada ítem.
+        2. **Reserva temporal:** Aparta stock por 15 minutos (TTL automático).
+        3. **Congelamiento de costos:** Registra `unit_cost_mxn` histórico exacto.
+        4. **Lazy Loading Just-in-Time:** Si `is_on_the_fly: true`, crea el producto silenciosamente.
+        5. **Descuento de inventario:** Actualiza stock y registra en Kardex.
+        6. **Validación de pagos:** Suma de `amount_mxn` debe ser ≥ `total_mxn`.
+        7. **Finalización:** Estado `PAID` → `COMPLETED` automáticamente.
+
+        ## Principio constitucional:
+        **El sistema NO valida fondos bancarios automáticamente.** La confirmación 
+        de cobro (efectivo/transferencia/TPV) es manual por parte del cajero.
+        Nexus actúa como registro contable, no como pasarela de pagos.
+
+        ## Inventario Orgánico (Lazy Loading):
+        Si un cliente pide un producto no registrado, el cajero puede venderlo 
+        al momento completando solo `on_the_fly_name` y `unit_price_mxn`. 
+        El sistema crea el producto en background para ventas futuras.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items, payments]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  description: Lista de productos a vender.
+                  items:
+                    $ref: '../components.yaml#/components/schemas/SaleItem'
+                payments:
+                  type: array
+                  minItems: 1
+                  description: Métodos de pago utilizados.
+                  items:
+                    $ref: '../components.yaml#/components/schemas/SalePayment'
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Almacén desde donde se vende. Por defecto usa el principal.
+                cash_session_id:
+                  type: string
+                  format: uuid
+                  description: Requerido si hay pago CASH_MXN.
+                customer_name:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                  description: Nombre del cliente (opcional).
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  description: Notas adicionales de la venta.
+            example:
+              items:
+                - product_id: "d1234567-89ab-cdef-0123-456789abcdef"
+                  quantity: 2
+                  unit_price_mxn: 18.00
+                  is_on_the_fly: false
+                - product_id: null
+                  quantity: 1
+                  unit_price_mxn: 25.00
+                  is_on_the_fly: true
+                  on_the_fly_name: "Frituras caseras"
+              payments:
+                - method: "CASH_MXN"
+                  amount_mxn: 100.00
+              warehouse_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+              cash_session_id: "11111111-2222-3333-4444-555555555555"
+      responses:
+        '201':
+          description: Venta procesada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          sale_id:
+                            type: string
+                            format: uuid
+                          folio:
+                            type: string
+                            example: "NV-2026-001547"
+                          status:
+                            $ref: '../components.yaml#/components/schemas/SaleStatus'
+                          total_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          total_paid_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          change_given_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          created_products:
+                            type: array
+                            description: Productos creados automáticamente (lazy loading).
+                            items:
+                              type: object
+                              properties:
+                                product_id:
+                                  type: string
+                                  format: uuid
+                                name:
+                                  type: string
+                                sku:
+                                  type: string
+              example:
+                success: true
+                data:
+                  sale_id: "ff000001-0000-0000-0000-000000000001"
+                  folio: "NV-2026-001547"
+                  status: "COMPLETED"
+                  total_mxn: 61.00
+                  total_paid_mxn: 100.00
+                  change_given_mxn: 39.00
+                  created_products:
+                    - product_id: "ff000002-0000-0000-0000-000000000002"
+                      name: "Frituras caseras"
+                      sku: "NEX-F1G2H"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '422':
+          description: |
+            Violación de reglas de negocio: stock insuficiente, suma de pagos incorrecta, 
+            sesión de caja cerrada, etc.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              examples:
+                stock_insuficiente:
+                  value:
+                    success: false
+                    error:
+                      code: INSUFFICIENT_STOCK
+                      message: "Stock insuficiente para 'Coca-Cola 600ml'. Disponible: 1, solicitado: 2."
+                pago_insuficiente:
+                  value:
+                    success: false
+                    error:
+                      code: PAYMENT_AMOUNT_MISMATCH
+                      message: "La suma de pagos ($50.00 MXN) es menor al total de la venta ($61.00 MXN)."
+                sesion_cerrada:
+                  value:
+                    success: false
+                    error:
+                      code: CASH_SESSION_REQUIRED
+                      message: "Se requiere una sesión de caja activa para pagos en efectivo."
+
+  # ---------------------------------------------------------------------------
+  # DETALLE DE VENTA ESPECÍFICA
+  # ---------------------------------------------------------------------------
+  /sales/{id}:
+    get:
+      tags: [Ventas & POS]
+      summary: Obtener detalle completo de una venta
+      description: |
+        Retorna toda la información de una venta: ítems, pagos, totales, 
+        datos del cajero y estado actual.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle completo de la venta.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Sale'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # CANCELACIÓN DE VENTAS
+  # ---------------------------------------------------------------------------
+  /sales/{id}/cancel:
+    post:
+      tags: [Ventas & POS]
+      summary: Cancelar venta en estado DRAFT o PENDING_PAYMENT
+      description: |
+        Cancela una venta que aún no se ha completado y libera el stock reservado.
+        
+        **Estados permitidos para cancelación:**
+        - DRAFT: Venta en construcción.
+        - PENDING_PAYMENT: Venta esperando pago.
+        
+        **Estados NO permitidos:**
+        - PAID, COMPLETED: Usar `/refund` en lugar de `/cancel`.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+                  example: "El cliente cambió de opinión"
+      responses:
+        '200':
+          description: Venta cancelada exitosamente y stock liberado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          sale_id:
+                            type: string
+                            format: uuid
+                          status:
+                            type: string
+                            example: "CANCELLED"
+                          cancelled_at:
+                            type: string
+                            format: date-time
+                          stock_released:
+                            type: array
+                            description: Stock liberado por producto.
+                            items:
+                              type: object
+                              properties:
+                                product_id:
+                                  type: string
+                                  format: uuid
+                                quantity_released:
+                                  type: integer
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: La venta no puede cancelarse en su estado actual.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CANNOT_CANCEL_COMPLETED_SALE
+                  message: "No se puede cancelar una venta en estado COMPLETED. Usa reembolso."
+
+  # ---------------------------------------------------------------------------
+  # REEMBOLSO DE VENTAS
+  # ---------------------------------------------------------------------------
+  /sales/{id}/refund:
+    post:
+      tags: [Ventas & POS]
+      summary: Procesar reembolso de venta completada
+      description: |
+        Reembolsa una venta ya completada, devolviendo el stock al inventario.
+        
+        **Reembolso parcial:** Se puede reembolsar solo algunos ítems.
+        **Reembolso total:** Se reembolsan todos los ítems de la venta.
+        
+        **Registros:** Se crean movimientos de CUSTOMER_RETURN en el Kardex.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+                  example: "Producto defectuoso"
+                items_to_refund:
+                  type: array
+                  description: Si se omite, se reembolsa toda la venta.
+                  items:
+                    type: object
+                    required: [sale_item_id, quantity]
+                    properties:
+                      sale_item_id:
+                        type: string
+                        format: uuid
+                        description: ID del ítem específico en la venta.
+                      quantity:
+                        type: integer
+                        minimum: 1
+                        description: Cantidad a reembolsar del ítem.
+                refund_to_stock:
+                  type: boolean
+                  default: true
+                  description: Si true, devuelve stock al inventario. Si false, no afecta inventario.
+      responses:
+        '200':
+          description: Reembolso procesado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          original_sale_id:
+                            type: string
+                            format: uuid
+                          refund_amount_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          status:
+                            type: string
+                            example: "REFUNDED"
+                          refunded_at:
+                            type: string
+                            format: date-time
+                          stock_returned:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                product_id:
+                                  type: string
+                                  format: uuid
+                                quantity_returned:
+                                  type: integer
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: La venta no puede reembolsarse.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # NOTAS DE VENTA Y RECIBOS
+  # ---------------------------------------------------------------------------
+  /sales/{id}/receipt:
+    get:
+      tags: [Ventas & POS]
+      summary: Generar nota de venta / recibo
+      description: |
+        Genera la nota de venta en formato JSON estructurado o PDF imprimible.
+        
+        **Formatos disponibles:**
+        - JSON: Datos estructurados para mostrar en pantalla.
+        - PDF: Archivo listo para imprimir o enviar por WhatsApp.
+        - THERMAL: Formato optimizado para impresoras térmicas 58mm/80mm.
+        
+        **Contenido:** Folio, fecha, datos del comercio, detalle de ítems, 
+        totales en MXN y desglose de métodos de pago.
+        
+        **Cumplimiento fiscal:** Nota de venta administrativa (NO timbrado CFDI 4.0).
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, pdf, thermal]
+            default: json
+          description: Formato de salida del recibo.
+        - name: include_logo
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Incluir logo del comercio en PDF/thermal.
+      responses:
+        '200':
+          description: Nota de venta generada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          folio:
+                            type: string
+                          tenant_name:
+                            type: string
+                          tenant_address:
+                            type: string
+                          sale_date:
+                            type: string
+                            format: date-time
+                          cashier_name:
+                            type: string
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                quantity:
+                                  type: integer
+                                unit_price_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                subtotal_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          payments:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                method:
+                                  type: string
+                                amount_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          total_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                          pdf_url:
+                            type: string
+                            format: uri
+                            nullable: true
+                            description: URL del PDF generado (solo si format=pdf o thermal).
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+                description: PDF del recibo (solo si format=pdf o thermal).
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'

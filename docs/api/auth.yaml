@@ -1,0 +1,548 @@
+# =============================================================================
+# MÓDULO AUTH & TENANCY — ENDPOINTS DE AUTENTICACIÓN Y GESTIÓN DE USUARIOS
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # REGISTRO DE NUEVO COMERCIO (TENANT)
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    post:
+      tags: [Auth & Tenancy]
+      summary: Registrar nuevo comercio (tenant) y cuenta de dueño
+      description: |
+        Crea el tenant, el primer almacén por defecto y el usuario OWNER.
+        No requiere autenticación previa.
+        Inicia el periodo de prueba (TRIAL) automáticamente por 15 días.
+        
+        **Reglas de negocio:**
+        - El slug se autogenera desde tenant_name si no se proporciona.
+        - Se crea automáticamente un almacén "Almacén Principal" por defecto.
+        - El usuario creado tiene rol OWNER y permisos totales.
+        - El tenant inicia en estado TRIAL.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_name, owner_email, owner_password, owner_full_name]
+              properties:
+                tenant_name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                  example: "Abarrotes Don Pepe"
+                tenant_slug:
+                  type: string
+                  nullable: true
+                  description: Si no se envía, se autogenera desde tenant_name.
+                  example: "abarrotes-don-pepe"
+                owner_full_name:
+                  type: string
+                  example: "José Ramírez"
+                owner_email:
+                  type: string
+                  format: email
+                  example: "pepe@donpepe.mx"
+                owner_password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  example: "MiContraseña2026!"
+                phone:
+                  type: string
+                  nullable: true
+                  example: "+52 55 1234 5678"
+                address:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Comercio registrado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          tenant:
+                            $ref: '../components.yaml#/components/schemas/Tenant'
+                          user:
+                            $ref: '../components.yaml#/components/schemas/User'
+                          tokens:
+                            $ref: '../components.yaml#/components/schemas/AuthTokenPair'
+              example:
+                success: true
+                data:
+                  tenant:
+                    id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    name: "Abarrotes Don Pepe"
+                    slug: "abarrotes-don-pepe"
+                    plan: "EMPRENDEDOR"
+                    status: "TRIAL"
+                    trial_ends_at: "2026-10-01T00:00:00Z"
+                  user:
+                    id: "1a2b3c4d-0000-0000-0000-000000000001"
+                    email: "pepe@donpepe.mx"
+                    full_name: "José Ramírez"
+                    role: "OWNER"
+                  tokens:
+                    access_token: "eyJhbGciOiJIUzI1NiJ9..."
+                    refresh_token: "eyJhbGciOiJIUzI1NiJ9..."
+                    token_type: "bearer"
+                    expires_in: 900
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '409':
+          description: El email o slug ya están registrados.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: EMAIL_ALREADY_EXISTS
+                  message: "Ya existe una cuenta con ese email."
+        '500':
+          $ref: '../components.yaml#/components/responses/InternalServerError'
+
+  # ---------------------------------------------------------------------------
+  # INICIAR SESIÓN
+  # ---------------------------------------------------------------------------
+  /auth/login:
+    post:
+      tags: [Auth & Tenancy]
+      summary: Iniciar sesión
+      description: |
+        Autentica al usuario y retorna el par de tokens JWT.
+        
+        **Tokens devueltos:**
+        - Access Token: 15 minutos de duración para autenticar requests.
+        - Refresh Token: 7 días de duración para renovar el access token.
+        
+        **Manejo de estados del tenant:**
+        - ACTIVE/TRIAL: Login exitoso.
+        - SOFT_LOCK: Login exitoso pero con restricciones en escritura.
+        - HARD_LOCK: Login bloqueado, retorna error 423.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "pepe@donpepe.mx"
+                password:
+                  type: string
+                  format: password
+                  example: "MiContraseña2026!"
+      responses:
+        '200':
+          description: Login exitoso.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '../components.yaml#/components/schemas/User'
+                          tenant:
+                            $ref: '../components.yaml#/components/schemas/Tenant'
+                          tokens:
+                            $ref: '../components.yaml#/components/schemas/AuthTokenPair'
+              example:
+                success: true
+                data:
+                  user:
+                    id: "1a2b3c4d-0000-0000-0000-000000000001"
+                    email: "pepe@donpepe.mx"
+                    full_name: "José Ramírez"
+                    role: "OWNER"
+                    tenant_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  tenant:
+                    id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    name: "Abarrotes Don Pepe"
+                    plan: "COMERCIO"
+                    status: "ACTIVE"
+                    subscription_renews_at: "2026-10-01T00:00:00Z"
+                  tokens:
+                    access_token: "eyJhbGciOiJIUzI1NiJ9..."
+                    refresh_token: "eyJhbGciOiJIUzI1NiJ9..."
+                    token_type: "bearer"
+                    expires_in: 900
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          description: Credenciales incorrectas.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_CREDENTIALS
+                  message: "Email o contraseña incorrectos."
+        '423':
+          description: Cuenta bloqueada (HARD_LOCK por morosidad).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: TENANT_HARD_LOCK
+                  message: "Tu cuenta está suspendida. Renueva tu suscripción para continuar."
+        '500':
+          $ref: '../components.yaml#/components/responses/InternalServerError'
+
+  # ---------------------------------------------------------------------------
+  # RENOVAR ACCESS TOKEN
+  # ---------------------------------------------------------------------------
+  /auth/refresh:
+    post:
+      tags: [Auth & Tenancy]
+      summary: Renovar Access Token usando el Refresh Token
+      description: |
+        Permite obtener un nuevo par de tokens usando el Refresh Token.
+        Se retorna un nuevo Access Token (15 min) y un nuevo Refresh Token (7 días).
+        El Refresh Token anterior queda invalidado.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  example: "eyJhbGciOiJIUzI1NiJ9..."
+      responses:
+        '200':
+          description: Tokens renovados exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/AuthTokenPair'
+              example:
+                success: true
+                data:
+                  access_token: "eyJhbGciOiJIUzI1NiJ9..."
+                  refresh_token: "eyJhbGciOiJIUzI1NiJ9..."
+                  token_type: "bearer"
+                  expires_in: 900
+        '401':
+          description: Refresh token inválido o expirado.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: REFRESH_TOKEN_EXPIRED
+                  message: "La sesión expiró. Por favor inicia sesión nuevamente."
+        '500':
+          $ref: '../components.yaml#/components/responses/InternalServerError'
+
+  # ---------------------------------------------------------------------------
+  # CERRAR SESIÓN
+  # ---------------------------------------------------------------------------
+  /auth/logout:
+    post:
+      tags: [Auth & Tenancy]
+      summary: Cerrar sesión e invalidar el Refresh Token
+      description: |
+        Invalida el Refresh Token del usuario para cerrar la sesión de forma segura.
+        El Access Token sigue siendo válido hasta su expiración natural (15 min),
+        pero ya no podrá renovarse.
+      responses:
+        '200':
+          description: Sesión cerrada correctamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+                            example: "Sesión cerrada correctamente."
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # OBTENER PERFIL DEL USUARIO AUTENTICADO
+  # ---------------------------------------------------------------------------
+  /auth/me:
+    get:
+      tags: [Auth & Tenancy]
+      summary: Obtener perfil del usuario autenticado
+      description: |
+        Retorna la información del usuario logueado y el estado actual de su tenant.
+        Útil para verificar el token y mostrar datos en la interfaz.
+      responses:
+        '200':
+          description: Perfil del usuario y estado del tenant.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '../components.yaml#/components/schemas/User'
+                          tenant:
+                            $ref: '../components.yaml#/components/schemas/Tenant'
+              example:
+                success: true
+                data:
+                  user:
+                    id: "1a2b3c4d-0000-0000-0000-000000000001"
+                    email: "pepe@donpepe.mx"
+                    full_name: "José Ramírez"
+                    role: "OWNER"
+                  tenant:
+                    id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    name: "Abarrotes Don Pepe"
+                    plan: "COMERCIO"
+                    status: "ACTIVE"
+                    subscription_renews_at: "2026-10-01T00:00:00Z"
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # LISTAR USUARIOS DEL COMERCIO
+  # ---------------------------------------------------------------------------
+  /tenants/users:
+    get:
+      tags: [Auth & Tenancy]
+      summary: Listar usuarios del comercio
+      description: |
+        Retorna todos los usuarios asociados al tenant autenticado.
+        Solo accesible por usuarios con rol OWNER o MANAGER.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Filtrar por usuarios activos o inactivos.
+      responses:
+        '200':
+          description: Lista paginada de usuarios del tenant.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/User'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+
+    post:
+      tags: [Auth & Tenancy]
+      summary: Crear nuevo usuario en el comercio
+      description: |
+        Crea un nuevo usuario asociado al tenant autenticado.
+        
+        **Restricciones por plan:**
+        - EMPRENDEDOR: Máximo 2 usuarios.
+        - COMERCIO: Máximo 5 usuarios.
+        - CORPORATIVO: Máximo 15 usuarios.
+        
+        **Permisos requeridos:** Solo OWNER o MANAGER pueden crear usuarios.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components.yaml#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: Usuario creado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/User'
+              example:
+                success: true
+                data:
+                  id: "2b3c4d5e-1111-2222-3333-444444444444"
+                  email: "cajera@donpepe.mx"
+                  full_name: "María López"
+                  role: "CASHIER"
+                  is_active: true
+                  created_at: "2026-09-15T10:30:00Z"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '409':
+          description: El email ya está registrado en este comercio.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: EMAIL_ALREADY_EXISTS
+                  message: "Ya existe un usuario con ese email en este comercio."
+        '422':
+          description: Se alcanzó el límite de usuarios del plan.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: USER_LIMIT_EXCEEDED
+                  message: "Has alcanzado el límite de usuarios de tu plan EMPRENDEDOR (2 usuarios)."
+
+  # ---------------------------------------------------------------------------
+  # ACTUALIZAR USUARIO ESPECÍFICO
+  # ---------------------------------------------------------------------------
+  /tenants/users/{id}:
+    patch:
+      tags: [Auth & Tenancy]
+      summary: Actualizar usuario del comercio
+      description: |
+        Actualiza los datos de un usuario específico del tenant.
+        
+        **Restricciones:**
+        - Solo OWNER puede cambiar el rol de otros usuarios.
+        - Un usuario no puede cambiar su propio rol.
+        - No se puede desactivar al único usuario OWNER del tenant.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components.yaml#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Usuario actualizado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/User'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Operación no permitida por reglas de negocio.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CANNOT_DEACTIVATE_OWNER
+                  message: "No puedes desactivar al único propietario del comercio."
+
+    delete:
+      tags: [Auth & Tenancy]
+      summary: Desactivar usuario (soft delete)
+      description: |
+        Desactiva un usuario cambiando `is_active` a `false`.
+        No elimina físicamente el registro para mantener auditoría.
+        
+        **Restricciones:**
+        - No se puede desactivar al único usuario OWNER.
+        - Solo OWNER puede desactivar otros usuarios.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Usuario desactivado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+                            example: "Usuario desactivado exitosamente."
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: No se puede desactivar por reglas de negocio.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'

@@ -1,0 +1,620 @@
+# =============================================================================
+# MÓDULO CATÁLOGO WHATSAPP — CATÁLOGO PÚBLICO Y PEDIDOS WHATSAPP
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # CONFIGURACIÓN DEL CATÁLOGO PÚBLICO
+  # ---------------------------------------------------------------------------
+  /public-catalog/settings:
+    get:
+      tags: [Catálogo WhatsApp]
+      summary: Obtener configuración del catálogo público
+      description: |
+        Retorna la configuración actual del catálogo público para WhatsApp Business.
+        Solo disponible en Plan COMERCIO y CORPORATIVO.
+      responses:
+        '200':
+          description: Configuración del catálogo público.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/PublicCatalogSettings'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          description: Plan actual no incluye catálogo público.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: PUBLIC_CATALOG_NOT_AVAILABLE
+                  message: "El catálogo público solo está disponible en planes COMERCIO y CORPORATIVO."
+
+    put:
+      tags: [Catálogo WhatsApp]
+      summary: Actualizar configuración del catálogo público
+      description: |
+        Configura el catálogo público que se mostrará en WhatsApp Business.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_enabled]
+              properties:
+                is_enabled:
+                  type: boolean
+                  description: Habilitar o deshabilitar el catálogo público.
+                catalog_name:
+                  type: string
+                  maxLength: 100
+                  example: "Tienda Don Luis"
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                  example: "Abarrotes, carnes frías y productos de la canasta básica."
+                whatsapp_number:
+                  type: string
+                  nullable: true
+                  pattern: '^\+52[0-9]{10}$'
+                  example: "+525512345678"
+                business_hours:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                  example: "Lunes a Sábado 8:00 AM - 8:00 PM"
+                address:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  example: "Av. Insurgentes Sur 123, Col. Centro"
+                delivery_available:
+                  type: boolean
+                  default: false
+                  description: Indica si se ofrece servicio a domicilio.
+                min_order_amount_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  nullable: true
+                  description: Monto mínimo de pedido para delivery.
+                delivery_fee_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  nullable: true
+                  description: Costo de envío a domicilio.
+                auto_sync_inventory:
+                  type: boolean
+                  default: true
+                  description: Sincronizar automáticamente con inventario.
+                show_out_of_stock:
+                  type: boolean
+                  default: false
+                  description: Mostrar productos agotados en el catálogo.
+      responses:
+        '200':
+          description: Configuración actualizada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/PublicCatalogSettings'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+
+  # ---------------------------------------------------------------------------
+  # PRODUCTOS DEL CATÁLOGO PÚBLICO
+  # ---------------------------------------------------------------------------
+  /public-catalog/products:
+    get:
+      tags: [Catálogo WhatsApp]
+      summary: Listar productos del catálogo público
+      description: |
+        Retorna los productos visibles en el catálogo público de WhatsApp.
+        Solo incluye productos activos con stock disponible (si auto_sync_inventory=true).
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: category_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por categoría específica.
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Búsqueda por nombre o descripción.
+        - name: in_stock_only
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Mostrar solo productos con stock disponible.
+      responses:
+        '200':
+          description: Lista de productos del catálogo público.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/PublicCatalogProduct'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # GESTIÓN DE PRODUCTOS EN EL CATÁLOGO
+  # ---------------------------------------------------------------------------
+  /public-catalog/products/{id}/visibility:
+    put:
+      tags: [Catálogo WhatsApp]
+      summary: Cambiar visibilidad de producto en catálogo público
+      description: |
+        Habilita o deshabilita un producto específico en el catálogo público
+        sin afectar su estado en el inventario interno.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_visible]
+              properties:
+                is_visible:
+                  type: boolean
+                  description: Mostrar u ocultar producto en el catálogo público.
+                featured:
+                  type: boolean
+                  default: false
+                  description: Destacar producto en la parte superior del catálogo.
+                public_description:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  description: Descripción específica para el catálogo público (diferente a la interna).
+      responses:
+        '200':
+          description: Visibilidad actualizada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          product_id:
+                            type: string
+                            format: uuid
+                          is_visible:
+                            type: boolean
+                          featured:
+                            type: boolean
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+  # ---------------------------------------------------------------------------
+  # PEDIDOS DE WHATSAPP
+  # ---------------------------------------------------------------------------
+  /whatsapp-orders:
+    get:
+      tags: [Catálogo WhatsApp]
+      summary: Listar pedidos recibidos por WhatsApp
+      description: |
+        Retorna los pedidos generados desde el catálogo público de WhatsApp.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - $ref: '../components.yaml#/components/parameters/DateFromParam'
+        - $ref: '../components.yaml#/components/parameters/DateToParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/WhatsAppOrderStatus'
+        - name: customer_phone
+          in: query
+          schema:
+            type: string
+          description: Filtrar por número de teléfono del cliente.
+      responses:
+        '200':
+          description: Lista paginada de pedidos de WhatsApp.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/WhatsAppOrder'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+    post:
+      tags: [Catálogo WhatsApp]
+      summary: Crear pedido desde WhatsApp
+      description: |
+        Registra un nuevo pedido recibido por WhatsApp.
+        
+        **Flujo típico:**
+        1. Cliente ve catálogo en WhatsApp Business
+        2. Cliente envía mensaje con productos deseados
+        3. Comerciante registra pedido en sistema
+        4. Se calcula total y se coordina entrega/retiro
+        5. Se convierte a venta cuando se confirma pago
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_phone, items]
+              properties:
+                customer_phone:
+                  type: string
+                  pattern: '^\+52[0-9]{10}$'
+                  example: "+525587654321"
+                customer_name:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                  example: "María González"
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      product_id:
+                        type: string
+                        format: uuid
+                      quantity:
+                        type: integer
+                        minimum: 1
+                      special_instructions:
+                        type: string
+                        nullable: true
+                        maxLength: 100
+                        example: "Sin sal extra"
+                delivery_address:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                  description: Dirección de entrega si requiere delivery.
+                delivery_requested:
+                  type: boolean
+                  default: false
+                  description: Cliente solicita servicio a domicilio.
+                preferred_delivery_time:
+                  type: string
+                  nullable: true
+                  maxLength: 50
+                  example: "Entre 2:00 PM y 4:00 PM"
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                  description: Notas adicionales del pedido.
+      responses:
+        '201':
+          description: Pedido de WhatsApp creado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/WhatsAppOrder'
+              example:
+                success: true
+                data:
+                  id: "wa000001-0000-0000-0000-000000000001"
+                  order_number: "WA-2026-001234"
+                  customer_phone: "+525587654321"
+                  customer_name: "María González"
+                  status: "PENDING_CONFIRMATION"
+                  total_amount_mxn: 185.50
+                  delivery_requested: true
+                  created_at: "2026-09-15T14:30:00Z"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '422':
+          description: Error en validación del pedido (productos no disponibles, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # GESTIÓN DE PEDIDO ESPECÍFICO DE WHATSAPP
+  # ---------------------------------------------------------------------------
+  /whatsapp-orders/{id}:
+    get:
+      tags: [Catálogo WhatsApp]
+      summary: Obtener detalle de pedido de WhatsApp
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle completo del pedido.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/WhatsAppOrder'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    put:
+      tags: [Catálogo WhatsApp]
+      summary: Actualizar estado del pedido de WhatsApp
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '../components.yaml#/components/schemas/WhatsAppOrderStatus'
+                tracking_notes:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                  description: Notas de seguimiento del pedido.
+                estimated_delivery_time:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: Tiempo estimado de entrega.
+      responses:
+        '200':
+          description: Estado actualizado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/WhatsAppOrder'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Transición de estado no válida.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+  # ---------------------------------------------------------------------------
+  # CONVERSIÓN DE PEDIDO WHATSAPP A VENTA
+  # ---------------------------------------------------------------------------
+  /whatsapp-orders/{id}/convert-to-sale:
+    post:
+      tags: [Catálogo WhatsApp]
+      summary: Convertir pedido de WhatsApp a venta confirmada
+      description: |
+        Convierte un pedido de WhatsApp en una venta oficial del sistema POS.
+        
+        **Proceso:**
+        1. Valida que el pedido esté en estado CONFIRMED
+        2. Verifica disponibilidad de stock actualizada
+        3. Crea la venta en el sistema POS
+        4. Actualiza estado del pedido a CONVERTED_TO_SALE
+        5. Aplica descuentos de inventario correspondientes
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_method]
+              properties:
+                payment_method:
+                  $ref: '../components.yaml#/components/schemas/PaymentMethodType'
+                  description: Método de pago confirmado con el cliente.
+                amount_paid_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  description: Monto pagado. Debe ser >= total del pedido.
+                cash_session_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Requerido si payment_method es CASH_MXN.
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Almacén para el despacho. Por defecto el principal.
+                delivery_completed:
+                  type: boolean
+                  default: false
+                  description: Marcar como entregado al momento de la conversión.
+      responses:
+        '200':
+          description: Pedido convertido a venta exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          whatsapp_order:
+                            $ref: '../components.yaml#/components/schemas/WhatsAppOrder'
+                          created_sale:
+                            type: object
+                            properties:
+                              sale_id:
+                                type: string
+                                format: uuid
+                              folio:
+                                type: string
+                              total_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              status:
+                                $ref: '../components.yaml#/components/schemas/SaleStatus'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Error en la conversión (stock insuficiente, pedido en estado incorrecto, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # CATÁLOGO PÚBLICO (SIN AUTENTICACIÓN)
+  # ---------------------------------------------------------------------------
+  /public/catalog:
+    get:
+      tags: [Catálogo Público]
+      summary: Obtener catálogo público (endpoint sin autenticación)
+      description: |
+        **ENDPOINT PÚBLICO:** No requiere autenticación.
+        
+        Retorna el catálogo de productos visible para clientes en WhatsApp Business.
+        Este endpoint es consumido directamente por la integración de WhatsApp.
+        
+        **Respuesta optimizada para WhatsApp:**
+        - Solo productos activos y con stock
+        - URLs de imágenes optimizadas
+        - Precios en formato de moneda MXN
+        - Información de contacto del comercio
+      parameters:
+        - name: tenant_slug
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Identificador único del comercio.
+          example: "tienda-don-luis"
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filtrar por categoría específica.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Número máximo de productos a retornar.
+      responses:
+        '200':
+          description: Catálogo público del comercio.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  business_info:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        example: "Tienda Don Luis"
+                      description:
+                        type: string
+                        example: "Abarrotes y productos de la canasta básica"
+                      whatsapp_number:
+                        type: string
+                        example: "+525512345678"
+                      address:
+                        type: string
+                      business_hours:
+                        type: string
+                      delivery_available:
+                        type: boolean
+                      min_order_amount_mxn:
+                        $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  products:
+                    type: array
+                    items:
+                      $ref: '../components.yaml#/components/schemas/PublicCatalogProduct'
+                  last_updated:
+                    type: string
+                    format: date-time
+                    description: Última actualización del catálogo.
+        '404':
+          description: Comercio no encontrado o catálogo no disponible.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Catálogo no disponible"

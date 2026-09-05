@@ -1,0 +1,599 @@
+# =============================================================================
+# MÓDULO RED COMUNITARIA — SUBMISSIONS, CONSENSO Y CLONACIÓN DE CATÁLOGOS
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # SUBMISSIONS DE PRODUCTOS A LA RED COMUNITARIA
+  # ---------------------------------------------------------------------------
+  /community/submissions:
+    get:
+      tags: [Red Comunitaria]
+      summary: Listar submissions propias enviadas a la red
+      description: |
+        Retorna los productos que el comercio ha enviado para revisión 
+        y posible inclusión en el catálogo comunitario.
+        Solo disponible en Plan CORPORATIVO.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/SubmissionStatus'
+        - name: submitted_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: submitted_to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Lista de submissions propias.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/CommunitySubmission'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          description: Plan actual no incluye red comunitaria.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: COMMUNITY_NOT_AVAILABLE
+                  message: "La red comunitaria solo está disponible en plan CORPORATIVO."
+
+    post:
+      tags: [Red Comunitaria]
+      summary: Enviar producto a la red comunitaria
+      description: |
+        Envía un producto propio al catálogo comunitario para revisión y consenso.
+        
+        **Proceso de submission:**
+        1. Selecciona producto con buena data (nombre, EAN, categoría, imágenes)
+        2. Sistema valida calidad de información
+        3. Se envía a red comunitaria para revisión por pares
+        4. Otros comercios votan sobre la calidad y exactitud
+        5. Si alcanza consenso positivo, se incluye en catálogo universal
+        
+        **Beneficios:** Contribuye al catálogo compartido, mejora discovery,
+        potencial para recibir reconocimiento en la comunidad.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id]
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+                  description: Producto propio a enviar a la comunidad.
+                submission_notes:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                  description: Notas adicionales sobre el producto.
+                  example: "Producto artesanal, incluye información nutricional completa"
+                confirm_data_quality:
+                  type: boolean
+                  description: Confirmación de que la data del producto es precisa y completa.
+                  example: true
+      responses:
+        '201':
+          description: Submission enviada exitosamente a la red.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/CommunitySubmission'
+              example:
+                success: true
+                data:
+                  id: "cs000001-0000-0000-0000-000000000001"
+                  product_name: "Salsa Verde Artesanal Casa María 240g"
+                  ean_code: "7501234567890"
+                  status: "UNDER_REVIEW"
+                  submitted_at: "2026-09-15T10:00:00Z"
+                  review_deadline: "2026-09-22T10:00:00Z"
+                  votes_needed: 3
+                  current_votes: 0
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '422':
+          description: Producto no cumple criterios mínimos para submission.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              examples:
+                insufficient_data:
+                  value:
+                    success: false
+                    error:
+                      code: INSUFFICIENT_PRODUCT_DATA
+                      message: "El producto necesita EAN, categoría e imagen para enviar a la comunidad."
+                already_submitted:
+                  value:
+                    success: false
+                    error:
+                      code: PRODUCT_ALREADY_IN_COMMUNITY
+                      message: "Este producto ya existe en el catálogo comunitario."
+
+  # ---------------------------------------------------------------------------
+  # REVISIÓN Y VOTACIÓN DE SUBMISSIONS
+  # ---------------------------------------------------------------------------
+  /community/pending-reviews:
+    get:
+      tags: [Red Comunitaria]
+      summary: Listar submissions pendientes de revisar
+      description: |
+        Retorna submissions de otros comercios que están pendientes de revisión y votación.
+        Sistema de reputación: comercios con buen historial tienen más peso en votos.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filtrar por categoría específica para expertise.
+        - name: exclude_own
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Excluir submissions propias de la lista.
+      responses:
+        '200':
+          description: Lista de submissions pendientes de revisión.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                  format: uuid
+                                product_name:
+                                  type: string
+                                ean_code:
+                                  type: string
+                                  nullable: true
+                                category:
+                                  type: string
+                                submitted_by:
+                                  type: string
+                                  description: Nombre del comercio que lo envió (anonimizado).
+                                submitted_at:
+                                  type: string
+                                  format: date-time
+                                images:
+                                  type: array
+                                  items:
+                                    type: string
+                                    format: uri
+                                current_votes:
+                                  type: integer
+                                votes_needed:
+                                  type: integer
+                                my_vote:
+                                  $ref: '../components.yaml#/components/schemas/CommunityVote'
+                                  nullable: true
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+  # ---------------------------------------------------------------------------
+  # VOTAR EN SUBMISSION ESPECÍFICA
+  # ---------------------------------------------------------------------------
+  /community/submissions/{id}/vote:
+    post:
+      tags: [Red Comunitaria]
+      summary: Votar en submission de la comunidad
+      description: |
+        Emite voto sobre una submission pendiente de revisión.
+        
+        **Criterios de votación:**
+        - **APPROVE:** Información precisa, producto bien documentado, útil para la comunidad
+        - **REJECT:** Información incorrecta, duplicado, calidad insuficiente
+        - **NEEDS_IMPROVEMENT:** Producto válido pero necesita mejor documentación
+        
+        **Sistema de reputación:** Votos correctos (consenso mayoritario) aumentan tu reputación.
+        Mayor reputación = más peso en futuras votaciones.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vote, reason]
+              properties:
+                vote:
+                  $ref: '../components.yaml#/components/schemas/CommunityVote'
+                reason:
+                  type: string
+                  maxLength: 200
+                  description: Justificación del voto para transparencia.
+                  example: "Producto bien documentado, EAN verificado, imagen clara"
+                expertise_level:
+                  type: string
+                  enum: [LOW, MEDIUM, HIGH]
+                  default: MEDIUM
+                  description: Nivel de conocimiento sobre esta categoría de productos.
+      responses:
+        '200':
+          description: Voto registrado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          vote_recorded:
+                            $ref: '../components.yaml#/components/schemas/CommunityVote'
+                          submission_status:
+                            $ref: '../components.yaml#/components/schemas/SubmissionStatus'
+                          votes_progress:
+                            type: object
+                            properties:
+                              current_votes:
+                                type: integer
+                              votes_needed:
+                                type: integer
+                              consensus_reached:
+                                type: boolean
+                          reputation_change:
+                            type: integer
+                            description: Cambio en puntos de reputación (puede ser 0 si aún no hay consenso).
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '409':
+          description: Ya votaste en esta submission.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: VOTE_ALREADY_CAST
+                  message: "Ya emitiste tu voto en esta submission."
+
+  # ---------------------------------------------------------------------------
+  # CATÁLOGO COMUNITARIO APROBADO
+  # ---------------------------------------------------------------------------
+  /community/catalog:
+    get:
+      tags: [Red Comunitaria]
+      summary: Explorar catálogo comunitario aprobado
+      description: |
+        Navega el catálogo de productos aprobados por la comunidad.
+        Estos productos han pasado el proceso de consenso y están disponibles
+        para clonar a tu inventario local.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filtrar por categoría.
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Búsqueda por nombre o EAN.
+        - name: min_rating
+          in: query
+          schema:
+            type: number
+            format: float
+            minimum: 0
+            maximum: 5
+          description: Calificación mínima comunitaria.
+        - name: has_pricing
+          in: query
+          schema:
+            type: boolean
+          description: Mostrar solo productos con referencia de precios.
+        - name: exclude_owned
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Excluir productos que ya tienes en tu inventario.
+      responses:
+        '200':
+          description: Lista de productos del catálogo comunitario.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/CommunityProduct'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+  # ---------------------------------------------------------------------------
+  # CLONAR PRODUCTO DEL CATÁLOGO COMUNITARIO
+  # ---------------------------------------------------------------------------
+  /community/catalog/{id}/clone:
+    post:
+      tags: [Red Comunitaria]
+      summary: Clonar producto comunitario a inventario local
+      description: |
+        Clona un producto del catálogo comunitario a tu inventario local.
+        
+        **Proceso de clonación:**
+        1. Copia toda la información base (nombre, EAN, categoría, descripción, imágenes)
+        2. Permite personalizar precio, costo y stock inicial
+        3. Adapta a tu contexto local (proveedor, almacén)
+        4. Mantiene referencia al producto comunitario original
+        
+        **Beneficios:** Acelera creación de inventario, información ya validada por comunidad.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unit_price_mxn]
+              properties:
+                unit_price_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  description: Precio de venta en tu comercio.
+                unit_cost_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  nullable: true
+                  description: Costo de adquisición (opcional).
+                initial_stock:
+                  type: integer
+                  default: 0
+                  minimum: 0
+                  description: Stock inicial para el producto clonado.
+                supplier_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Proveedor donde consigues este producto.
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Almacén de destino. Por defecto el principal.
+                local_notes:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  description: Notas específicas para tu negocio.
+                  example: "Proveedor local: Distribuidora San José, pedido mínimo 12 piezas"
+                customize_name:
+                  type: string
+                  nullable: true
+                  maxLength: 150
+                  description: Personalizar nombre si difiere localmente.
+      responses:
+        '201':
+          description: Producto clonado exitosamente a tu inventario.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          cloned_product:
+                            $ref: '../components.yaml#/components/schemas/Product'
+                          community_source:
+                            type: object
+                            properties:
+                              community_product_id:
+                                type: string
+                                format: uuid
+                              original_contributor:
+                                type: string
+                                description: Comercio que contribuyó originalmente.
+                              community_rating:
+                                type: number
+                                format: float
+                              cloned_at:
+                                type: string
+                                format: date-time
+              example:
+                success: true
+                data:
+                  cloned_product:
+                    id: "p9999999-abcd-efgh-ijkl-mnopqrstuvwx"
+                    name: "Salsa Verde Artesanal Casa María 240g"
+                    sku: "NEX-S1A2L"
+                    ean_code: "7501234567890"
+                    unit_price_mxn: 45.00
+                    current_stock: 10
+                  community_source:
+                    community_product_id: "cp000001-0000-0000-0000-000000000001"
+                    original_contributor: "Abarrotes La Esquina"
+                    community_rating: 4.7
+                    cloned_at: "2026-09-15T15:30:00Z"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '409':
+          description: Producto ya existe en tu inventario (mismo EAN).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: PRODUCT_ALREADY_EXISTS
+                  message: "Ya tienes este producto en tu inventario (EAN: 7501234567890)."
+
+  # ---------------------------------------------------------------------------
+  # ESTADÍSTICAS DE PARTICIPACIÓN COMUNITARIA
+  # ---------------------------------------------------------------------------
+  /community/my-stats:
+    get:
+      tags: [Red Comunitaria]
+      summary: Estadísticas de participación en la comunidad
+      description: |
+        Retorna métricas de tu participación en la red comunitaria:
+        reputación, contribuciones, votos, productos clonados.
+      responses:
+        '200':
+          description: Estadísticas de participación comunitaria.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          reputation:
+                            type: object
+                            properties:
+                              current_score:
+                                type: integer
+                                description: Puntuación de reputación actual.
+                              level:
+                                type: string
+                                enum: [NEWCOMER, CONTRIBUTOR, TRUSTED, EXPERT]
+                                description: Nivel de reputación en la comunidad.
+                              percentile:
+                                type: number
+                                format: float
+                                description: Percentil vs. otros usuarios (0.0 - 1.0).
+                          contributions:
+                            type: object
+                            properties:
+                              submissions_sent:
+                                type: integer
+                              submissions_approved:
+                                type: integer
+                              approval_rate:
+                                type: number
+                                format: float
+                                description: Tasa de aprobación de submissions (0.0 - 1.0).
+                          voting_activity:
+                            type: object
+                            properties:
+                              votes_cast:
+                                type: integer
+                              accurate_votes:
+                                type: integer
+                                description: Votos que coincidieron con consenso final.
+                              accuracy_rate:
+                                type: number
+                                format: float
+                          catalog_usage:
+                            type: object
+                            properties:
+                              products_cloned:
+                                type: integer
+                              categories_explored:
+                                type: integer
+                              last_clone_date:
+                                type: string
+                                format: date-time
+                                nullable: true
+                          achievements:
+                            type: array
+                            description: Logros desbloqueados en la comunidad.
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                  example: "First Submission"
+                                description:
+                                  type: string
+                                earned_at:
+                                  type: string
+                                  format: date-time
+                                icon:
+                                  type: string
+                                  format: uri
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'

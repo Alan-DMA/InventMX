@@ -1,0 +1,728 @@
+# =============================================================================
+# MÓDULO COMPRAS Y PROVEEDORES — ÓRDENES, RECEPCIÓN, CUENTAS POR PAGAR
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # LISTADO DE PROVEEDORES
+  # ---------------------------------------------------------------------------
+  /suppliers:
+    get:
+      tags: [Compras & Proveedores]
+      summary: Listar proveedores del comercio
+      description: |
+        Retorna los proveedores registrados con filtros opcionales.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Búsqueda por nombre o RFC del proveedor.
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/SupplierStatus'
+      responses:
+        '200':
+          description: Lista paginada de proveedores.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/Supplier'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+    post:
+      tags: [Compras & Proveedores]
+      summary: Crear nuevo proveedor
+      description: |
+        Registra un nuevo proveedor en el sistema.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 150
+                  example: "Distribuidora Reyes SA de CV"
+                rfc:
+                  type: string
+                  nullable: true
+                  pattern: '^([A-ZÑ&]{3,4})?[0-9]{6}[A-Z0-9]{3}$'
+                  example: "DRE120615ABC"
+                email:
+                  type: string
+                  format: email
+                  nullable: true
+                phone:
+                  type: string
+                  nullable: true
+                  maxLength: 20
+                address:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                credit_days:
+                  type: integer
+                  default: 0
+                  minimum: 0
+                  maximum: 365
+                  description: Días de crédito otorgados por el proveedor.
+                credit_limit_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  nullable: true
+                  description: Límite de crédito en MXN.
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 500
+      responses:
+        '201':
+          description: Proveedor creado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Supplier'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+  # ---------------------------------------------------------------------------
+  # DETALLE Y GESTIÓN DE PROVEEDOR ESPECÍFICO
+  # ---------------------------------------------------------------------------
+  /suppliers/{id}:
+    get:
+      tags: [Compras & Proveedores]
+      summary: Obtener detalle de proveedor específico
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle del proveedor.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Supplier'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    put:
+      tags: [Compras & Proveedores]
+      summary: Actualizar información del proveedor
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 150
+                rfc:
+                  type: string
+                  nullable: true
+                  pattern: '^([A-ZÑ&]{3,4})?[0-9]{6}[A-Z0-9]{3}$'
+                email:
+                  type: string
+                  format: email
+                  nullable: true
+                phone:
+                  type: string
+                  nullable: true
+                address:
+                  type: string
+                  nullable: true
+                credit_days:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                credit_limit_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                  nullable: true
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Proveedor actualizado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Supplier'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    delete:
+      tags: [Compras & Proveedores]
+      summary: Desactivar proveedor
+      description: |
+        Cambia el estado del proveedor a INACTIVE. 
+        No se puede eliminar físicamente si tiene órdenes asociadas.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Proveedor desactivado exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Proveedor tiene órdenes activas y no puede desactivarse.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # LISTADO DE ÓRDENES DE COMPRA
+  # ---------------------------------------------------------------------------
+  /purchase-orders:
+    get:
+      tags: [Compras & Proveedores]
+      summary: Listar órdenes de compra
+      description: |
+        Retorna las órdenes de compra con filtros opcionales.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - $ref: '../components.yaml#/components/parameters/DateFromParam'
+        - $ref: '../components.yaml#/components/parameters/DateToParam'
+        - name: supplier_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/PurchaseOrderStatus'
+      responses:
+        '200':
+          description: Lista paginada de órdenes de compra.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/PurchaseOrder'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+    post:
+      tags: [Compras & Proveedores]
+      summary: Crear nueva orden de compra
+      description: |
+        Crea una orden de compra al proveedor especificado.
+        
+        **Estados de la orden:**
+        1. DRAFT → En construcción
+        2. SENT → Enviada al proveedor
+        3. CONFIRMED → Confirmada por proveedor
+        4. PARTIALLY_RECEIVED → Recepción parcial
+        5. RECEIVED → Completamente recibida
+        6. CANCELLED → Cancelada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supplier_id, items]
+              properties:
+                supplier_id:
+                  type: string
+                  format: uuid
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: '../components.yaml#/components/schemas/PurchaseOrderItem'
+                expected_delivery_date:
+                  type: string
+                  format: date
+                  nullable: true
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 500
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Almacén de destino. Por defecto el principal.
+      responses:
+        '201':
+          description: Orden de compra creada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/PurchaseOrder'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # DETALLE DE ORDEN DE COMPRA ESPECÍFICA
+  # ---------------------------------------------------------------------------
+  /purchase-orders/{id}:
+    get:
+      tags: [Compras & Proveedores]
+      summary: Obtener detalle de orden de compra
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle completo de la orden.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/PurchaseOrder'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # RECEPCIÓN DE MERCANCÍA
+  # ---------------------------------------------------------------------------
+  /purchase-orders/{id}/receive:
+    post:
+      tags: [Compras & Proveedores]
+      summary: Recepcionar mercancía de orden de compra
+      description: |
+        Registra la recepción física de productos, pudiendo ser parcial o total.
+        
+        **Proceso:**
+        1. Verifica la mercancía recibida vs. ordenada
+        2. Actualiza stock en el almacén de destino
+        3. Registra movimientos en Kardex (PURCHASE)
+        4. Actualiza estado de la orden según recepción
+        5. Genera cuentas por pagar si procede
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items_received]
+              properties:
+                items_received:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [purchase_order_item_id, quantity_received]
+                    properties:
+                      purchase_order_item_id:
+                        type: string
+                        format: uuid
+                      quantity_received:
+                        type: integer
+                        minimum: 1
+                      unit_cost_mxn:
+                        $ref: '../components.yaml#/components/schemas/AmountMXN'
+                        description: Costo unitario real facturado (puede diferir del estimado).
+                      lot_number:
+                        type: string
+                        nullable: true
+                        maxLength: 50
+                      expiry_date:
+                        type: string
+                        format: date
+                        nullable: true
+                received_date:
+                  type: string
+                  format: date
+                  default: "today"
+                invoice_reference:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                  description: Número de factura del proveedor.
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+      responses:
+        '200':
+          description: Recepción registrada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          purchase_order:
+                            $ref: '../components.yaml#/components/schemas/PurchaseOrder'
+                          stock_movements:
+                            type: array
+                            description: Movimientos de stock creados.
+                            items:
+                              $ref: '../components.yaml#/components/schemas/StockMovement'
+                          accounts_payable:
+                            $ref: '../components.yaml#/components/schemas/AccountPayable'
+                            nullable: true
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Error en la recepción (cantidades inválidas, orden ya completa, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # CUENTAS POR PAGAR
+  # ---------------------------------------------------------------------------
+  /accounts-payable:
+    get:
+      tags: [Compras & Proveedores]
+      summary: Listar cuentas por pagar
+      description: |
+        Retorna las cuentas pendientes de pago a proveedores.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: supplier_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/AccountPayableStatus'
+        - name: overdue_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Mostrar solo cuentas vencidas.
+      responses:
+        '200':
+          description: Lista paginada de cuentas por pagar.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/AccountPayable'
+                          summary:
+                            type: object
+                            properties:
+                              total_pending_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              overdue_amount_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              overdue_count:
+                                type: integer
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # PAGO DE CUENTA ESPECÍFICA
+  # ---------------------------------------------------------------------------
+  /accounts-payable/{id}/pay:
+    post:
+      tags: [Compras & Proveedores]
+      summary: Registrar pago de cuenta por pagar
+      description: |
+        Registra el pago de una cuenta pendiente al proveedor.
+        Puede ser pago parcial o total.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_paid_mxn, payment_method]
+              properties:
+                amount_paid_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                payment_method:
+                  $ref: '../components.yaml#/components/schemas/PaymentMethodType'
+                payment_date:
+                  type: string
+                  format: date
+                  default: "today"
+                reference:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                  description: Referencia del pago (número de transferencia, cheque, etc.).
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+      responses:
+        '200':
+          description: Pago registrado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          account_payable:
+                            $ref: '../components.yaml#/components/schemas/AccountPayable'
+                          payment_record:
+                            type: object
+                            properties:
+                              payment_id:
+                                type: string
+                                format: uuid
+                              amount_paid_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+                              payment_date:
+                                type: string
+                                format: date
+                              remaining_balance_mxn:
+                                $ref: '../components.yaml#/components/schemas/AmountMXN'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Error en el pago (monto excede deuda, cuenta ya pagada, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # PARSEO OCR DE TICKETS DE COMPRA
+  # ---------------------------------------------------------------------------
+  /purchases/parse-receipt:
+    post:
+      tags: [Compras & Proveedores]
+      summary: Parsear ticket de compra con OCR
+      description: |
+        Procesa una imagen de ticket de compra usando OCR para extraer:
+        - Productos comprados y cantidades
+        - Precios unitarios y totales
+        - Fecha de compra
+        - Datos del establecimiento
+        
+        **Formatos soportados:** JPG, PNG, PDF
+        **Tamaño máximo:** 5MB por archivo
+        **Casos de uso:** Compras en efectivo, mercados, pequeños proveedores
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [receipt_image]
+              properties:
+                receipt_image:
+                  type: string
+                  format: binary
+                  description: Imagen del ticket a procesar.
+                supplier_hint:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                  description: Nombre del proveedor para mejorar precisión del OCR.
+                auto_create_supplier:
+                  type: boolean
+                  default: false
+                  description: Crear proveedor automáticamente si no existe.
+                auto_create_products:
+                  type: boolean
+                  default: false
+                  description: Crear productos automáticamente si no existen.
+      responses:
+        '200':
+          description: Ticket procesado exitosamente por OCR.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          confidence_score:
+                            type: number
+                            format: float
+                            minimum: 0
+                            maximum: 1
+                            description: Nivel de confianza del OCR (0.0 a 1.0).
+                          detected_supplier:
+                            type: string
+                            nullable: true
+                            description: Nombre del establecimiento detectado.
+                          purchase_date:
+                            type: string
+                            format: date
+                            nullable: true
+                          items_detected:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                  description: Nombre del producto detectado.
+                                quantity:
+                                  type: number
+                                  format: float
+                                  nullable: true
+                                unit_price_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  nullable: true
+                                subtotal_mxn:
+                                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                                  nullable: true
+                                confidence:
+                                  type: number
+                                  format: float
+                                  description: Confianza específica de este item.
+                          total_amount_mxn:
+                            $ref: '../components.yaml#/components/schemas/AmountMXN'
+                            nullable: true
+                            description: Total del ticket detectado.
+                          suggested_purchase_order:
+                            type: object
+                            nullable: true
+                            description: Orden de compra sugerida basada en el análisis.
+                            properties:
+                              supplier_name:
+                                type: string
+                              items:
+                                type: array
+                                items:
+                                  $ref: '../components.yaml#/components/schemas/PurchaseOrderItem'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '413':
+          description: Archivo demasiado grande.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: FILE_TOO_LARGE
+                  message: "El archivo excede el límite de 5MB."
+        '422':
+          description: Error en el procesamiento OCR.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              examples:
+                low_quality:
+                  value:
+                    success: false
+                    error:
+                      code: OCR_LOW_QUALITY
+                      message: "La calidad de la imagen es insuficiente para el procesamiento OCR."
+                no_text_detected:
+                  value:
+                    success: false
+                    error:
+                      code: NO_TEXT_DETECTED
+                      message: "No se detectó texto legible en la imagen."

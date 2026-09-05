@@ -1,0 +1,1181 @@
+# =============================================================================
+# COMPONENTES REUTILIZABLES — NEXUS API
+# Schemas, respuestas de error, parámetros y enums canónicos compartidos
+# =============================================================================
+
+components:
+
+  # ---------------------------------------------------------------------------
+  # ESQUEMAS DE SEGURIDAD
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access Token JWT — duración 15 minutos.
+        Al expirar usar POST /auth/refresh con el Refresh Token (7 días).
+
+  # ---------------------------------------------------------------------------
+  # PARÁMETROS REUTILIZABLES
+  # ---------------------------------------------------------------------------
+  parameters:
+
+    UUIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID v4 del recurso.
+
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    SearchParam:
+      name: q
+      in: query
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+      description: Búsqueda fuzzy por trigramas (pg_trgm).
+
+    WarehouseIdParam:
+      name: warehouse_id
+      in: query
+      schema:
+        type: string
+        format: uuid
+      description: Filtrar por almacén específico.
+
+    DateFromParam:
+      name: date_from
+      in: query
+      schema:
+        type: string
+        format: date
+      description: Fecha inicio del rango (YYYY-MM-DD).
+
+    DateToParam:
+      name: date_to
+      in: query
+      schema:
+        type: string
+        format: date
+      description: Fecha fin del rango (YYYY-MM-DD).
+
+  # ---------------------------------------------------------------------------
+  # RESPUESTAS DE ERROR REUTILIZABLES
+  # ---------------------------------------------------------------------------
+  responses:
+
+    BadRequest:
+      description: Datos de entrada inválidos o faltantes.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: "Los datos proporcionados no son válidos."
+              details:
+                - field: price_mxn
+                  issue: "Debe ser un número positivo mayor a 0."
+
+    Unauthorized:
+      description: Token JWT ausente, inválido o expirado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: "Token de autenticación inválido o expirado."
+
+    Forbidden:
+      description: |
+        Sin permiso para esta acción. También aplica cuando el tenant
+        está en SOFT_LOCK (solo lectura) o HARD_LOCK (bloqueo total).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            sin_permiso:
+              value:
+                success: false
+                error:
+                  code: FORBIDDEN
+                  message: "No tienes permisos para realizar esta acción."
+            soft_lock:
+              value:
+                success: false
+                error:
+                  code: TENANT_SOFT_LOCK
+                  message: "Suscripción vencida. Solo lectura disponible."
+            hard_lock:
+              value:
+                success: false
+                error:
+                  code: TENANT_HARD_LOCK
+                  message: "Cuenta suspendida. Renueva suscripción para continuar."
+
+    NotFound:
+      description: El recurso no existe o no pertenece al tenant.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: NOT_FOUND
+              message: "El recurso solicitado no fue encontrado."
+
+    Conflict:
+      description: Conflicto con el estado actual (duplicados, etc.).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: CONFLICT
+              message: "Ya existe un recurso con esos datos."
+
+    UnprocessableEntity:
+      description: Regla de negocio violada (stock insuficiente, límite de plan, etc.).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: Error interno del servidor.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: INTERNAL_ERROR
+              message: "Error interno. Intenta de nuevo."
+  # ---------------------------------------------------------------------------
+  # SCHEMAS — TIPOS PRIMITIVOS Y ENUMS CANÓNICOS
+  # ---------------------------------------------------------------------------
+  schemas:
+
+    # --- TIPOS PRIMITIVOS ---
+
+    UUID:
+      type: string
+      format: uuid
+      example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+    AmountMXN:
+      type: number
+      format: decimal
+      minimum: 0
+      multipleOf: 0.01
+      description: Monto en Pesos Mexicanos (MXN). Siempre positivo, 2 decimales.
+      example: 189.50
+
+    SKU:
+      type: string
+      pattern: "^NEX-[A-Z0-9]{5}$"
+      description: SKU autogenerado por el sistema con prefijo NEX-.
+      example: "NEX-A1B2C"
+
+    # --- ENUMS CANÓNICOS (fuente de verdad compartida backend ↔ frontend) ---
+
+    TenantStatus:
+      type: string
+      enum: [ACTIVE, SOFT_LOCK, HARD_LOCK, TRIAL, CANCELLED]
+      description: |
+        - ACTIVE: Acceso completo según el plan contratado.
+        - TRIAL: Periodo de prueba activo.
+        - SOFT_LOCK: Solo lectura. Días 1-10 de morosidad.
+        - HARD_LOCK: Bloqueo total. Día 11+ de morosidad.
+        - CANCELLED: Cuenta cancelada por el comerciante.
+
+    PlanType:
+      type: string
+      enum: [EMPRENDEDOR, COMERCIO, CORPORATIVO]
+      description: |
+        - EMPRENDEDOR: $199 MXN/mes. Hasta 2 usuarios, 1 almacén.
+        - COMERCIO: $399 MXN/mes. Hasta 5 usuarios, multi-almacén.
+        - CORPORATIVO: $699 MXN/mes. Hasta 15 usuarios, todos los módulos.
+
+    UserRole:
+      type: string
+      enum: [OWNER, MANAGER, CASHIER, WAREHOUSE_STAFF, VIEWER]
+      description: |
+        - OWNER: Dueño del comercio. Acceso total.
+        - MANAGER: Gerente. Sin acceso a configuración de planes.
+        - CASHIER: Cajero. Solo ventas y consulta de productos.
+        - WAREHOUSE_STAFF: Almacenista. Inventario y compras.
+        - VIEWER: Solo lectura de reportes.
+
+    SaleStatus:
+      type: string
+      enum: [DRAFT, PENDING_PAYMENT, PAID, COMPLETED, CANCELLED, REFUNDED]
+      description: |
+        Transición estricta de la máquina de estados:
+        DRAFT → PENDING_PAYMENT → PAID → COMPLETED
+        PAID → REFUNDED
+        DRAFT | PENDING_PAYMENT → CANCELLED
+
+    PaymentMethodType:
+      type: string
+      enum: [CASH_MXN, SPEI, CODI, CARD_TPV, MIXED]
+      description: |
+        Métodos de pago en punto de venta (registro contable, NO pasarela):
+        - CASH_MXN: Efectivo en Pesos Mexicanos.
+        - SPEI: Transferencia interbancaria SPEI.
+        - CODI: Cobro digital Banxico (CoDi/Dimo).
+        - CARD_TPV: Terminal (Clip, Mercado Pago Point, Zettle).
+        - MIXED: Combinación de dos o más métodos.
+
+    InventoryMovementType:
+      type: string
+      enum:
+        - PURCHASE_IN
+        - SALE_OUT
+        - MANUAL_ADJUSTMENT_IN
+        - MANUAL_ADJUSTMENT_OUT
+        - TRANSFER_IN
+        - TRANSFER_OUT
+        - WASTE
+        - CUSTOMER_RETURN
+        - INITIAL_STOCK
+      description: Tipo de movimiento registrado en el Kardex.
+
+    PurchaseOrderStatus:
+      type: string
+      enum: [DRAFT, SENT, PARTIAL_RECEIVED, RECEIVED, CANCELLED]
+
+    CashSessionStatus:
+      type: string
+      enum: [OPEN, CLOSED]
+
+    CashBalanceResult:
+      type: string
+      enum: [EXACT, SHORT, OVER]
+      description: |
+        - EXACT: El físico coincide con el teórico.
+        - SHORT: Hay faltante (físico < teórico).
+        - OVER: Hay sobrante (físico > teórico).
+
+    SaasPaymentMethod:
+      type: string
+      enum: [SPEI_AUTO, SPEI_MANUAL, OXXO_PAY, MERCADO_PAGO, CARD_STRIPE, CASH_MANUAL]
+      description: |
+        Métodos de pago para suscripciones SaaS Nexus.
+        NO confundir con PaymentMethodType (ventas de mostrador).
+
+    SubscriptionInvoiceStatus:
+      type: string
+      enum: [PENDING, PAID, EXPIRED, CANCELLED]
+
+    EanSource:
+      type: string
+      enum: [SEED_CATALOG, COMMUNITY_VERIFIED, NOT_FOUND]
+      description: |
+        - SEED_CATALOG: Tier 1, catálogo semilla oficial GS1 México.
+        - COMMUNITY_VERIFIED: Tier 2, verificado por consenso de ≥3 comercios.
+        - NOT_FOUND: No existe en ningún catálogo.
+    # --- WRAPPERS DE RESPUESTA ESTÁNDAR ---
+
+    SuccessResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          description: Payload de respuesta. Varía por endpoint.
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Código de error en UPPER_SNAKE_CASE.
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: "Los datos proporcionados no son válidos."
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  issue:
+                    type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 254
+        page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 20
+        total_pages:
+          type: integer
+          example: 13
+    # --- ENTIDADES CORE ---
+
+    AuthTokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT de acceso. Duración 15 minutos.
+        refresh_token:
+          type: string
+          description: JWT de refresco. Duración 7 días.
+        token_type:
+          type: string
+          example: bearer
+        expires_in:
+          type: integer
+          description: Segundos hasta la expiración del access token.
+          example: 900
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        slug:
+          type: string
+          example: abarrotes-don-pepe
+        name:
+          type: string
+          example: "Abarrotes Don Pepe"
+        owner_name:
+          type: string
+          example: "José Ramírez"
+        phone:
+          type: string
+          nullable: true
+          example: "+52 55 1234 5678"
+        address:
+          type: string
+          nullable: true
+        plan:
+          $ref: '#/components/schemas/PlanType'
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        trial_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        subscription_renews_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    UserCreate:
+      type: object
+      required: [full_name, email, password, role]
+      properties:
+        full_name:
+          type: string
+          example: "María López"
+        email:
+          type: string
+          format: email
+          example: "cajera@donpepe.mx"
+        password:
+          type: string
+          format: password
+          minLength: 8
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    UserUpdate:
+      type: object
+      properties:
+        full_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        is_active:
+          type: boolean
+    # --- PRODUCTOS E INVENTARIO ---
+
+    Product:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        sku:
+          $ref: '#/components/schemas/SKU'
+        barcode:
+          type: string
+          nullable: true
+          example: "7501000010054"
+        name:
+          type: string
+          example: "Coca-Cola 600ml"
+        category:
+          type: string
+          example: "Bebidas"
+        price_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        cost_usd_import:
+          type: number
+          format: decimal
+          nullable: true
+          description: Costo en USD solo para mercancía importada (frontera norte).
+        stock:
+          type: integer
+          minimum: 0
+        reserved_stock:
+          type: integer
+          minimum: 0
+          description: Stock apartado en ventas PENDING_PAYMENT (TTL 15 min).
+        available_stock:
+          type: integer
+          description: stock - reserved_stock.
+        min_stock_alert:
+          type: integer
+          nullable: true
+          description: Umbral de alerta de stock bajo.
+        image_url:
+          type: string
+          format: uri
+          nullable: true
+        warehouse_id:
+          $ref: '#/components/schemas/UUID'
+        is_active:
+          type: boolean
+        is_on_catalog:
+          type: boolean
+          description: Visible en catálogo WhatsApp público.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ProductCreate:
+      type: object
+      required: [name, price_mxn]
+      description: |
+        Formulario minimalista de 3 campos vitales.
+        Solo name y price_mxn son obligatorios.
+        SKU se autogenera (NEX-XXXXX). Categoría por defecto: "General". Stock por defecto: 0.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: "Sabritas Original 45g"
+        price_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        stock:
+          type: integer
+          minimum: 0
+          default: 0
+        cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        barcode:
+          type: string
+          nullable: true
+        category:
+          type: string
+          default: "General"
+        min_stock_alert:
+          type: integer
+          minimum: 0
+          nullable: true
+        warehouse_id:
+          $ref: '#/components/schemas/UUID'
+        cost_usd_import:
+          type: number
+          format: decimal
+          nullable: true
+
+    ProductUpdate:
+      type: object
+      description: Todos los campos son opcionales en actualización parcial.
+      properties:
+        name:
+          type: string
+        price_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        category:
+          type: string
+        min_stock_alert:
+          type: integer
+          nullable: true
+        image_url:
+          type: string
+          format: uri
+          nullable: true
+        is_active:
+          type: boolean
+        is_on_catalog:
+          type: boolean
+
+    Warehouse:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+          example: "Almacén Principal"
+        description:
+          type: string
+          nullable: true
+        is_default:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    InventoryMovement:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        product_id:
+          $ref: '#/components/schemas/UUID'
+        warehouse_id:
+          $ref: '#/components/schemas/UUID'
+        movement_type:
+          $ref: '#/components/schemas/InventoryMovementType'
+        quantity:
+          type: integer
+          description: Positivo para entradas, negativo para salidas.
+        stock_before:
+          type: integer
+        stock_after:
+          type: integer
+        unit_cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        reference_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID del documento origen (sale_id, purchase_order_id, etc.).
+        reference_type:
+          type: string
+          nullable: true
+          enum: [SALE, PURCHASE, MANUAL, TRANSFER]
+        notes:
+          type: string
+          nullable: true
+        user_id:
+          $ref: '#/components/schemas/UUID'
+        created_at:
+          type: string
+          format: date-time
+
+    Combo:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+          example: "Combo Refresco + Botana"
+        price_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        is_active:
+          type: boolean
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                $ref: '#/components/schemas/UUID'
+              product_name:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+        created_at:
+          type: string
+          format: date-time
+    # --- VENTAS ---
+
+    SaleItem:
+      type: object
+      required: [quantity, unit_price_mxn]
+      properties:
+        product_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+          description: Null solo si is_on_the_fly es true.
+        quantity:
+          type: integer
+          minimum: 1
+        unit_price_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        unit_cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+          description: Costo congelado en el instante de la venta. Solo en respuesta.
+          readOnly: true
+        subtotal_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+          description: quantity * unit_price_mxn. Calculado por el servidor.
+          readOnly: true
+        is_on_the_fly:
+          type: boolean
+          default: false
+          description: true si el producto se creó al vuelo (Lazy Loading Just-in-Time).
+        on_the_fly_name:
+          type: string
+          nullable: true
+          description: Nombre del producto cuando is_on_the_fly es true.
+
+    SalePayment:
+      type: object
+      required: [method, amount_mxn]
+      properties:
+        method:
+          $ref: '#/components/schemas/PaymentMethodType'
+        amount_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        reference_code:
+          type: string
+          nullable: true
+          description: Clave de rastreo SPEI, número de autorización TPV, etc.
+          example: "BBVA230915001234"
+
+    Sale:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        folio:
+          type: string
+          example: "NV-2026-001547"
+        status:
+          $ref: '#/components/schemas/SaleStatus'
+        cashier_id:
+          $ref: '#/components/schemas/UUID'
+        cashier_name:
+          type: string
+        warehouse_id:
+          $ref: '#/components/schemas/UUID'
+        cash_session_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleItem'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalePayment'
+        subtotal_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        total_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        total_paid_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        change_given_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    # --- CAJA Y TESORERÍA ---
+
+    BanxicoDenominations:
+      type: object
+      description: Cono monetario oficial del Banco de México.
+      properties:
+        bills_1000:
+          type: integer
+          minimum: 0
+          default: 0
+        bills_500:
+          type: integer
+          minimum: 0
+          default: 0
+        bills_200:
+          type: integer
+          minimum: 0
+          default: 0
+        bills_100:
+          type: integer
+          minimum: 0
+          default: 0
+        bills_50:
+          type: integer
+          minimum: 0
+          default: 0
+        bills_20:
+          type: integer
+          minimum: 0
+          default: 0
+        coins_20:
+          type: integer
+          minimum: 0
+          default: 0
+        coins_10:
+          type: integer
+          minimum: 0
+          default: 0
+        coins_5:
+          type: integer
+          minimum: 0
+          default: 0
+        coins_2:
+          type: integer
+          minimum: 0
+          default: 0
+        coins_1:
+          type: integer
+          minimum: 0
+          default: 0
+        coins_050:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Monedas de $0.50 MXN.
+
+    CashSession:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        cashier_id:
+          $ref: '#/components/schemas/UUID'
+        cashier_name:
+          type: string
+        warehouse_id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          $ref: '#/components/schemas/CashSessionStatus'
+        opening_amount_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+          description: Fondo inicial al abrir el turno.
+        expected_cash_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+          description: Saldo teórico calculado (fondo + ventas efectivo - retiros).
+        physical_cash_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+          nullable: true
+          description: Efectivo físico contado al cerrar.
+        difference_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+          nullable: true
+          description: physical_cash - expected_cash. Negativo = faltante.
+        balance_result:
+          $ref: '#/components/schemas/CashBalanceResult'
+          nullable: true
+        denominations:
+          $ref: '#/components/schemas/BanxicoDenominations'
+          nullable: true
+        opened_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CashMovement:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        cash_session_id:
+          $ref: '#/components/schemas/UUID'
+        type:
+          type: string
+          enum: [WITHDRAWAL, DEPOSIT]
+          description: WITHDRAWAL = retiro de caja menor. DEPOSIT = entrada de cambio.
+        amount_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        description:
+          type: string
+          example: "Pago de hielo al proveedor"
+        authorized_by:
+          $ref: '#/components/schemas/UUID'
+        created_at:
+          type: string
+          format: date-time
+    # --- PROVEEDORES Y COMPRAS ---
+
+    Supplier:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+          example: "Distribuidora Bimbo Norte"
+        contact_name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        rfc:
+          type: string
+          nullable: true
+        balance_due_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        created_at:
+          type: string
+          format: date-time
+
+    PurchaseOrderItem:
+      type: object
+      required: [product_id, quantity, unit_cost_mxn]
+      properties:
+        product_id:
+          $ref: '#/components/schemas/UUID'
+        quantity:
+          type: integer
+          minimum: 1
+        unit_cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        quantity_received:
+          type: integer
+          minimum: 0
+          description: Cantidad efectivamente recibida (puede diferir de la ordenada).
+
+    PurchaseOrder:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        folio:
+          type: string
+          example: "OC-2026-000045"
+        supplier_id:
+          $ref: '#/components/schemas/UUID'
+        supplier_name:
+          type: string
+        warehouse_id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          $ref: '#/components/schemas/PurchaseOrderStatus'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseOrderItem'
+        total_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        is_credit:
+          type: boolean
+          description: true genera cuenta por pagar al proveedor.
+        expected_delivery_date:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    AccountPayable:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        supplier_id:
+          $ref: '#/components/schemas/UUID'
+        supplier_name:
+          type: string
+        purchase_order_id:
+          $ref: '#/components/schemas/UUID'
+        original_amount_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        paid_amount_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        balance_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        due_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [PENDING, PARTIAL, PAID, OVERDUE]
+        created_at:
+          type: string
+          format: date-time
+
+    # --- CATÁLOGO Y COMUNIDAD ---
+
+    SeedProductLookup:
+      type: object
+      properties:
+        barcode:
+          type: string
+          example: "7501000010054"
+        name:
+          type: string
+          example: "Coca-Cola 600ml"
+        category:
+          type: string
+          example: "Bebidas"
+        source:
+          $ref: '#/components/schemas/EanSource'
+        confidence_score:
+          type: integer
+          nullable: true
+          description: Score de consenso (solo COMMUNITY_VERIFIED, mínimo 3).
+
+    PublicCatalogProduct:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+        category:
+          type: string
+        price_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        image_url:
+          type: string
+          format: uri
+          nullable: true
+        is_available:
+          type: boolean
+          description: false si stock es 0.
+
+    WhatsappOrderRequest:
+      type: object
+      required: [customer_name, items]
+      properties:
+        customer_name:
+          type: string
+          example: "María González"
+        customer_phone:
+          type: string
+          nullable: true
+          example: "+52 55 9876 5432"
+        delivery_address:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id:
+                $ref: '#/components/schemas/UUID'
+              quantity:
+                type: integer
+                minimum: 1
+
+    # --- SAAS BILLING ---
+
+    SubscriptionInvoice:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        tenant_id:
+          $ref: '#/components/schemas/UUID'
+        plan:
+          $ref: '#/components/schemas/PlanType'
+        amount_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        payment_method:
+          $ref: '#/components/schemas/SaasPaymentMethod'
+        status:
+          $ref: '#/components/schemas/SubscriptionInvoiceStatus'
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        payment_reference:
+          type: string
+          nullable: true
+          description: Referencia SPEI, código OXXO o ID de cargo Mercado Pago.
+        clabe:
+          type: string
+          nullable: true
+          description: CLABE interbancaria dedicada para pago SPEI.
+        oxxo_reference:
+          type: string
+          nullable: true
+          description: Referencia de 14 dígitos para pagar en OXXO Pay.
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # --- ANALÍTICA ---
+
+    ProfitabilityReport:
+      type: object
+      properties:
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        total_revenue_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        total_cost_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        gross_profit_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        gross_margin_pct:
+          type: number
+          format: float
+          description: Porcentaje de margen bruto.
+          example: 32.5
+        top_products:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                $ref: '#/components/schemas/UUID'
+              product_name:
+                type: string
+              units_sold:
+                type: integer
+              revenue_mxn:
+                $ref: '#/components/schemas/AmountMXN'
+              profit_mxn:
+                $ref: '#/components/schemas/AmountMXN'
+
+    CommissionReport:
+      type: object
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/UUID'
+        employee_name:
+          type: string
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        total_sales_mxn:
+          $ref: '#/components/schemas/AmountMXN'
+        commission_rate_pct:
+          type: number
+          format: float
+        commission_earned_mxn:
+          $ref: '#/components/schemas/AmountMXN'

@@ -85,3 +85,6 @@ ENV/
 *~
 .DS_Store
 Thumbs.db
+
+#docs
+docs/architecture/registro_implementacion.md

@@ -1,0 +1,939 @@
+# =============================================================================
+# MÓDULO INVENTARIO — PRODUCTOS, STOCK, ALMACENES Y CATÁLOGO SEMILLA EAN
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # CRUD PRODUCTOS
+  # ---------------------------------------------------------------------------
+  /inventory/products:
+    get:
+      tags: [Inventario]
+      summary: Listar productos del inventario
+      description: |
+        Retorna la lista paginada de productos del tenant con filtros opcionales.
+        Incluye stock disponible (stock - reserved_stock) calculado en tiempo real.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - $ref: '../components.yaml#/components/parameters/SearchParam'
+        - $ref: '../components.yaml#/components/parameters/WarehouseIdParam'
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Filtrar por categoría exacta.
+        - name: low_stock
+          in: query
+          schema:
+            type: boolean
+          description: Si true, solo productos con stock <= min_stock_alert.
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Filtrar por productos activos/inactivos.
+        - name: barcode
+          in: query
+          schema:
+            type: string
+          description: Buscar por código de barras exacto.
+      responses:
+        '200':
+          description: Lista paginada de productos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/Product'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+
+    post:
+      tags: [Inventario]
+      summary: Crear producto (formulario minimalista de 3 campos vitales)
+      description: |
+        Crea un nuevo producto con el formulario minimalista.
+        
+        **Campos obligatorios:** Solo `name` y `price_mxn`.
+        **Autogenerados:** SKU con prefijo `NEX-`, categoría "General" por defecto.
+        **Stock inicial:** 0 por defecto.
+        
+        **Regla de 3 campos vitales:** El comerciante puede empezar a vender 
+        inmediatamente registrando solo nombre y precio. Los detalles adicionales 
+        se completan después (lazy loading).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components.yaml#/components/schemas/ProductCreate'
+      responses:
+        '201':
+          description: Producto creado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Product'
+              example:
+                success: true
+                data:
+                  id: "d1234567-89ab-cdef-0123-456789abcdef"
+                  sku: "NEX-A1B2C"
+                  name: "Sabritas Original 45g"
+                  category: "General"
+                  price_mxn: 16.50
+                  cost_mxn: 0.00
+                  stock: 0
+                  is_active: true
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '409':
+          description: Ya existe un producto con el mismo barcode.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: BARCODE_ALREADY_EXISTS
+                  message: "Ya tienes un producto registrado con ese código de barras."
+
+  /inventory/products/{id}:
+    get:
+      tags: [Inventario]
+      summary: Obtener detalle de un producto
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Detalle completo del producto.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Product'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    patch:
+      tags: [Inventario]
+      summary: Actualizar datos del producto
+      description: |
+        Actualización parcial de producto. Todos los campos son opcionales.
+        No se puede modificar el SKU (autogenerado) ni el stock (usar /adjust-stock).
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components.yaml#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: Producto actualizado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Product'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    delete:
+      tags: [Inventario]
+      summary: Desactivar producto (soft delete)
+      description: |
+        No elimina físicamente el producto. Cambia `is_active` a `false`.
+        El producto desactivado no aparece en búsquedas ni en POS, pero 
+        se mantiene en reportes históricos para auditoría.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Producto desactivado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+                            example: "Producto desactivado exitosamente."
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # AJUSTES DE STOCK
+  # ---------------------------------------------------------------------------
+  /inventory/products/{id}/adjust-stock:
+    post:
+      tags: [Inventario]
+      summary: Ajuste manual de stock (entrada o salida física)
+      description: |
+        Registra un movimiento manual de stock y lo guarda en el Kardex.
+        
+        **Tipos permitidos:**
+        - MANUAL_ADJUSTMENT_IN: Entrada manual (conteo físico, stock inicial).
+        - MANUAL_ADJUSTMENT_OUT: Salida manual (merma, robo, vencimiento).
+        - WASTE: Merma o producto dañado.
+        - INITIAL_STOCK: Stock inicial al dar de alta el producto.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [movement_type, quantity, reason]
+              properties:
+                movement_type:
+                  type: string
+                  enum: [MANUAL_ADJUSTMENT_IN, MANUAL_ADJUSTMENT_OUT, WASTE, INITIAL_STOCK]
+                quantity:
+                  type: integer
+                  minimum: 1
+                  example: 10
+                  description: Siempre positivo. El tipo determina si es entrada o salida.
+                reason:
+                  type: string
+                  maxLength: 200
+                  example: "Conteo físico mensual - faltaban 10 unidades"
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Si no se especifica, usa el almacén por defecto.
+      responses:
+        '200':
+          description: Stock ajustado y movimiento registrado en Kardex.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          product_id:
+                            type: string
+                            format: uuid
+                          stock_before:
+                            type: integer
+                          stock_after:
+                            type: integer
+                          movement_id:
+                            type: string
+                            format: uuid
+              example:
+                success: true
+                data:
+                  product_id: "d1234567-89ab-cdef-0123-456789abcdef"
+                  stock_before: 48
+                  stock_after: 58
+                  movement_id: "aa000001-0000-0000-0000-000000000001"
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: El stock resultante sería negativo.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: NEGATIVE_STOCK_NOT_ALLOWED
+                  message: "El ajuste resultaría en stock negativo (-5). Stock actual: 3."
+
+  # ---------------------------------------------------------------------------
+  # TRASLADOS ENTRE ALMACENES
+  # ---------------------------------------------------------------------------
+  /inventory/products/{id}/transfer:
+    post:
+      tags: [Inventario]
+      summary: Trasladar stock entre almacenes
+      description: |
+        Traslada cantidad de producto de un almacén a otro.
+        Solo disponible en Plan COMERCIO y CORPORATIVO (multi-almacén).
+        
+        **Operación atómica:** Descuenta del origen y suma al destino en una sola transacción.
+        **Kardex:** Registra TRANSFER_OUT en origen y TRANSFER_IN en destino.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_warehouse_id, to_warehouse_id, quantity]
+              properties:
+                from_warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Almacén origen del stock.
+                to_warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Almacén destino del stock.
+                quantity:
+                  type: integer
+                  minimum: 1
+                  example: 12
+                notes:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  example: "Reabastecimiento de mostrador desde bodega"
+      responses:
+        '200':
+          description: Traslado registrado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          transfer_out_movement_id:
+                            type: string
+                            format: uuid
+                          transfer_in_movement_id:
+                            type: string
+                            format: uuid
+                          quantity_transferred:
+                            type: integer
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '403':
+          description: Plan actual no permite multi-almacén.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: MULTI_WAREHOUSE_NOT_AVAILABLE
+                  message: "Tu plan EMPRENDEDOR no incluye multi-almacén. Actualiza a COMERCIO."
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+        '422':
+          description: Stock insuficiente en almacén origen.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INSUFFICIENT_STOCK_FOR_TRANSFER
+                  message: "Stock insuficiente en 'Bodega Principal'. Disponible: 8, solicitado: 12."
+  # ---------------------------------------------------------------------------
+  # HISTORIAL KARDEX
+  # ---------------------------------------------------------------------------
+  /inventory/products/{id}/movements:
+    get:
+      tags: [Inventario]
+      summary: Historial de movimientos Kardex de un producto
+      description: |
+        Retorna el historial completo de entradas y salidas de un producto específico.
+        Útil para auditoría de stock y análisis de rotación.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - $ref: '../components.yaml#/components/parameters/DateFromParam'
+        - $ref: '../components.yaml#/components/parameters/DateToParam'
+        - name: movement_type
+          in: query
+          schema:
+            $ref: '../components.yaml#/components/schemas/InventoryMovementType'
+          description: Filtrar por tipo de movimiento específico.
+      responses:
+        '200':
+          description: Historial paginado de movimientos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/InventoryMovement'
+                      meta:
+                        $ref: '../components.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # BÚSQUEDA EAN CATÁLOGO SEMILLA
+  # ---------------------------------------------------------------------------
+  /inventory/lookup-ean/{barcode}:
+    get:
+      tags: [Inventario]
+      summary: Consultar código de barras EAN (catálogo semilla + comunidad)
+      description: |
+        Búsqueda ultra-rápida en el motor de dos niveles (Two-Tier Engine):
+        
+        **Tier 1 (Catálogo Semilla):** Base offline con Top 1,000-2,000 productos 
+        de abarrotes líderes en México (Bimbo, Coca-Cola, Sabritas, etc.).
+        
+        **Tier 2 (Red Comunitaria):** Productos verificados por consenso automático 
+        de ≥3 comercios independientes con similitud > 80%.
+        
+        **Rendimiento objetivo:** Respuesta en < 5ms.
+        **Sin autenticación:** Endpoint público para usar en escáner de cámara.
+      security: []
+      parameters:
+        - name: barcode
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Código EAN-13, UPC-A, Code128 u otro formato estándar.
+          example: "7501000010054"
+      responses:
+        '200':
+          description: Información del producto encontrada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/SeedProductLookup'
+              example:
+                success: true
+                data:
+                  barcode: "7501000010054"
+                  name: "Coca-Cola 600ml"
+                  category: "Bebidas"
+                  source: "SEED_CATALOG"
+                  confidence_score: null
+        '404':
+          description: Código no encontrado en ningún catálogo.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: BARCODE_NOT_FOUND
+                  message: "Código de barras no encontrado. Puedes registrarlo manualmente."
+
+  # ---------------------------------------------------------------------------
+  # IMPORTACIÓN EXCEL/CSV
+  # ---------------------------------------------------------------------------
+  /inventory/import:
+    post:
+      tags: [Inventario]
+      summary: Importar productos desde archivo Excel/CSV con mapeo dinámico
+      description: |
+        Acepta cualquier archivo .xlsx o .csv con un diccionario de mapeo de columnas.
+        **No se requiere plantilla rígida.**
+        
+        **Mapeo de columnas:** JSON string que indica qué columna del archivo 
+        corresponde a cada campo del producto.
+        
+        **Procesamiento:** Se valida cada fila antes de insertar. Las filas con 
+        errores se reportan pero no bloquean la importación del resto.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, column_mapping]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Archivo Excel (.xlsx) o CSV (.csv).
+                column_mapping:
+                  type: string
+                  description: |
+                    JSON string con el mapeo de columnas del archivo.
+                    Ejemplo: {"col_name":"A","col_price":"C","col_stock":"D","col_cost":"E","col_barcode":"B"}
+                  example: '{"col_name":"A","col_price":"C","col_stock":"D"}'
+                warehouse_id:
+                  type: string
+                  format: uuid
+                  description: Almacén destino del stock importado.
+                override_existing:
+                  type: boolean
+                  default: false
+                  description: Si true, actualiza productos existentes por barcode/SKU.
+      responses:
+        '200':
+          description: Importación completada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total_rows:
+                            type: integer
+                            description: Total de filas procesadas.
+                          imported:
+                            type: integer
+                            description: Productos creados exitosamente.
+                          updated:
+                            type: integer
+                            description: Productos actualizados (si override_existing=true).
+                          skipped:
+                            type: integer
+                            description: Filas omitidas por errores.
+                          errors:
+                            type: array
+                            description: Detalles de errores por fila.
+                            items:
+                              type: object
+                              properties:
+                                row:
+                                  type: integer
+                                issue:
+                                  type: string
+              example:
+                success: true
+                data:
+                  total_rows: 120
+                  imported: 115
+                  updated: 0
+                  skipped: 5
+                  errors:
+                    - row: 23
+                      issue: "El precio '15.ABC' no es un número válido."
+                    - row: 78
+                      issue: "Nombre de producto vacío."
+        '400':
+          description: Archivo inválido o mapeo incorrecto.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_FILE_FORMAT
+                  message: "El archivo no es un Excel o CSV válido."
+        '403':
+          $ref: '../components.yaml#/components/responses/Forbidden'
+        '422':
+          description: El archivo no puede procesarse con el mapeo proporcionado.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # COMBOS Y PROMOCIONES
+  # ---------------------------------------------------------------------------
+  /inventory/combos:
+    get:
+      tags: [Inventario]
+      summary: Listar combos y promociones activas
+      description: |
+        Retorna los combos configurados para venta.
+        Un combo es un conjunto de productos que se venden a precio único,
+        descontando automáticamente el stock de cada componente individual.
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/PageParam'
+        - $ref: '../components.yaml#/components/parameters/PageSizeParam'
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Lista de combos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/Combo'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+    post:
+      tags: [Inventario]
+      summary: Crear combo/promoción
+      description: |
+        Crea un nuevo combo con múltiples productos a precio único.
+        
+        **Validaciones:**
+        - Mínimo 2 productos en el combo.
+        - Todos los productos deben tener stock suficiente para la venta.
+        - El precio del combo debe ser menor al precio suma de componentes individuales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, price_mxn, items]
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+                  example: "Combo Refresco + Botana"
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                price_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                items:
+                  type: array
+                  minItems: 2
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      product_id:
+                        type: string
+                        format: uuid
+                      quantity:
+                        type: integer
+                        minimum: 1
+      responses:
+        '201':
+          description: Combo creado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Combo'
+        '400':
+          $ref: '../components.yaml#/components/responses/BadRequest'
+        '422':
+          description: Algún producto del combo no tiene stock suficiente.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INSUFFICIENT_STOCK_FOR_COMBO
+                  message: "El producto 'Sabritas Original 45g' no tiene stock suficiente para el combo."
+
+  /inventory/combos/{id}:
+    patch:
+      tags: [Inventario]
+      summary: Actualizar combo
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                  nullable: true
+                price_mxn:
+                  $ref: '../components.yaml#/components/schemas/AmountMXN'
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Combo actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Combo'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../components.yaml#/components/responses/NotFound'
+
+    delete:
+      tags: [Inventario]
+      summary: Desactivar combo
+      parameters:
+        - $ref: '../components.yaml#/components/parameters/UUIDPath'
+      responses:
+        '200':
+          description: Combo desactivado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+                            example: "Combo desactivado exitosamente."
+
+  # ---------------------------------------------------------------------------
+  # GESTIÓN DE ALMACENES
+  # ---------------------------------------------------------------------------
+  /inventory/warehouses:
+    get:
+      tags: [Inventario]
+      summary: Listar almacenes del comercio
+      responses:
+        '200':
+          description: Lista de almacenes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '../components.yaml#/components/schemas/Warehouse'
+        '401':
+          $ref: '../components.yaml#/components/responses/Unauthorized'
+
+    post:
+      tags: [Inventario]
+      summary: Crear nuevo almacén
+      description: |
+        Crea un nuevo almacén para el tenant.
+        Solo disponible en Plan COMERCIO y CORPORATIVO.
+        
+        **Límites por plan:**
+        - EMPRENDEDOR: Solo 1 almacén (no permite crear adicionales).
+        - COMERCIO: Hasta 5 almacenes.
+        - CORPORATIVO: Almacenes ilimitados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+                  example: "Bodega Trasera"
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  example: "Almacén de mercancía de lento movimiento"
+      responses:
+        '201':
+          description: Almacén creado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '../components.yaml#/components/schemas/Warehouse'
+        '403':
+          description: Plan actual no permite más almacenes.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: WAREHOUSE_LIMIT_EXCEEDED
+                  message: "Tu plan EMPRENDEDOR permite solo 1 almacén. Actualiza a COMERCIO."
+        '422':
+          $ref: '../components.yaml#/components/responses/UnprocessableEntity'
+
+  # ---------------------------------------------------------------------------
+  # CLONACIÓN DE CATÁLOGO
+  # ---------------------------------------------------------------------------
+  /inventory/clone-catalog:
+    post:
+      tags: [Inventario]
+      summary: Clonar catálogo hacia nueva sucursal o tienda aliada
+      description: |
+        Duplica la estructura de productos (nombres, SKUs, categorías, precios) 
+        hacia otro tenant con stock inicial en 0.
+        
+        **Solo disponible en Plan CORPORATIVO.**
+        **Casos de uso:** Abrir nueva sucursal o compartir catálogo con tienda aliada.
+        
+        **Se clona:** Nombres, categorías, precios, SKUs, códigos de barras.
+        **NO se clona:** Stock, movimientos Kardex, imágenes, costos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_tenant_id]
+              properties:
+                target_tenant_id:
+                  type: string
+                  format: uuid
+                  description: Tenant destino donde se clonará el catálogo.
+                include_prices:
+                  type: boolean
+                  default: true
+                  description: Si false, los precios se clonan en $0.00.
+                include_categories:
+                  type: boolean
+                  default: true
+                  description: Si false, todas las categorías se asignan como "General".
+                filter_category:
+                  type: string
+                  nullable: true
+                  description: Solo clonar productos de una categoría específica.
+      responses:
+        '200':
+          description: Catálogo clonado exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '../components.yaml#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          products_cloned:
+                            type: integer
+                            example: 214
+                          target_tenant_id:
+                            type: string
+                            format: uuid
+                          cloned_at:
+                            type: string
+                            format: date-time
+              example:
+                success: true
+                data:
+                  products_cloned: 214
+                  target_tenant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                  cloned_at: "2026-09-15T14:30:00Z"
+        '403':
+          description: Plan actual no incluye clonación de catálogos.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CATALOG_CLONING_NOT_AVAILABLE
+                  message: "La clonación de catálogos solo está disponible en el plan CORPORATIVO."
+        '404':
+          description: Tenant destino no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '../components.yaml#/components/schemas/ErrorResponse'

@@ -1,0 +1,187 @@
+openapi: 3.1.0
+
+info:
+  title: Nexus API — Sistema de Gestión Comercial Modular
+  version: 3.0.0-MX
+  description: |
+    API oficial del sistema Nexus v3.0 para el mercado retail minorista en México.
+
+    ## Principios del contrato
+    - Moneda base nativa **MXN** en todos los campos financieros.
+    - Arquitectura **Multi-tenant** con aislamiento por `tenant_id` (RLS PostgreSQL).
+    - IDs públicos en **UUID v4**. No se exponen IDs secuenciales internos.
+    - Enums en **UPPER_SNAKE_CASE**.
+    - Endpoints en **kebab-case** (ej: `/api/v1/cash/close-session`).
+    - El sistema actúa como **registro contable**. NO valida fondos bancarios automáticamente.
+    - NO integración con CFDI 4.0 / SAT en esta fase del MVP.
+    - Contraseñas con hashing **bcrypt/argon2**. Jamás en texto plano.
+
+    ## Módulos del sistema
+    - **Auth & Tenancy:** Autenticación, usuarios, comercios, permisos RBAC.
+    - **Inventario:** Productos, almacenes, stock, combos, catálogo semilla EAN-13.
+    - **Ventas & POS:** Punto de venta, checkout transaccional, lazy loading just-in-time.
+    - **Caja & Tesorería:** Sesiones de caja, arqueo con cono Banxico, movimientos.
+    - **Compras:** Órdenes de compra, proveedores, cuentas por pagar, recepción.
+    - **Catálogo WhatsApp:** Vitrina pública, pedidos estructurados por WhatsApp.
+    - **SaaS Billing:** Suscripciones, webhooks SPEI/OXXO, ciclo de vida (ACTIVE/SOFT_LOCK/HARD_LOCK).
+    - **Red Comunitaria:** Motor de consenso automático ≥3 comercios, clonación de catálogos.
+    - **Analítica:** KPIs, rentabilidad histórica, comisiones, reportes configurables.
+
+  contact:
+    name: Fundadores Nexus — Alan y Eduardo
+    email: contacto@nexus.mx
+
+servers:
+  - url: https://api.nexus.mx/api/v1
+    description: Producción (VPS Hetzner/Contabo)
+  - url: http://localhost:8000/api/v1
+    description: Desarrollo local
+  - url: https://staging.nexus.mx/api/v1
+    description: Staging
+
+security:
+  - BearerAuth: []
+
+# Importación de componentes reutilizables (schemas, respuestas, parámetros)
+components:
+  $ref: './components.yaml#/components'
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 1: AUTH & TENANCY
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    $ref: './auth.yaml#/paths/~1auth~1register'
+  /auth/login:
+    $ref: './auth.yaml#/paths/~1auth~1login'
+  /auth/refresh:
+    $ref: './auth.yaml#/paths/~1auth~1refresh'
+  /auth/logout:
+    $ref: './auth.yaml#/paths/~1auth~1logout'
+  /auth/me:
+    $ref: './auth.yaml#/paths/~1auth~1me'
+  /tenants/users:
+    $ref: './auth.yaml#/paths/~1tenants~1users'
+  /tenants/users/{id}:
+    $ref: './auth.yaml#/paths/~1tenants~1users~1{id}'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 2: INVENTARIO
+  # ---------------------------------------------------------------------------
+  /inventory/products:
+    $ref: './inventory.yaml#/paths/~1inventory~1products'
+  /inventory/products/{id}:
+    $ref: './inventory.yaml#/paths/~1inventory~1products~1{id}'
+  /inventory/products/{id}/adjust-stock:
+    $ref: './inventory.yaml#/paths/~1inventory~1products~1{id}~1adjust-stock'
+  /inventory/products/{id}/transfer:
+    $ref: './inventory.yaml#/paths/~1inventory~1products~1{id}~1transfer'
+  /inventory/products/{id}/movements:
+    $ref: './inventory.yaml#/paths/~1inventory~1products~1{id}~1movements'
+  /inventory/lookup-ean/{barcode}:
+    $ref: './inventory.yaml#/paths/~1inventory~1lookup-ean~1{barcode}'
+  /inventory/import:
+    $ref: './inventory.yaml#/paths/~1inventory~1import'
+  /inventory/combos:
+    $ref: './inventory.yaml#/paths/~1inventory~1combos'
+  /inventory/combos/{id}:
+    $ref: './inventory.yaml#/paths/~1inventory~1combos~1{id}'
+  /inventory/warehouses:
+    $ref: './inventory.yaml#/paths/~1inventory~1warehouses'
+  /inventory/clone-catalog:
+    $ref: './inventory.yaml#/paths/~1inventory~1clone-catalog'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 3: VENTAS & POS
+  # ---------------------------------------------------------------------------
+  /sales:
+    $ref: './sales.yaml#/paths/~1sales'
+  /sales/checkout:
+    $ref: './sales.yaml#/paths/~1sales~1checkout'
+  /sales/{id}:
+    $ref: './sales.yaml#/paths/~1sales~1{id}'
+  /sales/{id}/cancel:
+    $ref: './sales.yaml#/paths/~1sales~1{id}~1cancel'
+  /sales/{id}/refund:
+    $ref: './sales.yaml#/paths/~1sales~1{id}~1refund'
+  /sales/{id}/receipt:
+    $ref: './sales.yaml#/paths/~1sales~1{id}~1receipt'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 4: CAJA & TESORERÍA
+  # ---------------------------------------------------------------------------
+  /cash/sessions:
+    $ref: './cash.yaml#/paths/~1cash~1sessions'
+  /cash/open-session:
+    $ref: './cash.yaml#/paths/~1cash~1open-session'
+  /cash/close-session:
+    $ref: './cash.yaml#/paths/~1cash~1close-session'
+  /cash/sessions/{id}:
+    $ref: './cash.yaml#/paths/~1cash~1sessions~1{id}'
+  /cash/sessions/{id}/movements:
+    $ref: './cash.yaml#/paths/~1cash~1sessions~1{id}~1movements'
+  /cash/sessions/{id}/report:
+    $ref: './cash.yaml#/paths/~1cash~1sessions~1{id}~1report'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 5: COMPRAS & PROVEEDORES
+  # ---------------------------------------------------------------------------
+  /purchases/suppliers:
+    $ref: './purchases.yaml#/paths/~1purchases~1suppliers'
+  /purchases/suppliers/{id}:
+    $ref: './purchases.yaml#/paths/~1purchases~1suppliers~1{id}'
+  /purchases/orders:
+    $ref: './purchases.yaml#/paths/~1purchases~1orders'
+  /purchases/orders/{id}:
+    $ref: './purchases.yaml#/paths/~1purchases~1orders~1{id}'
+  /purchases/orders/{id}/receive:
+    $ref: './purchases.yaml#/paths/~1purchases~1orders~1{id}~1receive'
+  /purchases/parse-receipt:
+    $ref: './purchases.yaml#/paths/~1purchases~1parse-receipt'
+  /purchases/accounts-payable:
+    $ref: './purchases.yaml#/paths/~1purchases~1accounts-payable'
+  /purchases/accounts-payable/{id}/pay:
+    $ref: './purchases.yaml#/paths/~1purchases~1accounts-payable~1{id}~1pay'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 6: CATÁLOGO WHATSAPP
+  # ---------------------------------------------------------------------------
+  /catalog/{tenant_slug}:
+    $ref: './catalog.yaml#/paths/~1catalog~1{tenant_slug}'
+  /catalog/{tenant_slug}/whatsapp-order:
+    $ref: './catalog.yaml#/paths/~1catalog~1{tenant_slug}~1whatsapp-order'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 7: SAAS BILLING
+  # ---------------------------------------------------------------------------
+  /saas/subscription:
+    $ref: './saas.yaml#/paths/~1saas~1subscription'
+  /saas/subscription/checkout:
+    $ref: './saas.yaml#/paths/~1saas~1subscription~1checkout'
+  /saas/webhooks/spei:
+    $ref: './saas.yaml#/paths/~1saas~1webhooks~1spei'
+  /saas/webhooks/oxxo:
+    $ref: './saas.yaml#/paths/~1saas~1webhooks~1oxxo'
+  /saas/invoices:
+    $ref: './saas.yaml#/paths/~1saas~1invoices'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 8: RED COMUNITARIA
+  # ---------------------------------------------------------------------------
+  /community/submit-product:
+    $ref: './community.yaml#/paths/~1community~1submit-product'
+  /community/verified-catalog:
+    $ref: './community.yaml#/paths/~1community~1verified-catalog'
+
+  # ---------------------------------------------------------------------------
+  # MÓDULO 9: ANALÍTICA
+  # ---------------------------------------------------------------------------
+  /analytics/dashboard:
+    $ref: './analytics.yaml#/paths/~1analytics~1dashboard'
+  /analytics/profitability:
+    $ref: './analytics.yaml#/paths/~1analytics~1profitability'
+  /analytics/top-products:
+    $ref: './analytics.yaml#/paths/~1analytics~1top-products'
+  /analytics/commissions:
+    $ref: './analytics.yaml#/paths/~1analytics~1commissions'
