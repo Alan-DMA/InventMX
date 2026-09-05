@@ -1,0 +1,52 @@
+name: nexus_app
+description: Nexus v3.0 — Sistema de Gestión Comercial para Retail México
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Estado ---
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # --- Navegación ---
+  go_router: ^13.2.0
+
+  # --- Red / HTTP ---
+  dio: ^5.4.3
+
+  # --- Almacenamiento local ---
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_secure_storage: ^9.0.0
+
+  # --- Tipografía ---
+  google_fonts: ^6.2.1
+
+  # --- Utilidades ---
+  equatable: ^2.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # --- Generación de código Riverpod ---
+  build_runner: ^2.4.9
+  riverpod_generator: ^2.4.3
+  custom_lint: 0.7.6
+  riverpod_lint: ^2.3.13
+
+  # --- Análisis estático ---
+  flutter_lints: ^3.0.0
+
+  # --- Tests ---
+  mocktail: ^1.0.4
+  hive_test: ^1.0.1
+
+flutter:
+  uses-material-design: true
