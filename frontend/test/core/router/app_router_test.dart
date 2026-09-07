@@ -69,7 +69,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(LoginScreen), findsNothing);
         expect(find.byType(OnboardingWizardScreen), findsNothing);
-        expect(find.text('Dashboard — próximas tareas'), findsOneWidget);
+        // Con el nuevo ShellRoute, el dashboard muestra el NavigationBar
+        expect(find.byType(NavigationBar), findsOneWidget);
       },
     );
   });
