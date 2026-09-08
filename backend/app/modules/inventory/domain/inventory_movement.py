@@ -30,6 +30,8 @@ class MovementType(str, enum.Enum):
     """
     PURCHASE_ENTRY = "PURCHASE_ENTRY"        # Entrada por recepción de orden de compra a proveedor
     SALE_EXIT = "SALE_EXIT"                  # Salida por venta cobrada en punto de venta (POS)
+    SALE_CANCEL = "SALE_CANCEL"              # Reincorporación de stock por anulación/cancelación de venta
+    SALE_RETURN = "SALE_RETURN"              # Devolución física de mercancía por el cliente
     ADJUSTMENT_IN = "ADJUSTMENT_IN"          # Ajuste manual positivo por conteo físico o sobrante
     ADJUSTMENT_OUT = "ADJUSTMENT_OUT"        # Ajuste manual negativo por corrección o faltante
     TRANSFER_IN = "TRANSFER_IN"              # Entrada a almacén destino por traslado interno
@@ -43,28 +45,30 @@ class InventoryMovement(Base):
     """
     Modelo de Dominio para el Libro Mayor de Kardex (inventory_movements).
     Es una tabla de auditoría inmutable append-only que registra cada cambio físico
-    de existencias con fecha, usuario responsable, almacén y costo unitario en MXN.
+    en las existencias de un producto en un almacén determinado (RF-05 / Const. Art. 7.1).
     """
-    # Nombre de la tabla física en PostgreSQL
+    # Nombre de la tabla en base de datos
     __tablename__ = "inventory_movements"
-    # Configuración del esquema específico
-    __table_args__ = {"schema": "inventmx"}
+    # Argumentos de tabla y esquema
+    __table_args__ = (
+        {"schema": "inventmx"},
+    )
 
-    # Identificador único UUID del movimiento
+    # Identificador único UUID del asiento en el Kardex
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-        doc="Identificador único del movimiento de Kardex",
+        doc="Identificador único inmutable del asiento en Kardex",
     )
 
-    # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
+    # Identificador del inquilino (Tenant) para aislamiento multi-tenant RLS
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="Clave foránea hacia el comercio dueño del registro",
+        doc="ID del inquilino propietario del movimiento",
     )
 
     # Identificador del producto afectado
@@ -73,110 +77,107 @@ class InventoryMovement(Base):
         ForeignKey("inventmx.products.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="Clave foránea hacia el producto",
+        doc="ID del producto físico afectado",
     )
 
-    # Identificador del almacén donde ocurre la mutación
+    # Identificador del almacén o sucursal donde ocurrió la alteración
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("inventmx.warehouses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
-        doc="Clave foránea hacia el almacén afectado",
+        doc="ID del almacén físico donde se registró la alteración",
     )
 
-    # Almacén de origen (opcional, aplicable en traslados)
+    # Identificador opcional del almacén de origen en caso de traslados
     from_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("inventmx.warehouses.id", ondelete="SET NULL"),
         nullable=True,
-        doc="Almacén de origen en traslados internos",
+        doc="ID del almacén origen en traslados internos",
     )
 
-    # Almacén de destino (opcional, aplicable en traslados)
+    # Identificador opcional del almacén de destino en caso de traslados
     to_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("inventmx.warehouses.id", ondelete="SET NULL"),
         nullable=True,
-        doc="Almacén de destino en traslados internos",
+        doc="ID del almacén destino en traslados internos",
     )
 
-    # Usuario o empleado que autorizó o ejecutó la operación
+    # Identificador del usuario que ejecutó o autorizó el movimiento
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("inventmx.users.id", ondelete="SET NULL"),
         nullable=True,
-        doc="Identificador del usuario responsable",
+        index=True,
+        doc="ID del usuario responsable de la transacción",
     )
 
-    # Clasificación estandarizada del movimiento de inventario
+    # Tipo de movimiento catalogado
     movement_type: Mapped[MovementType] = mapped_column(
-        SQLEnum(MovementType, name="movement_type_enum", schema="inventmx"),
+        SQLEnum(MovementType, name="movement_type_enum", schema="inventmx", native_enum=True),
         nullable=False,
-        doc="Tipo de operación en Kardex",
+        index=True,
+        doc="Naturaleza contable del movimiento físico",
     )
 
-    # Cantidad movida (positiva o negativa según el flujo)
+    # Cantidad alterada (Positiva para entradas, Negativa para salidas)
     quantity: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
+        Numeric(12, 3),
         nullable=False,
-        doc="Cantidad física ingresada o retirada del almacén",
+        doc="Magnitud del movimiento (con signo algebraico)",
     )
 
-    # Saldo anterior de existencias en el almacén antes de la operación
+    # Existencia física previa al movimiento
     previous_stock: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
+        Numeric(12, 3),
         nullable=False,
-        doc="Saldo previo de existencias antes del movimiento",
+        doc="Saldo de existencias antes de aplicar el movimiento",
     )
 
-    # Saldo resultante de existencias tras aplicar la operación
+    # Nueva existencia física resultante tras el movimiento
     new_stock: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
+        Numeric(12, 3),
         nullable=False,
-        doc="Saldo resultante de existencias después del movimiento",
+        doc="Saldo de existencias después de aplicar el movimiento",
     )
 
-    # Costo unitario histórico en Pesos Mexicanos al momento del movimiento
+    # Costo unitario promedio histórico en Pesos Mexicanos ($ MXN)
     unit_cost_mxn: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         default=Decimal("0.00"),
         nullable=False,
-        doc="Costo de adquisición unitario congelado en MXN",
+        doc="Costo unitario promedio valuado en Pesos Mexicanos al momento del asiento",
     )
 
-    # Identificador de referencia externa (ID de venta, ID de compra o ID de reserva)
+    # Identificador del documento o entidad origen (Venta ID, Compra ID, Traslado ID)
     reference_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
-        doc="UUID de la transacción externa asociada",
+        index=True,
+        doc="UUID de referencia al documento de origen",
     )
 
-    # Notas, justificación o motivo del ajuste
+    # Motivo, nota u observación explicativa
     notes: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
-        doc="Observaciones o justificación operativa",
+        doc="Motivo detallado o justificación del movimiento",
     )
 
-    # Estampa de tiempo inmutable del movimiento
+    # Estampa de tiempo inmutable del registro
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
         index=True,
-        doc="Estampa de tiempo del asiento contable en Kardex",
+        doc="Estampa de tiempo del asiento contable",
     )
 
-    # Relación directa con el Producto
-    product: Mapped["Product"] = relationship(
-        "Product",
-        doc="Producto vinculado a este asiento de Kardex",
-    )
-
-    # Relación directa con el Almacén
-    warehouse: Mapped["Warehouse"] = relationship(
-        "Warehouse",
-        foreign_keys=[warehouse_id],
-        doc="Almacén principal de este movimiento",
-    )
+    # Relaciones ORM
+    product: Mapped["Product"] = relationship("Product", foreign_keys=[product_id], lazy="selectin")
+    warehouse: Mapped["Warehouse"] = relationship("Warehouse", foreign_keys=[warehouse_id], lazy="selectin")
+    from_warehouse: Mapped[Optional["Warehouse"]] = relationship("Warehouse", foreign_keys=[from_warehouse_id], lazy="selectin")
+    to_warehouse: Mapped[Optional["Warehouse"]] = relationship("Warehouse", foreign_keys=[to_warehouse_id], lazy="selectin")
+    user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], lazy="selectin")
