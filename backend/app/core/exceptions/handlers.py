@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from app.core.exceptions.base import AppException
@@ -30,7 +31,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": "VALIDATION_ERROR",
                     "message": "Error de validación en los datos enviados",
-                    "details": exc.errors(),
+                    "details": jsonable_encoder(exc.errors()),
                 },
             },
         )

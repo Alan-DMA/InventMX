@@ -50,15 +50,20 @@ async def get_current_user(
     if payload.get("type") != "access":
         raise UnauthorizedException("El token proporcionado no es un token de acceso válido.")
 
-    # 4. Extraer el subject (UUID del usuario)
+    # 4. Extraer el subject (UUID del usuario) y tenant_id
     user_id_str = payload.get("sub")
+    tenant_id_str = payload.get("tenant_id")
     if not user_id_str:
         raise UnauthorizedException("Token inválido: falta identificador de usuario.")
 
     try:
         user_uuid = uuid.UUID(user_id_str)
+        if tenant_id_str:
+            tenant_uuid = uuid.UUID(tenant_id_str)
+            # Inyección anticipada del contexto RLS para permitir la lectura del usuario
+            await set_tenant_context(db, tenant_uuid)
     except ValueError:
-        raise UnauthorizedException("Identificador de usuario inválido en token.")
+        raise UnauthorizedException("Identificador inválido en token.")
 
     # 5. Consultar el usuario en la base de datos con rol y permisos cargados
     user_repo = UserRepository(db)
@@ -76,7 +81,7 @@ async def get_current_user(
     if not tenant:
         raise UnauthorizedException("El comercio asociado al usuario no existe.")
 
-    # 8. Inyección estricta de contexto RLS en PostgreSQL para la petición en curso
+    # 8. Reconfirmación de contexto RLS con el tenant_id del usuario verificado
     await set_tenant_context(db, user.tenant_id)
 
     return user
