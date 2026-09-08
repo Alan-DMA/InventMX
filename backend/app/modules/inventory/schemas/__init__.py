@@ -4,12 +4,28 @@ from app.modules.inventory.schemas.category import (
     CategoryResponse,
     CategoryUpdate,
 )
+from app.modules.inventory.schemas.combo import (
+    ComboCreate,
+    ComboItemCreate,
+    ComboItemResponse,
+    ComboResponse,
+    ComboUpdate,
+)
+from app.modules.inventory.schemas.movement import (
+    InventoryMovementResponse,
+    StockAdjustmentCreate,
+    StockTransferCreate,
+)
 from app.modules.inventory.schemas.product import (
     ProductCreateVital,
     ProductListItem,
     ProductResponse,
     ProductStockResponse,
     ProductUpdate,
+)
+from app.modules.inventory.schemas.reservation import (
+    StockReservationCreate,
+    StockReservationResponse,
 )
 from app.modules.inventory.schemas.warehouse import (
     WarehouseCreate,
@@ -29,4 +45,14 @@ __all__ = [
     "ProductResponse",
     "ProductListItem",
     "ProductStockResponse",
+    "ComboCreate",
+    "ComboUpdate",
+    "ComboResponse",
+    "ComboItemCreate",
+    "ComboItemResponse",
+    "StockAdjustmentCreate",
+    "StockTransferCreate",
+    "InventoryMovementResponse",
+    "StockReservationCreate",
+    "StockReservationResponse",
 ]

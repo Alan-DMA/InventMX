@@ -1,3 +1,5 @@
+# Importación del módulo datetime y timedelta para cálculo de expiraciones
+from datetime import datetime, timedelta, timezone
 # Importación del módulo decimal para cálculos monetarios y porcentajes
 from decimal import Decimal
 # Importación de tipado estático
@@ -5,7 +7,9 @@ from typing import List, Optional
 # Importación de UUID para identificación de entidades
 import uuid
 # Importación de la sesión asíncrona de SQLAlchemy
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 # Importación de utilidades de base de datos e inyección RLS
 from app.core.database.session import set_tenant_context
@@ -18,14 +22,42 @@ from app.core.exceptions.base import (
 # Importación de modelos de dominio
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.inventory.domain.category import Category
+from app.modules.inventory.domain.combo import Combo, ComboItem
+from app.modules.inventory.domain.inventory_movement import (
+    InventoryMovement,
+    MovementType,
+)
 from app.modules.inventory.domain.product import Product
+from app.modules.inventory.domain.product_stock import ProductStock
+from app.modules.inventory.domain.stock_reservation import (
+    ReservationStatus,
+    StockReservation,
+)
 from app.modules.inventory.domain.warehouse import Warehouse
+
 # Importación de repositorios de datos
 from app.modules.inventory.repositories.category_repository import CategoryRepository
+from app.modules.inventory.repositories.combo_repository import ComboRepository
+from app.modules.inventory.repositories.movement_repository import MovementRepository
 from app.modules.inventory.repositories.product_repository import ProductRepository
+from app.modules.inventory.repositories.reservation_repository import (
+    ReservationRepository,
+)
 from app.modules.inventory.repositories.warehouse_repository import WarehouseRepository
+
 # Importación de esquemas Pydantic
 from app.modules.inventory.schemas.category import CategoryCreate, CategoryResponse
+from app.modules.inventory.schemas.combo import (
+    ComboCreate,
+    ComboItemResponse,
+    ComboResponse,
+    ComboUpdate,
+)
+from app.modules.inventory.schemas.movement import (
+    InventoryMovementResponse,
+    StockAdjustmentCreate,
+    StockTransferCreate,
+)
 from app.modules.inventory.schemas.product import (
     ProductCreateVital,
     ProductListItem,
@@ -33,14 +65,18 @@ from app.modules.inventory.schemas.product import (
     ProductStockResponse,
     ProductUpdate,
 )
+from app.modules.inventory.schemas.reservation import (
+    StockReservationCreate,
+    StockReservationResponse,
+)
 from app.modules.inventory.schemas.warehouse import WarehouseCreate, WarehouseResponse
 
 
 class InventoryService:
     """
-    Servicio de lógica de negocio para el Módulo de Inventario y Catálogo (Core).
-    Implementa la regla de los 3 Campos Vitales (SR-08 / Const. Art. 7.3), autogeneración de SKU,
-    soporte multi-almacén, cálculo de margen comercial en MXN y búsquedas de alta velocidad.
+    Servicio integral de lógica de negocio para el Módulo de Inventario, Catálogo, Combos y Kardex.
+    Implementa la regla de los 3 Campos Vitales (SR-08), consistencia ACID en Kardex inmutable (Const. Art. 7.1),
+    promociones y combos (RF-03), traslados multi-almacén (RF-07) y stock reservado con TTL de 15 min (RF-06).
     """
 
     def __init__(self, db: AsyncSession):
@@ -50,25 +86,23 @@ class InventoryService:
         self.product_repo = ProductRepository(db)
         self.category_repo = CategoryRepository(db)
         self.warehouse_repo = WarehouseRepository(db)
+        self.combo_repo = ComboRepository(db)
+        self.movement_repo = MovementRepository(db)
+        self.reservation_repo = ReservationRepository(db)
 
     def _build_product_response(self, product: Product) -> ProductResponse:
         """
         Método auxiliar para construir la respuesta completa de un Producto
         calculando existencias acumuladas, alertas de stock bajo y margen comercial en MXN.
         """
-        # Calcular existencias físicas totales sumando todos los almacenes
         total_stock = sum((s.current_stock for s in product.stocks), Decimal("0.00"))
-
-        # Determinar si el producto se encuentra en nivel crítico de stock
         is_low_stock = total_stock <= product.min_stock_alert
 
-        # Calcular margen de ganancia bruto: ((Precio - Costo) / Precio) * 100
         margin_percentage: Optional[Decimal] = None
         if product.price_mxn > Decimal("0.00"):
             profit = product.price_mxn - product.cost_mxn
             margin_percentage = Decimal(round((profit / product.price_mxn) * Decimal("100.00"), 2))
 
-        # Construir desglose de existencias por almacén
         stocks_response: List[ProductStockResponse] = [
             ProductStockResponse(
                 id=s.id,
@@ -80,7 +114,6 @@ class InventoryService:
             for s in product.stocks
         ]
 
-        # Retornar DTO de respuesta con datos enriquecidos
         return ProductResponse(
             id=product.id,
             tenant_id=product.tenant_id,
@@ -103,8 +136,55 @@ class InventoryService:
             updated_at=product.updated_at,
         )
 
+    def _build_combo_response(self, combo: Combo) -> ComboResponse:
+        """
+        Construye la respuesta completa de un Combo calculando el número máximo de paquetes
+        que pueden armarse en base a las existencias físicas actuales de cada componente (RF-03).
+        """
+        items_response: List[ComboItemResponse] = []
+        possible_combos_list: List[Decimal] = []
+
+        for item in combo.items:
+            prod = item.product
+            # Calcular existencias totales del producto
+            prod_stock = sum((s.current_stock for s in prod.stocks), Decimal("0.00")) if prod.stocks else Decimal("0.00")
+            
+            # Cantidad de combos que se pueden armar con las existencias de este producto
+            if item.quantity > Decimal("0.00"):
+                max_combos_for_item = prod_stock // item.quantity
+                possible_combos_list.append(max_combos_for_item)
+
+            items_response.append(
+                ComboItemResponse(
+                    id=item.id,
+                    product_id=item.product_id,
+                    product_name=prod.name if prod else "Desconocido",
+                    quantity=item.quantity,
+                    product_price_mxn=prod.price_mxn if prod else Decimal("0.00"),
+                )
+            )
+
+        # El stock vendible del combo es el cuello de botella (mínimo de todos sus componentes)
+        available_combos = min(possible_combos_list) if possible_combos_list else Decimal("0.00")
+
+        return ComboResponse(
+            id=combo.id,
+            tenant_id=combo.tenant_id,
+            name=combo.name,
+            description=combo.description,
+            price_mxn=combo.price_mxn,
+            sku=combo.sku,
+            barcode=combo.barcode,
+            image_url=combo.image_url,
+            is_active=combo.is_active,
+            available_combos=available_combos,
+            items=items_response,
+            created_at=combo.created_at,
+            updated_at=combo.updated_at,
+        )
+
     # -------------------------------------------------------------------------
-    # GESTIÓN DE PRODUCTOS (3 CAMPOS VITALES Y CRUD COMPLETO)
+    # GESTIÓN DE PRODUCTOS (3 CAMPOS VITALES Y CRUD)
     # -------------------------------------------------------------------------
 
     async def create_product_vital(
@@ -115,15 +195,11 @@ class InventoryService:
         1. name (Nombre)
         2. price_mxn (Precio en Pesos Mexicanos)
         3. initial_stock (Existencias iniciales)
-        Autogenera el SKU ('NEX-XXXXX'), asigna la categoría 'General' y el almacén principal.
         """
-        # Extraer ID del comercio para evitar lazy-loading
         tenant_id = current_user.tenant_id
-
-        # Asegurar contexto RLS en PostgreSQL
         await set_tenant_context(self.db, tenant_id)
 
-        # 1. Validar categoría o asignar categoría por defecto 'General'
+        # 1. Validar o asignar categoría 'General'
         category_id = data.category_id
         if category_id is None:
             default_category = await self.category_repo.get_or_create_default(tenant_id)
@@ -133,7 +209,7 @@ class InventoryService:
             if not category or category.tenant_id != tenant_id:
                 raise NotFoundException(f"La categoría con ID '{category_id}' no existe.")
 
-        # 2. Validar almacén o asignar almacén principal por defecto
+        # 2. Validar o asignar almacén principal
         warehouse_id = data.warehouse_id
         if warehouse_id is None:
             default_warehouse = await self.warehouse_repo.get_or_create_default(tenant_id)
@@ -160,7 +236,7 @@ class InventoryService:
             if existing_barcode:
                 raise ConflictException(f"El código de barras '{final_barcode}' ya existe en el producto '{existing_barcode.name}'.")
 
-        # 5. Inserción atómica del producto y de sus existencias iniciales (Campo Vital 3)
+        # 5. Inserción atómica del producto y de sus existencias iniciales
         created_product = await self.product_repo.create_with_stock(
             tenant_id=tenant_id,
             name=data.name.strip(),
@@ -177,10 +253,23 @@ class InventoryService:
             is_active=True,
         )
 
-        # Persistir la transacción
+        # 6. Registrar asiento inicial en Kardex si initial_stock > 0
+        if data.initial_stock > Decimal("0.00"):
+            await self.movement_repo.record_movement(
+                tenant_id=tenant_id,
+                product_id=created_product.id,
+                warehouse_id=warehouse_id,
+                movement_type=MovementType.ADJUSTMENT_IN,
+                quantity=data.initial_stock,
+                previous_stock=Decimal("0.00"),
+                new_stock=data.initial_stock,
+                unit_cost_mxn=data.cost_mxn or Decimal("0.00"),
+                user_id=current_user.id,
+                notes="Inventario inicial registrado en alta de producto",
+            )
+
         await self.db.commit()
 
-        # Recargar producto con relaciones frescas
         await set_tenant_context(self.db, tenant_id)
         reloaded_product = await self.product_repo.get_by_id(created_product.id)
         if not reloaded_product:
@@ -198,14 +287,9 @@ class InventoryService:
         skip: int = 0,
         limit: int = 100,
     ) -> List[ProductResponse]:
-        """
-        Retorna el listado de productos del comercio aplicando filtros por categoría,
-        estado activo, búsqueda por texto/código de barras y filtro de stock crítico.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
 
-        # Consultar productos desde el repositorio
         products = await self.product_repo.list_products(
             tenant_id=tenant_id,
             category_id=category_id,
@@ -215,10 +299,8 @@ class InventoryService:
             limit=limit,
         )
 
-        # Mapear y calcular campos enriquecidos para cada producto
         responses = [self._build_product_response(p) for p in products]
 
-        # Filtrar por stock bajo si fue solicitado
         if is_low_stock is True:
             responses = [r for r in responses if r.is_low_stock]
 
@@ -227,9 +309,6 @@ class InventoryService:
     async def get_product_by_id(
         self, product_id: uuid.UUID, current_user: User
     ) -> ProductResponse:
-        """
-        Obtiene el detalle completo de un producto verificando pertenencia al tenant.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
 
@@ -242,18 +321,13 @@ class InventoryService:
     async def update_product(
         self, product_id: uuid.UUID, data: ProductUpdate, current_user: User
     ) -> ProductResponse:
-        """
-        Actualiza los datos de un producto (nombre, precio MXN, costo, SKU, categoría, etc.).
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
 
-        # Consultar producto
         product = await self.product_repo.get_by_id(product_id)
         if not product or product.tenant_id != tenant_id:
             raise NotFoundException(f"Producto con ID '{product_id}' no encontrado.")
 
-        # Validar SKU si se modifica
         if data.sku is not None:
             clean_sku = data.sku.strip()
             if clean_sku != product.sku:
@@ -261,7 +335,6 @@ class InventoryService:
                 if existing_sku and existing_sku.id != product_id:
                     raise ConflictException(f"El código SKU '{clean_sku}' ya está en uso por otro producto.")
 
-        # Validar código de barras si se modifica
         if data.barcode is not None:
             clean_barcode = data.barcode.strip()
             if clean_barcode != product.barcode:
@@ -269,13 +342,11 @@ class InventoryService:
                 if existing_barcode and existing_barcode.id != product_id:
                     raise ConflictException(f"El código de barras '{clean_barcode}' ya está en uso.")
 
-        # Validar categoría si se modifica
         if data.category_id is not None:
             category = await self.category_repo.get_by_id(data.category_id)
             if not category or category.tenant_id != tenant_id:
                 raise NotFoundException(f"La categoría con ID '{data.category_id}' no existe.")
 
-        # Actualizar campos
         await self.product_repo.update(
             product=product,
             name=data.name.strip() if data.name else None,
@@ -290,10 +361,8 @@ class InventoryService:
             is_active=data.is_active,
         )
 
-        # Persistir cambios
         await self.db.commit()
 
-        # Recargar entidad
         await set_tenant_context(self.db, tenant_id)
         reloaded = await self.product_repo.get_by_id(product.id)
         if not reloaded:
@@ -302,9 +371,6 @@ class InventoryService:
         return self._build_product_response(reloaded)
 
     async def delete_product(self, product_id: uuid.UUID, current_user: User) -> None:
-        """
-        Elimina físicamente un producto del catálogo maestro.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
 
@@ -316,13 +382,635 @@ class InventoryService:
         await self.db.commit()
 
     # -------------------------------------------------------------------------
-    # GESTIÓN DE CATEGORÍAS
+    # GESTIÓN DE COMBOS / PROMOCIONES (RF-03)
+    # -------------------------------------------------------------------------
+
+    async def create_combo(self, data: ComboCreate, current_user: User) -> ComboResponse:
+        """
+        Crea una nueva promoción o combo en Pesos Mexicanos (RF-03).
+        Valida que todos los productos componentes existan y pertenezcan al tenant.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        # 1. Validar que cada producto componente pertenezca al comercio
+        for item in data.items:
+            prod = await self.product_repo.get_by_id(item.product_id)
+            if not prod or prod.tenant_id != tenant_id:
+                raise NotFoundException(f"El producto componente con ID '{item.product_id}' no existe en tu catálogo.")
+
+        # 2. Generar o validar SKU del combo
+        if data.sku:
+            clean_sku = data.sku.strip()
+            existing_sku = await self.combo_repo.get_by_sku(clean_sku, tenant_id)
+            if existing_sku:
+                raise ConflictException(f"El código SKU '{clean_sku}' ya está registrado para otro combo.")
+            final_sku = clean_sku
+        else:
+            final_sku = await self.product_repo.generate_unique_sku(tenant_id)
+
+        # 3. Validar código de barras si fue provisto
+        final_barcode = data.barcode.strip() if data.barcode else None
+        if final_barcode:
+            existing_barcode = await self.combo_repo.get_by_barcode(final_barcode, tenant_id)
+            if existing_barcode:
+                raise ConflictException(f"El código de barras '{final_barcode}' ya existe en la promoción '{existing_barcode.name}'.")
+
+        # 4. Crear el combo y sus ítems
+        combo = await self.combo_repo.create(
+            tenant_id=tenant_id,
+            name=data.name.strip(),
+            price_mxn=data.price_mxn,
+            sku=final_sku,
+            items_data=data.items,
+            description=data.description.strip() if data.description else None,
+            barcode=final_barcode,
+            image_url=data.image_url,
+            is_active=True,
+        )
+
+        await self.db.commit()
+
+        # Recargar con relaciones
+        await set_tenant_context(self.db, tenant_id)
+        reloaded = await self.combo_repo.get_by_id(combo.id)
+        if not reloaded:
+            raise NotFoundException("Error al recargar el combo recién creado.")
+
+        return self._build_combo_response(reloaded)
+
+    async def list_combos(
+        self, current_user: User, is_active: Optional[bool] = None, skip: int = 0, limit: int = 100
+    ) -> List[ComboResponse]:
+        """
+        Retorna la lista de combos del comercio con cálculo de paquetes disponibles.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        combos = await self.combo_repo.list_by_tenant(
+            tenant_id=tenant_id, is_active=is_active, skip=skip, limit=limit
+        )
+        return [self._build_combo_response(c) for c in combos]
+
+    async def get_combo_by_id(self, combo_id: uuid.UUID, current_user: User) -> ComboResponse:
+        """
+        Obtiene el detalle de un combo por su UUID.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        combo = await self.combo_repo.get_by_id(combo_id)
+        if not combo or combo.tenant_id != tenant_id:
+            raise NotFoundException(f"Combo con ID '{combo_id}' no encontrado.")
+
+        return self._build_combo_response(combo)
+
+    async def update_combo(
+        self, combo_id: uuid.UUID, data: ComboUpdate, current_user: User
+    ) -> ComboResponse:
+        """
+        Actualiza los datos o la composición de productos de un combo.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        combo = await self.combo_repo.get_by_id(combo_id)
+        if not combo or combo.tenant_id != tenant_id:
+            raise NotFoundException(f"Combo con ID '{combo_id}' no encontrado.")
+
+        # Validar componentes si se actualizan
+        if data.items is not None:
+            for item in data.items:
+                prod = await self.product_repo.get_by_id(item.product_id)
+                if not prod or prod.tenant_id != tenant_id:
+                    raise NotFoundException(f"El producto componente '{item.product_id}' no existe.")
+
+        await self.combo_repo.update(
+            combo=combo,
+            name=data.name.strip() if data.name else None,
+            description=data.description.strip() if data.description else None,
+            price_mxn=data.price_mxn,
+            sku=data.sku.strip() if data.sku else None,
+            barcode=data.barcode.strip() if data.barcode else None,
+            image_url=data.image_url,
+            is_active=data.is_active,
+            items_data=data.items,
+        )
+
+        await self.db.commit()
+
+        await set_tenant_context(self.db, tenant_id)
+        reloaded = await self.combo_repo.get_by_id(combo.id)
+        return self._build_combo_response(reloaded)
+
+    async def delete_combo(self, combo_id: uuid.UUID, current_user: User) -> None:
+        """
+        Elimina físicamente un combo del catálogo.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        combo = await self.combo_repo.get_by_id(combo_id)
+        if not combo or combo.tenant_id != tenant_id:
+            raise NotFoundException(f"Combo con ID '{combo_id}' no encontrado.")
+
+        await self.combo_repo.delete(combo)
+        await self.db.commit()
+
+    # -------------------------------------------------------------------------
+    # OPERACIONES DE ALMACÉN, AJUSTES Y TRASLADOS (RF-05, RF-07)
+    # -------------------------------------------------------------------------
+
+    async def adjust_stock(
+        self, data: StockAdjustmentCreate, current_user: User
+    ) -> InventoryMovementResponse:
+        """
+        Ajuste físico manual de existencias (+ Entrada / - Salida o Merma).
+        Garantiza consistencia ACID y genera un asiento inmutable en el Kardex (Const. Art. 7.1).
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        # 1. Validar producto
+        product = await self.product_repo.get_by_id(data.product_id)
+        if not product or product.tenant_id != tenant_id:
+            raise NotFoundException(f"Producto con ID '{data.product_id}' no encontrado.")
+
+        # 2. Validar almacén
+        warehouse = await self.warehouse_repo.get_by_id(data.warehouse_id)
+        if not warehouse or warehouse.tenant_id != tenant_id:
+            raise NotFoundException(f"Almacén con ID '{data.warehouse_id}' no encontrado.")
+
+        # 3. Buscar o inicializar registro de existencias en el almacén
+        stmt = select(ProductStock).where(
+            ProductStock.tenant_id == tenant_id,
+            ProductStock.product_id == data.product_id,
+            ProductStock.warehouse_id == data.warehouse_id,
+        )
+        res = await self.db.execute(stmt)
+        stock = res.scalar_one_or_none()
+
+        if not stock:
+            stock = ProductStock(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                product_id=data.product_id,
+                warehouse_id=data.warehouse_id,
+                current_stock=Decimal("0.00"),
+                reserved_stock=Decimal("0.00"),
+            )
+            self.db.add(stock)
+            await self.db.flush()
+
+        previous_stock = stock.current_stock
+        new_stock = previous_stock + data.quantity
+
+        # Impedir existencias negativas
+        if new_stock < Decimal("0.00"):
+            raise BadRequestException(
+                f"El ajuste solicitado provocaría existencias negativas ({new_stock} piezas). "
+                f"Existencias actuales en almacén: {previous_stock} piezas."
+            )
+
+        # Actualizar existencias
+        stock.current_stock = new_stock
+
+        # Determinar tipo de movimiento
+        if data.movement_type:
+            m_type = data.movement_type
+        else:
+            m_type = MovementType.ADJUSTMENT_IN if data.quantity > Decimal("0.00") else MovementType.ADJUSTMENT_OUT
+
+        unit_cost = data.unit_cost_mxn if data.unit_cost_mxn is not None else product.cost_mxn
+
+        # 4. Asiento inmutable en Kardex
+        movement = await self.movement_repo.record_movement(
+            tenant_id=tenant_id,
+            product_id=data.product_id,
+            warehouse_id=data.warehouse_id,
+            movement_type=m_type,
+            quantity=data.quantity,
+            previous_stock=previous_stock,
+            new_stock=new_stock,
+            unit_cost_mxn=unit_cost,
+            user_id=current_user.id,
+            notes=data.notes,
+        )
+
+        await self.db.commit()
+
+        return InventoryMovementResponse(
+            id=movement.id,
+            tenant_id=movement.tenant_id,
+            product_id=movement.product_id,
+            product_name=product.name,
+            warehouse_id=movement.warehouse_id,
+            warehouse_name=warehouse.name,
+            from_warehouse_id=None,
+            to_warehouse_id=None,
+            user_id=movement.user_id,
+            movement_type=movement.movement_type,
+            quantity=movement.quantity,
+            previous_stock=movement.previous_stock,
+            new_stock=movement.new_stock,
+            unit_cost_mxn=movement.unit_cost_mxn,
+            reference_id=movement.reference_id,
+            notes=movement.notes,
+            created_at=movement.created_at,
+        )
+
+    async def transfer_stock(
+        self, data: StockTransferCreate, current_user: User
+    ) -> List[InventoryMovementResponse]:
+        """
+        Traslado atómico de existencias entre dos almacenes del mismo comercio (RF-07).
+        Genera un doble asiento en Kardex: TRANSFER_OUT en origen y TRANSFER_IN en destino.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        # 1. Validar producto
+        product = await self.product_repo.get_by_id(data.product_id)
+        if not product or product.tenant_id != tenant_id:
+            raise NotFoundException(f"Producto con ID '{data.product_id}' no encontrado.")
+
+        # 2. Validar almacenes origen y destino
+        from_wh = await self.warehouse_repo.get_by_id(data.from_warehouse_id)
+        if not from_wh or from_wh.tenant_id != tenant_id:
+            raise NotFoundException(f"Almacén origen con ID '{data.from_warehouse_id}' no encontrado.")
+
+        to_wh = await self.warehouse_repo.get_by_id(data.to_warehouse_id)
+        if not to_wh or to_wh.tenant_id != tenant_id:
+            raise NotFoundException(f"Almacén destino con ID '{data.to_warehouse_id}' no encontrado.")
+
+        # 3. Validar existencias disponibles en almacén origen
+        stmt_from = select(ProductStock).where(
+            ProductStock.tenant_id == tenant_id,
+            ProductStock.product_id == data.product_id,
+            ProductStock.warehouse_id == data.from_warehouse_id,
+        )
+        res_from = await self.db.execute(stmt_from)
+        stock_from = res_from.scalar_one_or_none()
+
+        available_in_origin = (stock_from.current_stock - stock_from.reserved_stock) if stock_from else Decimal("0.00")
+        if available_in_origin < data.quantity:
+            raise BadRequestException(
+                f"Existencias insuficientes en almacén '{from_wh.name}'. "
+                f"Disponible para transferir: {available_in_origin}, Solicitado: {data.quantity}"
+            )
+
+        # 4. Obtener o crear existencias en almacén destino
+        stmt_to = select(ProductStock).where(
+            ProductStock.tenant_id == tenant_id,
+            ProductStock.product_id == data.product_id,
+            ProductStock.warehouse_id == data.to_warehouse_id,
+        )
+        res_to = await self.db.execute(stmt_to)
+        stock_to = res_to.scalar_one_or_none()
+
+        if not stock_to:
+            stock_to = ProductStock(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                product_id=data.product_id,
+                warehouse_id=data.to_warehouse_id,
+                current_stock=Decimal("0.00"),
+                reserved_stock=Decimal("0.00"),
+            )
+            self.db.add(stock_to)
+            await self.db.flush()
+
+        # 5. Mutación de saldos
+        from_prev = stock_from.current_stock
+        from_new = from_prev - data.quantity
+        stock_from.current_stock = from_new
+
+        to_prev = stock_to.current_stock
+        to_new = to_prev + data.quantity
+        stock_to.current_stock = to_new
+
+        transfer_ref_id = uuid.uuid4()
+
+        # 6. Asiento contable de Salida (TRANSFER_OUT)
+        mov_out = await self.movement_repo.record_movement(
+            tenant_id=tenant_id,
+            product_id=data.product_id,
+            warehouse_id=data.from_warehouse_id,
+            from_warehouse_id=data.from_warehouse_id,
+            to_warehouse_id=data.to_warehouse_id,
+            movement_type=MovementType.TRANSFER_OUT,
+            quantity=-data.quantity,
+            previous_stock=from_prev,
+            new_stock=from_new,
+            unit_cost_mxn=product.cost_mxn,
+            user_id=current_user.id,
+            reference_id=transfer_ref_id,
+            notes=data.notes or f"Traslado hacia {to_wh.name}",
+        )
+
+        # 7. Asiento contable de Entrada (TRANSFER_IN)
+        mov_in = await self.movement_repo.record_movement(
+            tenant_id=tenant_id,
+            product_id=data.product_id,
+            warehouse_id=data.to_warehouse_id,
+            from_warehouse_id=data.from_warehouse_id,
+            to_warehouse_id=data.to_warehouse_id,
+            movement_type=MovementType.TRANSFER_IN,
+            quantity=data.quantity,
+            previous_stock=to_prev,
+            new_stock=to_new,
+            unit_cost_mxn=product.cost_mxn,
+            user_id=current_user.id,
+            reference_id=transfer_ref_id,
+            notes=data.notes or f"Recepción desde {from_wh.name}",
+        )
+
+        await self.db.commit()
+
+        return [
+            InventoryMovementResponse(
+                id=mov_out.id,
+                tenant_id=tenant_id,
+                product_id=product.id,
+                product_name=product.name,
+                warehouse_id=from_wh.id,
+                warehouse_name=from_wh.name,
+                from_warehouse_id=from_wh.id,
+                to_warehouse_id=to_wh.id,
+                user_id=current_user.id,
+                movement_type=mov_out.movement_type,
+                quantity=mov_out.quantity,
+                previous_stock=mov_out.previous_stock,
+                new_stock=mov_out.new_stock,
+                unit_cost_mxn=mov_out.unit_cost_mxn,
+                reference_id=transfer_ref_id,
+                notes=mov_out.notes,
+                created_at=mov_out.created_at,
+            ),
+            InventoryMovementResponse(
+                id=mov_in.id,
+                tenant_id=tenant_id,
+                product_id=product.id,
+                product_name=product.name,
+                warehouse_id=to_wh.id,
+                warehouse_name=to_wh.name,
+                from_warehouse_id=from_wh.id,
+                to_warehouse_id=to_wh.id,
+                user_id=current_user.id,
+                movement_type=mov_in.movement_type,
+                quantity=mov_in.quantity,
+                previous_stock=mov_in.previous_stock,
+                new_stock=mov_in.new_stock,
+                unit_cost_mxn=mov_in.unit_cost_mxn,
+                reference_id=transfer_ref_id,
+                notes=mov_in.notes,
+                created_at=mov_in.created_at,
+            ),
+        ]
+
+    # -------------------------------------------------------------------------
+    # CONSULTA DE KARDEX INMUTABLE (RF-05)
+    # -------------------------------------------------------------------------
+
+    async def list_movements(
+        self,
+        current_user: User,
+        product_id: Optional[uuid.UUID] = None,
+        warehouse_id: Optional[uuid.UUID] = None,
+        movement_type: Optional[MovementType] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[InventoryMovementResponse]:
+        """
+        Consulta el historial de movimientos de inventario con filtros de auditoría.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        movements = await self.movement_repo.list_movements(
+            tenant_id=tenant_id,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            movement_type=movement_type,
+            skip=skip,
+            limit=limit,
+        )
+
+        return [
+            InventoryMovementResponse(
+                id=m.id,
+                tenant_id=m.tenant_id,
+                product_id=m.product_id,
+                product_name=m.product.name if m.product else "Desconocido",
+                warehouse_id=m.warehouse_id,
+                warehouse_name=m.warehouse.name if m.warehouse else "Desconocido",
+                from_warehouse_id=m.from_warehouse_id,
+                to_warehouse_id=m.to_warehouse_id,
+                user_id=m.user_id,
+                movement_type=m.movement_type,
+                quantity=m.quantity,
+                previous_stock=m.previous_stock,
+                new_stock=m.new_stock,
+                unit_cost_mxn=m.unit_cost_mxn,
+                reference_id=m.reference_id,
+                notes=m.notes,
+                created_at=m.created_at,
+            )
+            for m in movements
+        ]
+
+    # -------------------------------------------------------------------------
+    # GESTIÓN DE APARTADOS / STOCK RESERVADO TTL 15 MIN (RF-06)
+    # -------------------------------------------------------------------------
+
+    async def create_reservation(
+        self, data: StockReservationCreate, current_user: User
+    ) -> StockReservationResponse:
+        """
+        Crea un apartado temporal de existencias (TTL de 15 min).
+        Evita colisiones de venta entre cajeros en mostrador (RF-06).
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        # 1. Validar producto
+        product = await self.product_repo.get_by_id(data.product_id)
+        if not product or product.tenant_id != tenant_id:
+            raise NotFoundException(f"Producto con ID '{data.product_id}' no encontrado.")
+
+        # 2. Validar existencias disponibles en el almacén
+        stmt = select(ProductStock).where(
+            ProductStock.tenant_id == tenant_id,
+            ProductStock.product_id == data.product_id,
+            ProductStock.warehouse_id == data.warehouse_id,
+        )
+        res = await self.db.execute(stmt)
+        stock = res.scalar_one_or_none()
+
+        available_stock = (stock.current_stock - stock.reserved_stock) if stock else Decimal("0.00")
+        if available_stock < data.quantity:
+            raise BadRequestException(
+                f"Existencias insuficientes para apartar. Disponible: {available_stock}, Solicitado: {data.quantity}"
+            )
+
+        # 3. Incrementar existencias reservadas
+        stock.reserved_stock += data.quantity
+
+        # 4. Calcular estampa de tiempo de expiración TTL
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=data.ttl_minutes)
+
+        # 5. Registrar reserva
+        reservation = await self.reservation_repo.create(
+            tenant_id=tenant_id,
+            product_id=data.product_id,
+            warehouse_id=data.warehouse_id,
+            quantity=data.quantity,
+            expires_at=expires_at,
+            reference_id=data.reference_id,
+        )
+
+        # 6. Registrar asiento de retención en Kardex
+        await self.movement_repo.record_movement(
+            tenant_id=tenant_id,
+            product_id=data.product_id,
+            warehouse_id=data.warehouse_id,
+            movement_type=MovementType.RESERVATION_HOLD,
+            quantity=data.quantity,
+            previous_stock=stock.current_stock,
+            new_stock=stock.current_stock,
+            unit_cost_mxn=product.cost_mxn,
+            user_id=current_user.id,
+            reference_id=reservation.id,
+            notes=f"Apartado temporal (TTL {data.ttl_minutes} min)",
+        )
+
+        await self.db.commit()
+
+        return StockReservationResponse(
+            id=reservation.id,
+            tenant_id=reservation.tenant_id,
+            product_id=reservation.product_id,
+            product_name=product.name,
+            warehouse_id=reservation.warehouse_id,
+            quantity=reservation.quantity,
+            status=reservation.status,
+            reference_id=reservation.reference_id,
+            expires_at=reservation.expires_at,
+            created_at=reservation.created_at,
+        )
+
+    async def release_reservation(
+        self, reservation_id: uuid.UUID, current_user: User
+    ) -> StockReservationResponse:
+        """
+        Libera explícitamente un apartado activo (ej. cancelación de venta en carrito).
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        reservation = await self.reservation_repo.get_by_id(reservation_id)
+        if not reservation or reservation.tenant_id != tenant_id:
+            raise NotFoundException(f"Reserva con ID '{reservation_id}' no encontrada.")
+
+        if reservation.status != ReservationStatus.PENDING:
+            raise BadRequestException(f"La reserva ya se encuentra en estado '{reservation.status.value}'.")
+
+        # Revertir existencias reservadas
+        stmt = select(ProductStock).where(
+            ProductStock.tenant_id == tenant_id,
+            ProductStock.product_id == reservation.product_id,
+            ProductStock.warehouse_id == reservation.warehouse_id,
+        )
+        res = await self.db.execute(stmt)
+        stock = res.scalar_one_or_none()
+        if stock:
+            stock.reserved_stock = max(Decimal("0.00"), stock.reserved_stock - reservation.quantity)
+
+        # Actualizar estado a RELEASED
+        await self.reservation_repo.update_status(reservation, ReservationStatus.RELEASED)
+
+        # Registrar asiento en Kardex
+        await self.movement_repo.record_movement(
+            tenant_id=tenant_id,
+            product_id=reservation.product_id,
+            warehouse_id=reservation.warehouse_id,
+            movement_type=MovementType.RESERVATION_RELEASE,
+            quantity=-reservation.quantity,
+            previous_stock=stock.current_stock if stock else Decimal("0.00"),
+            new_stock=stock.current_stock if stock else Decimal("0.00"),
+            unit_cost_mxn=Decimal("0.00"),
+            user_id=current_user.id,
+            reference_id=reservation.id,
+            notes="Liberación manual de apartado de stock",
+        )
+
+        await self.db.commit()
+
+        return StockReservationResponse(
+            id=reservation.id,
+            tenant_id=reservation.tenant_id,
+            product_id=reservation.product_id,
+            product_name=reservation.product.name if reservation.product else "Desconocido",
+            warehouse_id=reservation.warehouse_id,
+            quantity=reservation.quantity,
+            status=reservation.status,
+            reference_id=reservation.reference_id,
+            expires_at=reservation.expires_at,
+            created_at=reservation.created_at,
+        )
+
+    async def cleanup_expired_reservations(self) -> int:
+        """
+        Worker / Cron job para liberar automáticamente apartados cuyo TTL de 15 min ha expirado (RF-06).
+        """
+        now = datetime.now(timezone.utc)
+        expired_list = await self.reservation_repo.get_expired_pending(now)
+        count = 0
+
+        for r in expired_list:
+            await set_tenant_context(self.db, r.tenant_id)
+
+            # Revertir stock reservado
+            stmt = select(ProductStock).where(
+                ProductStock.tenant_id == r.tenant_id,
+                ProductStock.product_id == r.product_id,
+                ProductStock.warehouse_id == r.warehouse_id,
+            )
+            res = await self.db.execute(stmt)
+            stock = res.scalar_one_or_none()
+            if stock:
+                stock.reserved_stock = max(Decimal("0.00"), stock.reserved_stock - r.quantity)
+
+            # Marcar como EXPIRED
+            await self.reservation_repo.update_status(r, ReservationStatus.EXPIRED)
+
+            # Registrar en Kardex
+            await self.movement_repo.record_movement(
+                tenant_id=r.tenant_id,
+                product_id=r.product_id,
+                warehouse_id=r.warehouse_id,
+                movement_type=MovementType.RESERVATION_RELEASE,
+                quantity=-r.quantity,
+                previous_stock=stock.current_stock if stock else Decimal("0.00"),
+                new_stock=stock.current_stock if stock else Decimal("0.00"),
+                unit_cost_mxn=Decimal("0.00"),
+                user_id=None,
+                reference_id=r.id,
+                notes="Liberación automática por expiración de TTL (15 min)",
+            )
+            count += 1
+
+        if count > 0:
+            await self.db.commit()
+
+        return count
+
+    # -------------------------------------------------------------------------
+    # GESTIÓN DE CATEGORÍAS Y ALMACENES
     # -------------------------------------------------------------------------
 
     async def list_categories(self, current_user: User) -> List[CategoryResponse]:
-        """
-        Retorna la lista de todas las categorías del comercio.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
         categories = await self.category_repo.list_by_tenant(tenant_id)
@@ -331,9 +1019,6 @@ class InventoryService:
     async def create_category(
         self, data: CategoryCreate, current_user: User
     ) -> CategoryResponse:
-        """
-        Crea una nueva categoría de productos.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
 
@@ -350,14 +1035,7 @@ class InventoryService:
         await self.db.commit()
         return CategoryResponse.model_validate(category)
 
-    # -------------------------------------------------------------------------
-    # GESTIÓN DE ALMACENES
-    # -------------------------------------------------------------------------
-
     async def list_warehouses(self, current_user: User) -> List[WarehouseResponse]:
-        """
-        Retorna la lista de almacenes y sucursales del comercio.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
         warehouses = await self.warehouse_repo.list_by_tenant(tenant_id)
@@ -366,9 +1044,6 @@ class InventoryService:
     async def create_warehouse(
         self, data: WarehouseCreate, current_user: User
     ) -> WarehouseResponse:
-        """
-        Crea un nuevo almacén físico.
-        """
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
 
