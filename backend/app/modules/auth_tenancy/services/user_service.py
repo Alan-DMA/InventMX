@@ -50,21 +50,25 @@ class UserService:
         """
         Retorna la lista completa de empleados del comercio autenticado.
         """
+        # Extraer ID del tenant actual para evitar re-evaluaciones diferidas
+        tenant_id = current_user.tenant_id
         # Asegurar contexto RLS en PostgreSQL
-        await set_tenant_context(self.db, current_user.tenant_id)
+        await set_tenant_context(self.db, tenant_id)
         # Consultar empleados del tenant
-        return await self.user_repo.list_by_tenant(current_user.tenant_id)
+        return await self.user_repo.list_by_tenant(tenant_id)
 
     async def get_employee_by_id(self, user_id: uuid.UUID, current_user: User) -> User:
         """
         Obtiene el detalle de un empleado verificando pertenencia al mismo tenant.
         """
+        # Extraer ID del tenant actual
+        tenant_id = current_user.tenant_id
         # Asegurar contexto RLS en PostgreSQL
-        await set_tenant_context(self.db, current_user.tenant_id)
+        await set_tenant_context(self.db, tenant_id)
         # Buscar usuario por ID
         user = await self.user_repo.get_by_id(user_id)
         # Si no existe o pertenece a otro tenant (filtrado por RLS), lanzar 404
-        if not user or user.tenant_id != current_user.tenant_id:
+        if not user or user.tenant_id != tenant_id:
             raise NotFoundException(f"Empleado con ID '{user_id}' no encontrado.")
         return user
 
@@ -72,14 +76,15 @@ class UserService:
         """
         Crea un nuevo empleado validando los límites de usuarios del plan contratado.
         """
-        # Obtener el plan del tenant actual
+        # Extraer ID del tenant y plan actual antes de operaciones asíncronas
+        tenant_id = current_user.tenant_id
         tenant = current_user.tenant
-        plan_id = tenant.plan_id
+        plan_id = tenant.plan_id if tenant else TenantPlan.EMPRENDEDOR
         # Obtener el límite máximo de usuarios permitido para el plan
         max_allowed_users = PLAN_USER_LIMITS.get(plan_id, 2)
 
         # Contar usuarios activos actuales del comercio
-        active_users_count = await self.user_repo.count_active_by_tenant(current_user.tenant_id)
+        active_users_count = await self.user_repo.count_active_by_tenant(tenant_id)
 
         # Validación estricta de cupo por plan SaaS
         if active_users_count >= max_allowed_users:
@@ -94,7 +99,7 @@ class UserService:
             raise NotFoundException(f"El rol con ID '{data.role_id}' no existe en el sistema.")
 
         # Impedir crear otro usuario OWNER adicional si no es el dueño original
-        if role.name == "OWNER" and current_user.role.name != "OWNER":
+        if role.name == "OWNER" and current_user.role and current_user.role.name != "OWNER":
             raise ForbiddenException("Solo el dueño del comercio puede designar roles de tipo OWNER.")
 
         # Verificar unicidad de email dentro del tenant o global
@@ -103,14 +108,14 @@ class UserService:
             raise ConflictException(f"El correo '{data.email}' ya se encuentra registrado en el sistema.")
 
         # Inyectar contexto RLS para la inserción
-        await set_tenant_context(self.db, current_user.tenant_id)
+        await set_tenant_context(self.db, tenant_id)
 
         # Generar hash de contraseña con bcrypt
         hashed_pwd = get_password_hash(data.password)
 
         # Crear el usuario a través del repositorio
         new_user = await self.user_repo.create(
-            tenant_id=current_user.tenant_id,
+            tenant_id=tenant_id,
             email=data.email,
             hashed_password=hashed_pwd,
             full_name=data.full_name,
@@ -121,16 +126,33 @@ class UserService:
         # Persistir la transacción
         await self.db.commit()
 
-        # Recargar con relaciones y contexto RLS activo
-        await set_tenant_context(self.db, current_user.tenant_id)
+        # Inyectar contexto RLS y recargar usuario con relaciones frescas
+        await set_tenant_context(self.db, tenant_id)
         return await self.user_repo.get_by_id(new_user.id)
 
     async def update_employee(self, user_id: uuid.UUID, data: UserUpdate, current_user: User) -> User:
         """
-        Actualiza los datos de un empleado (nombre, contraseña, estado).
+        Actualiza los datos de un empleado (nombre, contraseña, rol o estado).
         """
+        # Extraer ID del tenant actual
+        tenant_id = current_user.tenant_id
+
         # Obtener el empleado verificando pertenencia
         employee = await self.get_employee_by_id(user_id, current_user)
+
+        # Validaciones de asignación de roles
+        if data.role_id is not None:
+            new_role = await self.role_repo.get_by_id(data.role_id)
+            if not new_role:
+                raise NotFoundException(f"El rol con ID '{data.role_id}' no existe.")
+
+            # Impedir degradar la cuenta del OWNER
+            if employee.role and employee.role.name == "OWNER" and new_role.name != "OWNER":
+                raise BadRequestException("No es posible cambiar o degradar el rol del dueño principal (OWNER).")
+
+            # Impedir que un no-owner promueva a OWNER
+            if new_role.name == "OWNER" and current_user.role and current_user.role.name != "OWNER":
+                raise ForbiddenException("Solo el dueño del comercio puede designar roles de tipo OWNER.")
 
         # Hashear nueva contraseña si fue provista
         hashed_pwd = get_password_hash(data.password) if data.password else None
@@ -139,6 +161,7 @@ class UserService:
         updated_user = await self.user_repo.update(
             user=employee,
             full_name=data.full_name,
+            role_id=data.role_id,
             hashed_password=hashed_pwd,
             is_active=data.is_active,
         )
@@ -146,8 +169,8 @@ class UserService:
         # Persistir cambios en base de datos
         await self.db.commit()
 
-        # Recargar con relaciones
-        await set_tenant_context(self.db, current_user.tenant_id)
+        # Inyectar contexto RLS y recargar con relaciones actualizadas
+        await set_tenant_context(self.db, tenant_id)
         return await self.user_repo.get_by_id(updated_user.id)
 
     async def toggle_employee_status(self, user_id: uuid.UUID, current_user: User) -> User:
@@ -155,6 +178,9 @@ class UserService:
         Invierte el estado activo/inactivo de un empleado.
         Impide desactivar al usuario dueño (OWNER).
         """
+        # Extraer ID del tenant actual
+        tenant_id = current_user.tenant_id
+
         # Obtener empleado
         employee = await self.get_employee_by_id(user_id, current_user)
 
@@ -170,8 +196,8 @@ class UserService:
         # Confirmar transacción
         await self.db.commit()
 
-        # Recargar entidad
-        await set_tenant_context(self.db, current_user.tenant_id)
+        # Inyectar contexto RLS y recargar entidad
+        await set_tenant_context(self.db, tenant_id)
         return await self.user_repo.get_by_id(employee.id)
 
     async def delete_employee(self, user_id: uuid.UUID, current_user: User) -> None:

@@ -1,4 +1,4 @@
-# Importación de UUID para generación de datos de prueba
+# Importación de UUID para generación de identificadores de prueba
 import uuid
 # Importación del framework pytest
 import pytest
@@ -162,8 +162,8 @@ async def test_cashier_rbac_permission_enforcement(client: AsyncClient):
 async def test_owner_account_protection(client: AsyncClient):
     """
     HU-03 / CU-03:
-    Verifica que la cuenta del dueño (OWNER) esté blindada contra eliminación
-    o desactivación accidental.
+    Verifica que la cuenta del dueño (OWNER) esté blindada contra eliminación,
+    desactivación o degradación de rol.
     """
     suffix = uuid.uuid4().hex[:6]
     reg_resp = await client.post(
@@ -190,6 +190,65 @@ async def test_owner_account_protection(client: AsyncClient):
     delete_resp = await client.delete(f"/api/v1/users/{owner_id}", headers=headers)
     assert delete_resp.status_code == 400
 
+    # 3. Intentar degradar el rol del dueño a CASHIER
+    roles_resp = await client.get("/api/v1/roles", headers=headers)
+    cashier_role = next(r for r in roles_resp.json() if r["name"] == "CASHIER")
+    demote_resp = await client.put(
+        f"/api/v1/users/{owner_id}",
+        json={"role_id": cashier_role["id"]},
+        headers=headers,
+    )
+    assert demote_resp.status_code == 400
+    assert "No es posible cambiar o degradar el rol del dueño principal" in demote_resp.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_employee_role_update_flow(client: AsyncClient):
+    """
+    HU-03 / CU-03:
+    Verifica la actualización de rol de un empleado (ej. promover de CASHIER a WAREHOUSE).
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Boutique {suffix}",
+            "slug": f"boutique-{suffix}",
+            "full_name": "Paty",
+            "email": f"paty_{suffix}@boutique.mx",
+            "password": "password123",
+        },
+    )
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    roles_resp = await client.get("/api/v1/roles", headers=headers)
+    cashier_role = next(r for r in roles_resp.json() if r["name"] == "CASHIER")
+    warehouse_role = next(r for r in roles_resp.json() if r["name"] == "WAREHOUSE")
+
+    # Crear empleado cajero
+    create_resp = await client.post(
+        "/api/v1/users",
+        json={
+            "email": f"empleado_{suffix}@boutique.mx",
+            "password": "password123",
+            "full_name": "Gloria",
+            "role_id": cashier_role["id"],
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    emp_id = create_resp.json()["id"]
+
+    # Promover a Warehouse
+    update_resp = await client.put(
+        f"/api/v1/users/{emp_id}",
+        json={"role_id": warehouse_role["id"]},
+        headers=headers,
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["role"]["name"] == "WAREHOUSE"
+
 
 @pytest.mark.asyncio
 async def test_subscription_soft_lock_middleware(client: AsyncClient):
@@ -213,7 +272,7 @@ async def test_subscription_soft_lock_middleware(client: AsyncClient):
     # 1. Petición POST debe ser bloqueada con 403
     post_resp = await client.post(
         "/api/v1/users",
-        json={"email": "any@test.mx", "password": "pass", "full_name": "Test", "role_id": str(uuid.uuid4())},
+        json={"email": "any@test.mx", "password": "password123", "full_name": "Test", "role_id": str(uuid.uuid4())},
         headers=headers,
     )
     assert post_resp.status_code == 403

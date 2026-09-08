@@ -28,7 +28,7 @@ class UserRepository:
         """
         Obtiene un usuario por su UUID, cargando su rol, permisos y comercio.
         """
-        # Sentencia select filtrando por ID de usuario con eager-loading
+        # Sentencia select filtrando por ID de usuario con eager-loading y refresco forzado
         stmt = (
             select(User)
             .where(User.id == user_id)
@@ -36,6 +36,7 @@ class UserRepository:
                 selectinload(User.role).selectinload(Role.permissions),
                 selectinload(User.tenant),
             )
+            .execution_options(populate_existing=True)
         )
         # Ejecutar consulta asíncrona
         result = await self.db.execute(stmt)
