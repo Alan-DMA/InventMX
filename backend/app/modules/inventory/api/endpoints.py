@@ -2,8 +2,8 @@
 from typing import List, Optional
 # Importación de UUID para tipado de parámetros de ruta
 import uuid
-# Importación de FastAPI y dependencias
-from fastapi import APIRouter, Depends, Query, status
+# Importación de FastAPI, cargas de archivos y dependencias
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 # Importación de la sesión asíncrona de base de datos
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,11 @@ from app.modules.inventory.schemas.combo import (
     ComboResponse,
     ComboUpdate,
 )
+from app.modules.inventory.schemas.import_export import (
+    ColumnMapping,
+    ImportExecutionResponse,
+    ImportPreviewResponse,
+)
 from app.modules.inventory.schemas.movement import (
     InventoryMovementResponse,
     StockAdjustmentCreate,
@@ -40,6 +45,10 @@ from app.modules.inventory.schemas.product import (
 from app.modules.inventory.schemas.reservation import (
     StockReservationCreate,
     StockReservationResponse,
+)
+from app.modules.inventory.schemas.seed_product import (
+    EanLookupResponse,
+    SeedProductResponse,
 )
 from app.modules.inventory.schemas.warehouse import WarehouseCreate, WarehouseResponse
 # Importación del servicio de negocio de inventario
@@ -473,3 +482,74 @@ async def cleanup_expired_reservations(
     service = InventoryService(db)
     released_count = await service.cleanup_expired_reservations()
     return {"released_count": released_count, "status": "success"}
+
+
+# =============================================================================
+# ENDPOINT DE CONSULTA DE CÓDIGOS DE BARRAS EAN-13 (RF-29 / Const. Art. 7.5)
+# =============================================================================
+
+@router.get(
+    "/lookup-ean/{barcode}",
+    response_model=EanLookupResponse,
+    summary="Consulta instantánea (< 5ms) en Catálogo Semilla Maestro GS1 México (RF-29)",
+)
+async def lookup_ean(
+    barcode: str,
+    current_user: User = Depends(require_permission("inventory.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Busca en el catálogo semilla oficial de México (Tier 1) por código de barras físico.
+    Permite autocompletar la ficha comercial en menos de 5ms durante el escaneo en mostrador o góndola.
+    """
+    service = InventoryService(db)
+    return await service.lookup_ean(barcode)
+
+
+# =============================================================================
+# ENDPOINTS DE IMPORTACIÓN FLEXIBLE DE ARCHIVOS EXCEL / CSV (RF-01)
+# =============================================================================
+
+@router.post(
+    "/import/preview",
+    response_model=ImportPreviewResponse,
+    summary="Previsualizar archivo Excel/CSV y sugerir mapeo de columnas (RF-01)",
+)
+async def preview_import_file(
+    file: UploadFile = File(..., description="Archivo en formato .xlsx o .csv"),
+    current_user: User = Depends(require_permission("inventory.create")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Analiza un archivo Excel o CSV subido por el comerciante, extrayendo los encabezados
+    detectados y las primeras filas de muestra para permitir el mapeo visual libre de columnas.
+    """
+    file_bytes = await file.read()
+    service = InventoryService(db)
+    return await service.preview_import(file_bytes, file.filename or "archivo.xlsx")
+
+
+@router.post(
+    "/import/execute",
+    response_model=ImportExecutionResponse,
+    summary="Ejecutar ingesta masiva de inventario con mapeo visual dinámico (RF-01)",
+)
+async def execute_import_file(
+    file: UploadFile = File(..., description="Archivo .xlsx o .csv a procesar"),
+    mapping: str = Form(..., description="JSON serializado con el mapeo de columnas ColumnMapping"),
+    current_user: User = Depends(require_permission("inventory.create")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Procesa e inserta atómicamente en PostgreSQL bajo el tenant_id activo todos los artículos
+    del archivo conforme a las columnas mapeadas por el usuario, respetando los 3 Campos Vitales
+    (Nombre, Precio MXN y Stock) y autogenerando SKUs y asientos en Kardex.
+    """
+    # Parsear el mapeo de columnas recibido como JSON
+    column_mapping = ColumnMapping.model_validate_json(mapping)
+    file_bytes = await file.read()
+    service = InventoryService(db)
+    return await service.execute_import(file_bytes, file.filename or "archivo.xlsx", column_mapping, current_user)
+

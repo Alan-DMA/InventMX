@@ -7,6 +7,7 @@ from app.modules.inventory.domain.inventory_movement import (
 )
 from app.modules.inventory.domain.product import Product
 from app.modules.inventory.domain.product_stock import ProductStock
+from app.modules.inventory.domain.seed_product import SeedProduct
 from app.modules.inventory.domain.stock_reservation import (
     ReservationStatus,
     StockReservation,
@@ -24,4 +25,5 @@ __all__ = [
     "MovementType",
     "StockReservation",
     "ReservationStatus",
+    "SeedProduct",
 ]

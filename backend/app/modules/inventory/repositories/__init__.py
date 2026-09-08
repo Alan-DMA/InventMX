@@ -6,6 +6,7 @@ from app.modules.inventory.repositories.product_repository import ProductReposit
 from app.modules.inventory.repositories.reservation_repository import (
     ReservationRepository,
 )
+from app.modules.inventory.repositories.seed_product_repository import SeedProductRepository
 from app.modules.inventory.repositories.warehouse_repository import WarehouseRepository
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ComboRepository",
     "MovementRepository",
     "ReservationRepository",
+    "SeedProductRepository",
 ]

@@ -2,8 +2,13 @@
 from datetime import datetime, timedelta, timezone
 # Importación del módulo decimal para cálculos monetarios y porcentajes
 from decimal import Decimal
+# Importación de módulos de parseo CSV, Excel y flujos en memoria
+import csv
+import io
+import openpyxl
+import re
 # Importación de tipado estático
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 # Importación de UUID para identificación de entidades
 import uuid
 # Importación de la sesión asíncrona de SQLAlchemy
@@ -29,6 +34,7 @@ from app.modules.inventory.domain.inventory_movement import (
 )
 from app.modules.inventory.domain.product import Product
 from app.modules.inventory.domain.product_stock import ProductStock
+from app.modules.inventory.domain.seed_product import SeedProduct
 from app.modules.inventory.domain.stock_reservation import (
     ReservationStatus,
     StockReservation,
@@ -43,6 +49,9 @@ from app.modules.inventory.repositories.product_repository import ProductReposit
 from app.modules.inventory.repositories.reservation_repository import (
     ReservationRepository,
 )
+from app.modules.inventory.repositories.seed_product_repository import (
+    SeedProductRepository,
+)
 from app.modules.inventory.repositories.warehouse_repository import WarehouseRepository
 
 # Importación de esquemas Pydantic
@@ -52,6 +61,12 @@ from app.modules.inventory.schemas.combo import (
     ComboItemResponse,
     ComboResponse,
     ComboUpdate,
+)
+from app.modules.inventory.schemas.import_export import (
+    ColumnMapping,
+    ImportExecutionResponse,
+    ImportPreviewResponse,
+    ImportRowError,
 )
 from app.modules.inventory.schemas.movement import (
     InventoryMovementResponse,
@@ -69,14 +84,20 @@ from app.modules.inventory.schemas.reservation import (
     StockReservationCreate,
     StockReservationResponse,
 )
+from app.modules.inventory.schemas.seed_product import (
+    EanLookupResponse,
+    SeedProductResponse,
+)
 from app.modules.inventory.schemas.warehouse import WarehouseCreate, WarehouseResponse
 
 
 class InventoryService:
     """
-    Servicio integral de lógica de negocio para el Módulo de Inventario, Catálogo, Combos y Kardex.
+    Servicio integral de lógica de negocio para el Módulo de Inventario, Catálogo, Combos, Kardex,
+    Catálogo Semilla EAN-13 e Importación Flexible de Archivos Excel/CSV.
     Implementa la regla de los 3 Campos Vitales (SR-08), consistencia ACID en Kardex inmutable (Const. Art. 7.1),
-    promociones y combos (RF-03), traslados multi-almacén (RF-07) y stock reservado con TTL de 15 min (RF-06).
+    promociones y combos (RF-03), traslados multi-almacén (RF-07), stock reservado con TTL de 15 min (RF-06),
+    reconocimiento EAN-13 instantáneo en < 5ms (RF-29) e ingesta masiva con mapeo dinámico (RF-01).
     """
 
     def __init__(self, db: AsyncSession):
@@ -89,6 +110,7 @@ class InventoryService:
         self.combo_repo = ComboRepository(db)
         self.movement_repo = MovementRepository(db)
         self.reservation_repo = ReservationRepository(db)
+        self.seed_product_repo = SeedProductRepository(db)
 
     def _build_product_response(self, product: Product) -> ProductResponse:
         """
@@ -1055,3 +1077,333 @@ class InventoryService:
         )
         await self.db.commit()
         return WarehouseResponse.model_validate(warehouse)
+
+    # -------------------------------------------------------------------------
+    # CONSULTA ULTRA-RÁPIDA DE CATÁLOGO SEMILLA EAN-13 (RF-29 / Const. Art. 7.5)
+    # -------------------------------------------------------------------------
+
+    async def lookup_ean(self, barcode: str) -> EanLookupResponse:
+        """
+        Consulta instantánea (< 5ms) en el Catálogo Semilla Maestro EAN-13 México (Tier 1).
+        Permite autocompletar la ficha técnica (nombre, marca, categoría, precio sugerido)
+        al escanear un código de barras en el punto de venta o en modo góndola.
+        """
+        # Limpieza del código de barras
+        clean_barcode = barcode.strip()
+        # Búsqueda indexada en base de datos
+        seed_item = await self.seed_product_repo.get_by_barcode(clean_barcode)
+
+        # Si no existe en el catálogo semilla oficial
+        if not seed_item:
+            return EanLookupResponse(found=False, product=None)
+
+        # Si fue encontrado, retornar ficha serializada
+        return EanLookupResponse(
+            found=True,
+            product=SeedProductResponse.model_validate(seed_item),
+        )
+
+    # -------------------------------------------------------------------------
+    # IMPORTADOR FLEXIBLE DE INVENTARIO EXCEL / CSV (RF-01 / Const. Art. 1.2.8)
+    # -------------------------------------------------------------------------
+
+    def _parse_tabular_data(
+        self, file_bytes: bytes, filename: str
+    ) -> Tuple[List[str], List[Dict[str, Any]], int]:
+        """
+        Lector utilitario agnóstico de formatos (.xlsx y .csv) con detección
+        automática de encabezados y lectura de filas en memoria.
+        """
+        headers: List[str] = []
+        all_rows: List[Dict[str, Any]] = []
+
+        # 1. Procesamiento de archivos Excel (.xlsx)
+        if filename.lower().endswith((".xlsx", ".xlsm", ".xltx")):
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+            sheet = wb.active
+            iter_rows = sheet.iter_rows(values_only=True)
+
+            # Buscar primera fila no vacía como encabezados
+            raw_headers = None
+            for row in iter_rows:
+                if row and any(cell is not None and str(cell).strip() != "" for cell in row):
+                    raw_headers = [str(c).strip() if c is not None else f"Columna_{i+1}" for i, c in enumerate(row)]
+                    break
+
+            if not raw_headers:
+                raise BadRequestException("El archivo Excel está vacío o no contiene encabezados válidos.")
+
+            headers = raw_headers
+
+            # Leer filas restantes
+            for row in iter_rows:
+                if not row or not any(cell is not None and str(cell).strip() != "" for cell in row):
+                    continue
+                row_dict = {}
+                for idx, col_name in enumerate(headers):
+                    val = row[idx] if idx < len(row) else None
+                    row_dict[col_name] = val
+                all_rows.append(row_dict)
+
+            wb.close()
+
+        # 2. Procesamiento de archivos CSV (.csv)
+        elif filename.lower().endswith(".csv"):
+            try:
+                content_str = file_bytes.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                content_str = file_bytes.decode("latin-1")
+
+            # Detectar delimitador (, o ;)
+            sample_line = content_str[:2048]
+            delimiter = ";" if sample_line.count(";") > sample_line.count(",") else ","
+
+            reader = csv.reader(io.StringIO(content_str), delimiter=delimiter)
+            raw_headers = None
+            for row in reader:
+                if row and any(cell.strip() != "" for cell in row):
+                    raw_headers = [c.strip() if c.strip() != "" else f"Columna_{i+1}" for i, c in enumerate(row)]
+                    break
+
+            if not raw_headers:
+                raise BadRequestException("El archivo CSV está vacío o no contiene encabezados válidos.")
+
+            headers = raw_headers
+
+            for row in reader:
+                if not row or not any(cell.strip() != "" for cell in row):
+                    continue
+                row_dict = {}
+                for idx, col_name in enumerate(headers):
+                    val = row[idx] if idx < len(row) else ""
+                    row_dict[col_name] = val
+                all_rows.append(row_dict)
+
+        else:
+            raise BadRequestException("Formato no soportado. Solo se admiten archivos Excel (.xlsx) o CSV (.csv).")
+
+        return headers, all_rows, len(all_rows)
+
+    def _clean_numeric(self, val: Any) -> Optional[Decimal]:
+        """
+        Limpia y sanitiza cadenas numéricas convirtiendo formatos como '$ 1,234.50' a Decimal.
+        """
+        if val is None:
+            return None
+        if isinstance(val, (int, float, Decimal)):
+            return Decimal(str(val))
+
+        s = str(val).strip()
+        if not s:
+            return None
+
+        # Eliminar signos de moneda, comas y espacios
+        cleaned = re.sub(r"[^0-9.-]", "", s)
+        try:
+            return Decimal(cleaned)
+        except Exception:
+            return None
+
+    def _generate_heuristic_mapping(self, headers: List[str]) -> Dict[str, str]:
+        """
+        Genera sugerencias automáticas de mapeo de columnas analizando nombres habituales.
+        """
+        mapping: Dict[str, str] = {}
+        for h in headers:
+            h_norm = h.lower()
+            if any(k in h_norm for k in ["nombre", "descripcion", "producto", "articulo", "item"]) and "name_column" not in mapping:
+                mapping["name_column"] = h
+            elif any(k in h_norm for k in ["precio", "venta", "p.vta", "publico", "pvp"]) and "price_column" not in mapping:
+                mapping["price_column"] = h
+            elif any(k in h_norm for k in ["stock", "existencia", "cantidad", "cant", "unidades", "inv"]) and "stock_column" not in mapping:
+                mapping["stock_column"] = h
+            elif any(k in h_norm for k in ["costo", "compra", "pc", "cost"]) and "cost_column" not in mapping:
+                mapping["cost_column"] = h
+            elif any(k in h_norm for k in ["codigo", "barra", "barcode", "ean", "upc"]) and "barcode_column" not in mapping:
+                mapping["barcode_column"] = h
+            elif any(k in h_norm for k in ["categoria", "familia", "depto", "departamento", "linea", "rubro"]) and "category_column" not in mapping:
+                mapping["category_column"] = h
+            elif any(k in h_norm for k in ["sku", "clave", "cod_int", "ref"]) and "sku_column" not in mapping:
+                mapping["sku_column"] = h
+        return mapping
+
+    async def preview_import(self, file_bytes: bytes, filename: str) -> ImportPreviewResponse:
+        """
+        Previsualiza las primeras filas de un archivo Excel/CSV y sugiere mapeo visual (RF-01).
+        """
+        headers, all_rows, total_rows = self._parse_tabular_data(file_bytes, filename)
+        sample_rows = all_rows[:5]
+        suggested = self._generate_heuristic_mapping(headers)
+
+        return ImportPreviewResponse(
+            filename=filename,
+            headers=headers,
+            sample_rows=sample_rows,
+            total_detected_rows=total_rows,
+            suggested_mapping=suggested,
+        )
+
+    async def execute_import(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        mapping: ColumnMapping,
+        current_user: User,
+    ) -> ImportExecutionResponse:
+        """
+        Ejecuta la ingesta masiva atómica por lotes en PostgreSQL RLS.
+        Valida los 3 Campos Vitales (Nombre, Precio MXN, Stock) y autogenera SKUs y Kardex inicial (RF-01).
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        # 1. Parsear archivo tabular
+        headers, all_rows, total_rows = self._parse_tabular_data(file_bytes, filename)
+
+        # 2. Validar que las columnas mapeadas obligatorias existan en el archivo
+        if mapping.name_column not in headers:
+            raise BadRequestException(f"La columna de Nombre '{mapping.name_column}' no existe en el archivo.")
+        if mapping.price_column not in headers:
+            raise BadRequestException(f"La columna de Precio '{mapping.price_column}' no existe en el archivo.")
+        if mapping.stock_column not in headers:
+            raise BadRequestException(f"La columna de Existencias '{mapping.stock_column}' no existe en el archivo.")
+
+        # 3. Obtener almacén principal predeterminado
+        default_warehouse = await self.warehouse_repo.get_or_create_default(tenant_id)
+        default_wh_id = default_warehouse.id
+
+        # 4. Caché de categorías para evitar consultas redundantes
+        category_cache: Dict[str, uuid.UUID] = {}
+        default_cat = await self.category_repo.get_or_create_default(tenant_id)
+        category_cache["general"] = default_cat.id
+
+        imported_count = 0
+        skipped_count = 0
+        errors: List[ImportRowError] = []
+
+        # 5. Iterar filas y procesar
+        for idx, row in enumerate(all_rows, start=2):  # start=2 considerando fila 1 como encabezados
+            # 5.1 Validar Nombre (Campo Vital 1)
+            raw_name = row.get(mapping.name_column)
+            if raw_name is None or str(raw_name).strip() == "":
+                skipped_count += 1
+                errors.append(ImportRowError(row_number=idx, reason="Nombre del producto vacío o ausente"))
+                continue
+            name = str(raw_name).strip()
+
+            # 5.2 Validar Precio MXN (Campo Vital 2)
+            raw_price = row.get(mapping.price_column)
+            price_mxn = self._clean_numeric(raw_price)
+            if price_mxn is None or price_mxn < Decimal("0.00"):
+                skipped_count += 1
+                errors.append(ImportRowError(row_number=idx, reason=f"Precio inválido o negativo: '{raw_price}'"))
+                continue
+
+            # 5.3 Validar Existencias Iniciales (Campo Vital 3)
+            raw_stock = row.get(mapping.stock_column)
+            stock_qty = self._clean_numeric(raw_stock)
+            if stock_qty is None or stock_qty < Decimal("0.00"):
+                stock_qty = Decimal("0.00")
+
+            # 5.4 Costo en MXN opcional
+            cost_mxn = Decimal("0.00")
+            if mapping.cost_column and mapping.cost_column in row:
+                parsed_cost = self._clean_numeric(row.get(mapping.cost_column))
+                if parsed_cost and parsed_cost >= Decimal("0.00"):
+                    cost_mxn = parsed_cost
+
+            # 5.5 Código de barras opcional
+            barcode = None
+            if mapping.barcode_column and mapping.barcode_column in row:
+                b_val = row.get(mapping.barcode_column)
+                if b_val is not None and str(b_val).strip() != "":
+                    clean_b = str(b_val).strip()
+                    # Verificar si el código ya existe en el tenant
+                    existing_b = await self.product_repo.get_by_barcode(clean_b, tenant_id)
+                    if existing_b:
+                        skipped_count += 1
+                        errors.append(ImportRowError(row_number=idx, reason=f"Código de barras '{clean_b}' duplicado"))
+                        continue
+                    barcode = clean_b
+
+            # 5.6 Categoría opcional
+            cat_id = default_cat.id
+            if mapping.category_column and mapping.category_column in row:
+                c_val = row.get(mapping.category_column)
+                if c_val is not None and str(c_val).strip() != "":
+                    cat_name = str(c_val).strip()
+                    cat_key = cat_name.lower()
+                    if cat_key in category_cache:
+                        cat_id = category_cache[cat_key]
+                    else:
+                        existing_cat = await self.category_repo.get_by_name(cat_name, tenant_id)
+                        if existing_cat:
+                            cat_id = existing_cat.id
+                        else:
+                            new_cat = await self.category_repo.create(tenant_id, cat_name)
+                            cat_id = new_cat.id
+                        category_cache[cat_key] = cat_id
+
+            # 5.7 SKU opcional o autogenerado
+            if mapping.sku_column and mapping.sku_column in row:
+                s_val = row.get(mapping.sku_column)
+                if s_val is not None and str(s_val).strip() != "":
+                    clean_sku = str(s_val).strip()
+                    existing_sku = await self.product_repo.get_by_sku(clean_sku, tenant_id)
+                    if existing_sku:
+                        final_sku = await self.product_repo.generate_unique_sku(tenant_id)
+                    else:
+                        final_sku = clean_sku
+                else:
+                    final_sku = await self.product_repo.generate_unique_sku(tenant_id)
+            else:
+                final_sku = await self.product_repo.generate_unique_sku(tenant_id)
+
+            # 5.8 Inserción atómica del producto
+            try:
+                prod = await self.product_repo.create_with_stock(
+                    tenant_id=tenant_id,
+                    name=name,
+                    price_mxn=price_mxn,
+                    initial_stock=stock_qty,
+                    warehouse_id=default_wh_id,
+                    sku=final_sku,
+                    cost_mxn=cost_mxn,
+                    barcode=barcode,
+                    category_id=cat_id,
+                    min_stock_alert=Decimal("5.00"),
+                    is_active=True,
+                )
+
+                # 5.9 Asiento inicial en Kardex si existencias > 0
+                if stock_qty > Decimal("0.00"):
+                    await self.movement_repo.record_movement(
+                        tenant_id=tenant_id,
+                        product_id=prod.id,
+                        warehouse_id=default_wh_id,
+                        movement_type=MovementType.ADJUSTMENT_IN,
+                        quantity=stock_qty,
+                        previous_stock=Decimal("0.00"),
+                        new_stock=stock_qty,
+                        unit_cost_mxn=cost_mxn,
+                        user_id=current_user.id,
+                        notes=f"Carga masiva desde archivo: {filename}",
+                    )
+
+                imported_count += 1
+            except Exception as e:
+                skipped_count += 1
+                errors.append(ImportRowError(row_number=idx, reason=f"Error en persistencia: {str(e)}"))
+
+        # 6. Commit de la transacción completa
+        if imported_count > 0:
+            await self.db.commit()
+
+        status_text = "completed" if skipped_count == 0 else "partial"
+        return ImportExecutionResponse(
+            total_rows=total_rows,
+            imported_count=imported_count,
+            skipped_count=skipped_count,
+            errors=errors,
+            status=status_text,
+        )

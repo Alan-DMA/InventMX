@@ -27,6 +27,16 @@ from app.modules.inventory.schemas.reservation import (
     StockReservationCreate,
     StockReservationResponse,
 )
+from app.modules.inventory.schemas.import_export import (
+    ColumnMapping,
+    ImportExecutionResponse,
+    ImportPreviewResponse,
+    ImportRowError,
+)
+from app.modules.inventory.schemas.seed_product import (
+    EanLookupResponse,
+    SeedProductResponse,
+)
 from app.modules.inventory.schemas.warehouse import (
     WarehouseCreate,
     WarehouseResponse,
@@ -55,4 +65,10 @@ __all__ = [
     "InventoryMovementResponse",
     "StockReservationCreate",
     "StockReservationResponse",
+    "SeedProductResponse",
+    "EanLookupResponse",
+    "ColumnMapping",
+    "ImportPreviewResponse",
+    "ImportExecutionResponse",
+    "ImportRowError",
 ]
