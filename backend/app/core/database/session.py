@@ -49,12 +49,18 @@ async def set_tenant_context(
     session: AsyncSession, tenant_id: Union[uuid.UUID, str]
 ) -> None:
     """
-    Inyecta la variable de contexto de sesión en PostgreSQL para RLS.
-    SET app.current_tenant = '<tenant_uuid>';
+    Inyecta de forma segura la variable de contexto de sesión en PostgreSQL para RLS.
+    Utiliza la función nativa set_config de PostgreSQL con enlace seguro de parámetros.
     """
-    str_tenant_id = str(tenant_id) if tenant_id else ""
-    # Sanitización de UUID para evitar inyección en variables de configuración SQL
-    uuid.UUID(str_tenant_id)
+    if not tenant_id:
+        await session.execute(text("SELECT set_config('app.current_tenant', '', false);"))
+        return
+
+    str_tenant_id = str(tenant_id)
+    # Validación estricta de formato UUID para mitigar manipulación de variables
+    validated_uuid = uuid.UUID(str_tenant_id)
+    
     await session.execute(
-        text(f"SET app.current_tenant = '{str_tenant_id}'")
+        text("SELECT set_config('app.current_tenant', :tenant_id, false);"),
+        {"tenant_id": str(validated_uuid)},
     )

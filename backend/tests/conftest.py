@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config.settings import settings
 from app.core.database.base import Base
-from app.core.database.session import set_tenant_context
+from app.core.database.session import get_db, set_tenant_context
 from app.main import app
 from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
 from app.modules.auth_tenancy.domain.role import Role
@@ -48,13 +48,18 @@ async def db_session(test_engine) -> AsyncSession:
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncClient:
-    """Cliente HTTP asíncrono para probar endpoints FastAPI."""
+async def client(db_session: AsyncSession) -> AsyncClient:
+    """Cliente HTTP asíncrono para probar endpoints FastAPI con sesión inyectada."""
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
     ) as ac:
         yield ac
+    app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture
