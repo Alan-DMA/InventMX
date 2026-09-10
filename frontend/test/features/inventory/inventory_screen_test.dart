@@ -190,8 +190,8 @@ void main() {
     expect(find.text('Reportes'), findsOneWidget);
   });
 
-  // ── CA-08: Tap en tab Ventas navega al placeholder ────────────────────────
-  testWidgets('CA-08: tap en tab Ventas muestra placeholder de Ventas',
+  // ── CA-08: Tap en tab Ventas navega al CheckoutScreen ────────────────────
+  testWidgets('CA-08: tap en tab Ventas muestra la pantalla de ventas',
       (tester) async {
     _stubProducts(mock, [_makeProduct()]);
 
@@ -201,8 +201,8 @@ void main() {
     await tester.tap(find.text('Ventas'));
     await tester.pumpAndSettle();
 
-    // El placeholder de Ventas muestra su título en el AppBar
+    // CheckoutScreen muestra el empty state del carrito
+    expect(find.text('Carrito vacío'), findsOneWidget);
     expect(find.text('Ventas'), findsWidgets);
-    expect(find.text('Disponible en Día 6'), findsOneWidget);
   });
 }
