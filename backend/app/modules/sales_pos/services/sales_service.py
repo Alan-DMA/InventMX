@@ -1,3 +1,27 @@
+from app.modules.sales_pos.domain.cash_movement import (
+    CashMovement,
+    CashMovementType,
+)
+from app.modules.sales_pos.domain.cash_shift import (
+    CashShift,
+    DifferenceStatus,
+    ShiftStatus,
+)
+from app.modules.sales_pos.repositories.cash_movement_repository import (
+    CashMovementRepository,
+)
+from app.modules.sales_pos.repositories.cash_shift_repository import (
+    CashShiftRepository,
+)
+from app.modules.sales_pos.schemas.cash_shift import (
+    CashMovementCreateRequest,
+    CashMovementResponse,
+    CashShiftCloseRequest,
+    CashShiftOpenRequest,
+    CashShiftResponse,
+    CashShiftSummaryResponse,
+    PaymentMethodSummary,
+)
 # Importación de marcas temporales
 from datetime import datetime, timezone
 # Importación de módulos matemáticos y decimales
@@ -79,6 +103,10 @@ class SalesService:
         self.ticket_repo = TicketRepository(session)
         # Repositorio de comisiones
         self.commission_repo = CommissionRepository(session)
+        # Repositorio de turnos de caja
+        self.cash_shift_repo = CashShiftRepository(session)
+        # Repositorio de movimientos de caja chica
+        self.cash_movement_repo = CashMovementRepository(session)
 
     async def _get_or_create_general_category(self, tenant_id: uuid.UUID) -> Category:
         """
@@ -1240,4 +1268,383 @@ class SalesService:
             payments=payment_responses,
             created_at=sale.created_at,
             updated_at=sale.updated_at,
+        )
+
+
+    # =========================================================================
+    # GESTIÓN DE TURNOS DE CAJA Y ARQUEO A CIEGAS (RF-16, RF-17 / Const. Art. 3.3, 7.2)
+    # =========================================================================
+
+    async def open_cash_shift(
+        self,
+        tenant_id: uuid.UUID,
+        cashier_id: uuid.UUID,
+        request: CashShiftOpenRequest,
+    ) -> CashShiftResponse:
+        """
+        Abre una nueva jornada o turno de caja con fondo inicial en MXN.
+        Valida que el cajero no tenga otro turno activo abierto.
+        """
+        active_shift = await self.cash_shift_repo.get_active_shift_by_cashier(
+            tenant_id=tenant_id,
+            cashier_id=cashier_id,
+        )
+        if active_shift:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El cajero ya cuenta con un turno de caja activo abierto. Debe cerrarlo antes de iniciar uno nuevo.",
+            )
+
+        new_shift = CashShift(
+            tenant_id=tenant_id,
+            cashier_id=cashier_id,
+            warehouse_id=request.warehouse_id,
+            status=ShiftStatus.OPEN,
+            opening_balance_mxn=request.opening_balance_mxn,
+            notes=request.notes,
+            opened_at=datetime.now(timezone.utc),
+        )
+
+        created_shift = await self.cash_shift_repo.create(new_shift)
+        await self.session.commit()
+
+        return self._map_to_shift_response(created_shift)
+
+    async def get_current_cash_shift(
+        self,
+        tenant_id: uuid.UUID,
+        cashier_id: uuid.UUID,
+    ) -> Optional[CashShiftResponse]:
+        """
+        Retorna el turno de caja actualmente activo (OPEN) del cajero en sesión, o None si no hay.
+        """
+        active_shift = await self.cash_shift_repo.get_active_shift_by_cashier(
+            tenant_id=tenant_id,
+            cashier_id=cashier_id,
+        )
+        if not active_shift:
+            return None
+        return self._map_to_shift_response(active_shift)
+
+    async def record_cash_movement(
+        self,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        shift_id: uuid.UUID,
+        request: CashMovementCreateRequest,
+    ) -> CashMovementResponse:
+        """
+        Registra un movimiento manual de efectivo (CASH_IN o CASH_OUT) en caja chica.
+        Valida que el turno esté abierto y pertenezca al inquilino autenticado.
+        """
+        shift = await self.cash_shift_repo.get_by_id(
+            tenant_id=tenant_id,
+            shift_id=shift_id,
+        )
+        if not shift:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Turno de caja no encontrado.",
+            )
+
+        if shift.status != ShiftStatus.OPEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se pueden registrar movimientos de efectivo en un turno que se encuentra cerrado.",
+            )
+
+        movement = CashMovement(
+            tenant_id=tenant_id,
+            shift_id=shift_id,
+            movement_type=request.movement_type,
+            amount_mxn=request.amount_mxn,
+            reason=request.reason,
+            notes=request.notes,
+            authorized_by_user_id=request.authorized_by_user_id,
+            created_by_user_id=user_id,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        created_mov = await self.cash_movement_repo.create(movement)
+        await self.session.commit()
+
+        return CashMovementResponse(
+            id=created_mov.id,
+            tenant_id=created_mov.tenant_id,
+            shift_id=created_mov.shift_id,
+            movement_type=created_mov.movement_type,
+            amount_mxn=created_mov.amount_mxn,
+            reason=created_mov.reason,
+            notes=created_mov.notes,
+            authorized_by_user_id=created_mov.authorized_by_user_id,
+            created_by_user_id=created_mov.created_by_user_id,
+            created_at=created_mov.created_at,
+        )
+
+    async def get_shift_financial_summary(
+        self,
+        tenant_id: uuid.UUID,
+        shift_id: uuid.UUID,
+    ) -> CashShiftSummaryResponse:
+        """
+        Calcula el resumen financiero del turno, desglose por métodos de pago y saldo teórico esperado en efectivo.
+        """
+        shift = await self.cash_shift_repo.get_by_id(
+            tenant_id=tenant_id,
+            shift_id=shift_id,
+        )
+        if not shift:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Turno de caja no encontrado.",
+            )
+
+        window_start = shift.opened_at
+        window_end = shift.closed_at or datetime.now(timezone.utc)
+
+        stmt_sales = (
+            select(Sale)
+            .options(selectinload(Sale.payments))
+            .where(
+                Sale.tenant_id == tenant_id,
+                Sale.cashier_id == shift.cashier_id,
+                Sale.status != SaleStatus.CANCELLED,
+                Sale.created_at >= window_start,
+                Sale.created_at <= window_end,
+            )
+        )
+        res_sales = await self.session.execute(stmt_sales)
+        sales_list = list(res_sales.scalars().all())
+
+        total_sales_mxn = Decimal("0.00")
+        total_cash_sales_mxn = Decimal("0.00")
+        method_totals: Dict[str, Decimal] = {
+            "CASH_MXN": Decimal("0.00"),
+            "CARD_TPV": Decimal("0.00"),
+            "SPEI": Decimal("0.00"),
+            "CODI": Decimal("0.00"),
+            "OTHER": Decimal("0.00"),
+        }
+        method_counts: Dict[str, int] = {
+            "CASH_MXN": 0,
+            "CARD_TPV": 0,
+            "SPEI": 0,
+            "CODI": 0,
+            "OTHER": 0,
+        }
+
+        for sale in sales_list:
+            total_sales_mxn += sale.total_mxn
+            if sale.payments and len(sale.payments) > 0:
+                for p in sale.payments:
+                    m_key = p.payment_method.value if hasattr(p.payment_method, "value") else str(p.payment_method)
+                    net_amount = p.amount_paid_mxn - (p.change_returned_mxn or Decimal("0.00"))
+                    if net_amount < Decimal("0.00"):
+                        net_amount = Decimal("0.00")
+
+                    if m_key not in method_totals:
+                        method_totals[m_key] = Decimal("0.00")
+                        method_counts[m_key] = 0
+
+                    method_totals[m_key] += net_amount
+                    method_counts[m_key] += 1
+
+                    if m_key == "CASH_MXN":
+                        total_cash_sales_mxn += net_amount
+            else:
+                m_key = sale.payment_method_type or (
+                    sale.payment_method.value if hasattr(sale.payment_method, "value") else "CASH_MXN"
+                )
+                if m_key not in method_totals:
+                    method_totals[m_key] = Decimal("0.00")
+                    method_counts[m_key] = 0
+
+                method_totals[m_key] += sale.total_mxn
+                method_counts[m_key] += 1
+
+                if m_key == "CASH_MXN":
+                    total_cash_sales_mxn += sale.total_mxn
+
+        total_cash_in, total_cash_out = await self.cash_movement_repo.get_shift_movement_totals(
+            tenant_id=tenant_id,
+            shift_id=shift_id,
+        )
+
+        expected_cash_mxn = (
+            shift.opening_balance_mxn
+            + total_cash_sales_mxn
+            + total_cash_in
+            - total_cash_out
+        ).quantize(Decimal("0.01"))
+
+        difference_mxn: Optional[Decimal] = None
+        difference_status: Optional[DifferenceStatus] = None
+
+        if shift.counted_cash_mxn is not None:
+            difference_mxn = (shift.counted_cash_mxn - expected_cash_mxn).quantize(Decimal("0.01"))
+            if difference_mxn == Decimal("0.00"):
+                difference_status = DifferenceStatus.EXACT
+            elif difference_mxn > Decimal("0.00"):
+                difference_status = DifferenceStatus.SURPLUS
+            else:
+                difference_status = DifferenceStatus.SHORTAGE
+
+        p_summaries: List[PaymentMethodSummary] = [
+            PaymentMethodSummary(
+                payment_method=k,
+                total_mxn=v.quantize(Decimal("0.01")),
+                transaction_count=method_counts[k],
+            )
+            for k, v in method_totals.items()
+            if method_counts[k] > 0
+        ]
+
+        return CashShiftSummaryResponse(
+            shift_id=shift.id,
+            cashier_id=shift.cashier_id,
+            warehouse_id=shift.warehouse_id,
+            status=shift.status,
+            opened_at=shift.opened_at,
+            closed_at=shift.closed_at,
+            opening_balance_mxn=shift.opening_balance_mxn,
+            total_cash_sales_mxn=total_cash_sales_mxn.quantize(Decimal("0.01")),
+            total_cash_in_mxn=total_cash_in.quantize(Decimal("0.01")),
+            total_cash_out_mxn=total_cash_out.quantize(Decimal("0.01")),
+            expected_cash_mxn=expected_cash_mxn,
+            counted_cash_mxn=shift.counted_cash_mxn,
+            difference_mxn=difference_mxn,
+            difference_status=difference_status,
+            payment_methods_summary=p_summaries,
+            total_sales_mxn=total_sales_mxn.quantize(Decimal("0.01")),
+            total_sales_count=len(sales_list),
+        )
+
+    async def close_cash_shift(
+        self,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        shift_id: uuid.UUID,
+        request: CashShiftCloseRequest,
+    ) -> CashShiftResponse:
+        """
+        Ejecuta el arqueo a ciegas y cierra formalmente el turno de caja (RF-17).
+        Calcula el saldo teórico esperado y congela la diferencia de auditoría.
+        """
+        shift = await self.cash_shift_repo.get_by_id(
+            tenant_id=tenant_id,
+            shift_id=shift_id,
+        )
+        if not shift:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Turno de caja no encontrado.",
+            )
+
+        if shift.status == ShiftStatus.CLOSED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El turno de caja ya se encuentra cerrado.",
+            )
+
+        summary = await self.get_shift_financial_summary(tenant_id, shift_id)
+
+        counted_cash = request.counted_cash_mxn.quantize(Decimal("0.01"))
+        expected_cash = summary.expected_cash_mxn
+        difference = (counted_cash - expected_cash).quantize(Decimal("0.01"))
+
+        shift.counted_cash_mxn = counted_cash
+        shift.expected_cash_mxn = expected_cash
+        shift.difference_mxn = difference
+        shift.status = ShiftStatus.CLOSED
+        shift.closed_at = datetime.now(timezone.utc)
+        shift.closed_by_user_id = user_id
+
+        if request.notes:
+            shift.notes = f"{shift.notes}\n{request.notes}" if shift.notes else request.notes
+
+        updated_shift = await self.cash_shift_repo.update(shift)
+        await self.session.commit()
+
+        return self._map_to_shift_response(updated_shift)
+
+    async def list_cash_shifts(
+        self,
+        tenant_id: uuid.UUID,
+        cashier_id: Optional[uuid.UUID] = None,
+        status: Optional[ShiftStatus] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[CashShiftResponse]:
+        """
+        Lista el historial de turnos de caja con filtros por cajero, estado y fechas.
+        """
+        shifts = await self.cash_shift_repo.list_shifts(
+            tenant_id=tenant_id,
+            cashier_id=cashier_id,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            offset=offset,
+        )
+        return [self._map_to_shift_response(s) for s in shifts]
+
+    async def get_cash_shift_details(
+        self,
+        tenant_id: uuid.UUID,
+        shift_id: uuid.UUID,
+    ) -> CashShiftResponse:
+        """
+        Obtiene el detalle completo de un turno de caja por su ID.
+        """
+        shift = await self.cash_shift_repo.get_by_id(
+            tenant_id=tenant_id,
+            shift_id=shift_id,
+        )
+        if not shift:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Turno de caja no encontrado.",
+            )
+        return self._map_to_shift_response(shift)
+
+    def _map_to_shift_response(self, shift: CashShift) -> CashShiftResponse:
+        """
+        Mapea una entidad CashShift al esquema de respuesta CashShiftResponse.
+        """
+        mov_responses = [
+            CashMovementResponse(
+                id=m.id,
+                tenant_id=m.tenant_id,
+                shift_id=m.shift_id,
+                movement_type=m.movement_type,
+                amount_mxn=m.amount_mxn,
+                reason=m.reason,
+                notes=m.notes,
+                authorized_by_user_id=m.authorized_by_user_id,
+                created_by_user_id=m.created_by_user_id,
+                created_at=m.created_at,
+            )
+            for m in (shift.movements or [])
+        ]
+
+        return CashShiftResponse(
+            id=shift.id,
+            tenant_id=shift.tenant_id,
+            cashier_id=shift.cashier_id,
+            warehouse_id=shift.warehouse_id,
+            status=shift.status,
+            opening_balance_mxn=shift.opening_balance_mxn,
+            counted_cash_mxn=shift.counted_cash_mxn,
+            expected_cash_mxn=shift.expected_cash_mxn,
+            difference_mxn=shift.difference_mxn,
+            opened_at=shift.opened_at,
+            closed_at=shift.closed_at,
+            closed_by_user_id=shift.closed_by_user_id,
+            notes=shift.notes,
+            movements=mov_responses,
+            created_at=shift.created_at,
+            updated_at=shift.updated_at,
         )

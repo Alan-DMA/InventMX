@@ -19,8 +19,18 @@ from app.core.security.deps import (
     require_unlocked_tenant,
 )
 from app.modules.auth_tenancy.domain.user import User
+from app.modules.sales_pos.domain.cash_movement import CashMovementType
+from app.modules.sales_pos.domain.cash_shift import DifferenceStatus, ShiftStatus
 from app.modules.sales_pos.domain.commission import CommissionType
 from app.modules.sales_pos.domain.sale import SaleStatus
+from app.modules.sales_pos.schemas.cash_shift import (
+    CashMovementCreateRequest,
+    CashMovementResponse,
+    CashShiftCloseRequest,
+    CashShiftOpenRequest,
+    CashShiftResponse,
+    CashShiftSummaryResponse,
+)
 from app.modules.sales_pos.schemas.commission import (
     CommissionSummaryResponse,
     SaleCommissionResponse,
@@ -43,7 +53,7 @@ from app.modules.sales_pos.schemas.ticket import (
 )
 from app.modules.sales_pos.services.sales_service import SalesService
 
-# Instanciación del router para el módulo de Ventas, Checkout POS, Pagos, Tickets y Comisiones
+# Instanciación del router para el módulo de Ventas, Checkout POS, Pagos, Tickets, Comisiones y Turnos de Caja
 router = APIRouter(prefix="/sales", tags=["Sales & POS Checkout"])
 
 
@@ -95,6 +105,183 @@ async def calculate_quick_change(
     """
     service = SalesService(db)
     return service.calculate_quick_change(request.total_mxn, request.cash_received_mxn)
+
+
+# =============================================================================
+# ENDPOINTS DE TURNOS DE CAJA Y ARQUEO (ESTÁTICOS ANTES DE /{sale_id})
+# =============================================================================
+
+@router.post(
+    "/shifts/open",
+    response_model=CashShiftResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Apertura de Turno de Caja (Sesión de Cajero)",
+    description="Inicia una nueva jornada de caja con fondo inicial en MXN. Valida que no exista turno activo previo (RF-16 / Const. Art. 3.3).",
+)
+async def open_shift(
+    request: CashShiftOpenRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.checkout")),
+    _unlocked: None = Depends(require_unlocked_tenant),
+):
+    """
+    Apertura formal de turno de caja para el cajero en sesión.
+    """
+    service = SalesService(db)
+    return await service.open_cash_shift(
+        tenant_id=current_user.tenant_id,
+        cashier_id=current_user.id,
+        request=request,
+    )
+
+
+@router.get(
+    "/shifts/current",
+    response_model=Optional[CashShiftResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Consultar Turno de Caja Activo del Cajero Actual",
+    description="Devuelve el turno actualmente en estado OPEN del cajero autenticado, o null si la caja está cerrada.",
+)
+async def get_current_shift(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Recupera el turno de caja abierto del cajero en sesión.
+    """
+    service = SalesService(db)
+    return await service.get_current_cash_shift(
+        tenant_id=current_user.tenant_id,
+        cashier_id=current_user.id,
+    )
+
+
+@router.get(
+    "/shifts",
+    response_model=List[CashShiftResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Listar Historial de Turnos de Caja",
+    description="Permite auditar el historial de turnos con filtros por cajero, estado y rango de fechas (RF-16, RF-17).",
+)
+async def list_shifts(
+    cashier_id: Optional[uuid.UUID] = Query(None, description="Filtrar por cajero específico"),
+    status_filter: Optional[ShiftStatus] = Query(None, alias="status", description="Filtrar por estado OPEN o CLOSED"),
+    start_date: Optional[datetime] = Query(None, description="Fecha inicial del periodo"),
+    end_date: Optional[datetime] = Query(None, description="Fecha final del periodo"),
+    skip: int = Query(0, ge=0, description="Paginación offset"),
+    limit: int = Query(50, ge=1, le=100, description="Límite por página"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Historial paginado de turnos de caja para auditoría de comercio.
+    """
+    service = SalesService(db)
+    return await service.list_cash_shifts(
+        tenant_id=current_user.tenant_id,
+        cashier_id=cashier_id,
+        status=status_filter,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=skip,
+    )
+
+
+@router.get(
+    "/shifts/{shift_id}/summary",
+    response_model=CashShiftSummaryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resumen Financiero y Saldo Teórico Esperado de un Turno",
+    description="Calcula las ventas acumuladas por método de pago, movimientos manuales y saldo teórico esperado en efectivo (RF-16, RF-17).",
+)
+async def get_shift_summary(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Calcula el resumen financiero y arqueo del turno.
+    """
+    service = SalesService(db)
+    return await service.get_shift_financial_summary(
+        tenant_id=current_user.tenant_id,
+        shift_id=shift_id,
+    )
+
+
+@router.post(
+    "/shifts/{shift_id}/movements",
+    response_model=CashMovementResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar Movimiento Manual de Efectivo (CASH_IN / CASH_OUT)",
+    description="Registra una entrada (depósito de cambio) o salida (gasto menor, retiro parcial) en el turno activo (RF-16).",
+)
+async def record_cash_movement(
+    shift_id: uuid.UUID,
+    request: CashMovementCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.checkout")),
+    _unlocked: None = Depends(require_unlocked_tenant),
+):
+    """
+    Registro inmutable de movimiento manual en caja chica.
+    """
+    service = SalesService(db)
+    return await service.record_cash_movement(
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        shift_id=shift_id,
+        request=request,
+    )
+
+
+@router.post(
+    "/shifts/{shift_id}/close",
+    response_model=CashShiftResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Arqueo a Ciegas y Cierre de Turno de Caja",
+    description="Cierra formalmente el turno congelando el conteo físico ingresado y calculando la discrepancia (RF-17 / Const. Art. 7.2).",
+)
+async def close_shift(
+    shift_id: uuid.UUID,
+    request: CashShiftCloseRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.checkout")),
+    _unlocked: None = Depends(require_unlocked_tenant),
+):
+    """
+    Cierre de turno y cálculo del arqueo de caja a ciegas.
+    """
+    service = SalesService(db)
+    return await service.close_cash_shift(
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        shift_id=shift_id,
+        request=request,
+    )
+
+
+@router.get(
+    "/shifts/{shift_id}",
+    response_model=CashShiftResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener Detalle Completo de un Turno de Caja",
+    description="Devuelve la información detallada del turno con su lista de movimientos manuales asociados.",
+)
+async def get_shift_details(
+    shift_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Detalle de un turno de caja por su ID.
+    """
+    service = SalesService(db)
+    return await service.get_cash_shift_details(
+        tenant_id=current_user.tenant_id,
+        shift_id=shift_id,
+    )
 
 
 # =============================================================================

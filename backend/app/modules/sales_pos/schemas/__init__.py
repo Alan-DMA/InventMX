@@ -1,4 +1,15 @@
-# Exportación de esquemas de ventas POS, pagos, tickets y comisiones
+# Exportación de esquemas Pydantic v2 para el módulo de ventas, POS, tickets, comisiones y turnos de caja
+from app.modules.sales_pos.schemas.cash_shift import (
+    CashMovementCreateRequest,
+    CashMovementResponse,
+    CashShiftCloseRequest,
+    CashShiftOpenRequest,
+    CashShiftResponse,
+    CashShiftSummaryResponse,
+    DifferenceStatus,
+    PaymentMethodSummary,
+    ShiftStatus,
+)
 from app.modules.sales_pos.schemas.commission import (
     CommissionSummaryResponse,
     SaleCommissionResponse,
@@ -28,7 +39,15 @@ from app.modules.sales_pos.schemas.ticket import (
 
 __all__ = [
     "BanxicoDenominationBreakdown",
+    "CashMovementCreateRequest",
+    "CashMovementResponse",
+    "CashShiftCloseRequest",
+    "CashShiftOpenRequest",
+    "CashShiftResponse",
+    "CashShiftSummaryResponse",
     "CommissionSummaryResponse",
+    "DifferenceStatus",
+    "PaymentMethodSummary",
     "PaymentRequest",
     "PaymentResponse",
     "QuickChangeRequest",
@@ -39,6 +58,7 @@ __all__ = [
     "SaleItemRequest",
     "SaleItemResponse",
     "SaleResponse",
+    "ShiftStatus",
     "TicketLineItemPayload",
     "TicketPayloadResponse",
     "TicketPaymentPayload",
