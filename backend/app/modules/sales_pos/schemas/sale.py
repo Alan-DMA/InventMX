@@ -9,8 +9,9 @@ import uuid
 # Importación de Pydantic v2
 from pydantic import BaseModel, ConfigDict, Field
 
-# Importación del enum de estado de ventas
+# Importación de modelos y esquemas de pago
 from app.modules.sales_pos.domain.sale import SaleStatus
+from app.modules.sales_pos.schemas.payment import PaymentRequest, PaymentResponse
 
 
 class SaleItemRequest(BaseModel):
@@ -83,7 +84,7 @@ class SaleItemRequest(BaseModel):
 
 class SaleCheckoutRequest(BaseModel):
     """
-    Esquema de solicitud para procesar el Checkout atómico en el Punto de Venta (RF-09, RF-12).
+    Esquema de solicitud para procesar el Checkout atómico en el Punto de Venta con soporte de pagos mixtos (RF-09, RF-12, RF-13, RF-14).
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,6 +103,18 @@ class SaleCheckoutRequest(BaseModel):
     items: List[SaleItemRequest] = Field(
         min_length=1,
         description="Lista de productos o combos a cobrar",
+    )
+
+    # Desglose de pagos realizados (si se omite, se asume pago exacto en efectivo CASH_MXN)
+    payments: Optional[List[PaymentRequest]] = Field(
+        default=None,
+        description="Lista de métodos de pago aplicados a la venta (RF-13, RF-14)",
+    )
+
+    # Bandera para admitir pagos parciales o diferidos (estado PENDING_PAYMENT)
+    allow_partial_payment: bool = Field(
+        default=False,
+        description="Permite registrar la venta en estado diferido PENDING_PAYMENT si el pago inicial es parcial",
     )
 
     # Descuento global a nivel de ticket
@@ -146,7 +159,7 @@ class SaleItemResponse(BaseModel):
 
 class SaleResponse(BaseModel):
     """
-    Esquema de respuesta completa del comprobante / nota de venta POS (RF-08).
+    Esquema de respuesta completa del comprobante / nota de venta POS (RF-08, RF-13, RF-14).
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -165,8 +178,24 @@ class SaleResponse(BaseModel):
     gross_profit_mxn: Decimal = Field(
         description="Utilidad bruta total de la venta (total_mxn - total_cost_mxn)",
     )
+    payment_method_type: Optional[str] = Field(
+        default="CASH_MXN",
+        description="Método de pago o 'MIXED' si se dividió el pago",
+    )
+    amount_paid_mxn: Decimal = Field(
+        default=Decimal("0.00"),
+        description="Monto total pagado por el cliente",
+    )
+    change_returned_mxn: Decimal = Field(
+        default=Decimal("0.00"),
+        description="Monto de vuelto o cambio devuelto al cliente",
+    )
     notes: Optional[str] = None
     items: List[SaleItemResponse]
+    payments: List[PaymentResponse] = Field(
+        default_factory=list,
+        description="Desglose contable de los pagos registrados",
+    )
     created_at: datetime
     updated_at: datetime
 

@@ -10,12 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 # Importación de modelos de dominio
+from app.modules.sales_pos.domain.payment import SalePayment
 from app.modules.sales_pos.domain.sale import Sale, SaleItem, SaleStatus
 
 
 class SaleRepository:
     """
-    Repositorio de persistencia y consultas para Ventas y Partidas POS (RF-08, RF-12).
+    Repositorio de persistencia y consultas para Ventas, Partidas y Pagos POS (RF-08, RF-12, RF-13).
     Asegura integridad referencial, transaccionalidad y aislamiento RLS por tenant.
     """
 
@@ -46,7 +47,7 @@ class SaleRepository:
 
     async def create_sale(self, sale: Sale) -> Sale:
         """
-        Persiste una nueva venta en la base de datos con sus partidas asociadas.
+        Persiste una nueva venta en la base de datos con sus partidas y pagos asociados.
         """
         self.session.add(sale)
         await self.session.flush()
@@ -54,13 +55,14 @@ class SaleRepository:
 
     async def get_by_id(self, sale_id: uuid.UUID, tenant_id: uuid.UUID) -> Optional[Sale]:
         """
-        Obtiene una venta por su ID con carga eager de partidas y relaciones bajo RLS.
+        Obtiene una venta por su ID con carga eager de partidas, pagos y relaciones bajo RLS.
         """
         query = (
             select(Sale)
             .options(
                 selectinload(Sale.items).selectinload(SaleItem.product),
                 selectinload(Sale.items).selectinload(SaleItem.combo),
+                selectinload(Sale.payments),
                 selectinload(Sale.cashier),
                 selectinload(Sale.warehouse),
             )
@@ -90,6 +92,7 @@ class SaleRepository:
             .options(
                 selectinload(Sale.items).selectinload(SaleItem.product),
                 selectinload(Sale.items).selectinload(SaleItem.combo),
+                selectinload(Sale.payments),
             )
             .where(Sale.tenant_id == tenant_id)
         )

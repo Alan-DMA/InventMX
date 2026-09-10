@@ -43,7 +43,7 @@ class SaleStatus(str, enum.Enum):
 class Sale(Base):
     """
     Modelo de Dominio para la Cabecera de Ventas POS (inventmx.sales).
-    Representa el comprobante y transacción de venta en mostrador (RF-08, RF-12).
+    Representa el comprobante y transacción de venta en mostrador (RF-08, RF-12, RF-13).
     """
     # Nombre de la tabla en base de datos
     __tablename__ = "sales"
@@ -155,6 +155,30 @@ class Sale(Base):
         doc="Costo de mercancía vendida congelado para cálculo de rentabilidad neta (RF-20)",
     )
 
+    # Resumen del método de pago principal o mixto (CASH_MXN, SPEI, CODI, CARD_TPV, MIXED)
+    payment_method_type: Mapped[Optional[str]] = mapped_column(
+        String(30),
+        default="CASH_MXN",
+        nullable=True,
+        doc="Tipo de liquidación: individual o MIXED para pagos divididos (RF-14)",
+    )
+
+    # Monto total abonado/pagado por el cliente en Pesos Mexicanos ($ MXN)
+    amount_paid_mxn: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        default=Decimal("0.00"),
+        nullable=False,
+        doc="Importe total entregado por el cliente",
+    )
+
+    # Monto de cambio/vuelto entregado al cliente en Pesos Mexicanos ($ MXN)
+    change_returned_mxn: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        default=Decimal("0.00"),
+        nullable=False,
+        doc="Vuelto devuelto en mostrador al cliente",
+    )
+
     # Notas u observaciones del cajero
     notes: Mapped[Optional[str]] = mapped_column(
         Text,
@@ -189,6 +213,24 @@ class Sale(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
         doc="Lista de partidas o productos incluidos en la venta",
+    )
+
+    # Relación uno-a-muchos con los pagos registrados en la venta
+    payments: Mapped[List["SalePayment"]] = relationship(
+        "SalePayment",
+        back_populates="sale",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        doc="Desglose contable de los pagos aplicados a la venta (RF-13, RF-14)",
+    )
+
+    # Relación uno-a-muchos con las comisiones devengadas por la venta
+    commissions: Mapped[List["SaleCommission"]] = relationship(
+        "SaleCommission",
+        back_populates="sale",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        doc="Asientos de comisiones asociados a la venta (RF-10 / Const. Art. 8.2)",
     )
 
     # Relación con el usuario cajero
@@ -340,6 +382,7 @@ class SaleItem(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         nullable=False,
+        index=True,
         doc="Estampa de tiempo del ítem",
     )
 
