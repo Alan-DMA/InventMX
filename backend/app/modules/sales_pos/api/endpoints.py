@@ -1,5 +1,7 @@
 # Importación de marcas de fecha
 from datetime import datetime
+# Importación de precisión decimal
+from decimal import Decimal
 # Importación de tipado estático
 from typing import List, Optional
 # Importación de identificadores UUID
@@ -17,7 +19,12 @@ from app.core.security.deps import (
     require_unlocked_tenant,
 )
 from app.modules.auth_tenancy.domain.user import User
+from app.modules.sales_pos.domain.commission import CommissionType
 from app.modules.sales_pos.domain.sale import SaleStatus
+from app.modules.sales_pos.schemas.commission import (
+    CommissionSummaryResponse,
+    SaleCommissionResponse,
+)
 from app.modules.sales_pos.schemas.payment import (
     PaymentRequest,
     PaymentResponse,
@@ -29,11 +36,20 @@ from app.modules.sales_pos.schemas.sale import (
     SaleCheckoutRequest,
     SaleResponse,
 )
+from app.modules.sales_pos.schemas.ticket import (
+    TicketPayloadResponse,
+    TicketSettingsResponse,
+    TicketSettingsUpdateRequest,
+)
 from app.modules.sales_pos.services.sales_service import SalesService
 
-# Instanciación del router para el módulo de Ventas, Checkout POS y Pagos
+# Instanciación del router para el módulo de Ventas, Checkout POS, Pagos, Tickets y Comisiones
 router = APIRouter(prefix="/sales", tags=["Sales & POS Checkout"])
 
+
+# =============================================================================
+# ENDPOINTS DE CHECKOUT Y CAJA
+# =============================================================================
 
 @router.post(
     "/checkout",
@@ -79,6 +95,134 @@ async def calculate_quick_change(
     """
     service = SalesService(db)
     return service.calculate_quick_change(request.total_mxn, request.cash_received_mxn)
+
+
+# =============================================================================
+# ENDPOINTS DE CONFIGURACIÓN DE TICKETS (ESTÁTICOS ANTES DE /{sale_id})
+# =============================================================================
+
+@router.get(
+    "/settings/ticket",
+    response_model=TicketSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener Configuración de Tickets Térmicos de la Tienda",
+    description="Recupera los parámetros de cabecera, RFC, dirección, mensaje de pie y ancho de papel (58mm/80mm) (RF-08).",
+)
+async def get_ticket_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Consulta de configuración de tickets térmicos del comercio.
+    """
+    service = SalesService(db)
+    return await service.get_ticket_settings(current_user)
+
+
+@router.put(
+    "/settings/ticket",
+    response_model=TicketSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Actualizar Configuración de Tickets Térmicos de la Tienda",
+    description="Actualiza la identidad visual, datos fiscales simplificados, mensajes de despedida y ancho de papel del ticket (RF-08).",
+)
+async def update_ticket_settings(
+    request: TicketSettingsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.checkout")),
+    _unlocked: None = Depends(require_unlocked_tenant),
+):
+    """
+    Actualización de parámetros del ticket térmico en el comercio.
+    """
+    service = SalesService(db)
+    return await service.update_ticket_settings(request, current_user)
+
+
+# =============================================================================
+# ENDPOINTS DE COMISIONES (ESTÁTICOS ANTES DE /{sale_id})
+# =============================================================================
+
+@router.get(
+    "/commissions/summary",
+    response_model=CommissionSummaryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Consultar Resumen de Comisiones de Venta por Empleado",
+    description="Permite consultar el acumulado de comisiones ganadas por cajeros/vendedores en un rango de fechas (RF-10 / Const. Art. 8.2).",
+)
+async def get_commissions_summary(
+    user_id: Optional[uuid.UUID] = Query(None, description="Filtrar comisiones por empleado específico"),
+    start_date: Optional[datetime] = Query(None, description="Fecha inicial del periodo (ISO 8601)"),
+    end_date: Optional[datetime] = Query(None, description="Fecha final del periodo (ISO 8601)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Reporte consolidado de comisiones de venta para el comercio.
+    """
+    service = SalesService(db)
+    return await service.get_commissions_summary(
+        current_user=current_user,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+# =============================================================================
+# ENDPOINTS DE PAGOS, TICKETS Y GESTIÓN POR VENTA ESPECÍFICA
+# =============================================================================
+
+@router.get(
+    "/{sale_id}/ticket",
+    response_model=TicketPayloadResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generar Nota de Venta / Ticket Térmico POS (58mm / 80mm)",
+    description=(
+        "Devuelve el payload estructurado y el texto plano pre-formateado monoespaciado listo para impresión "
+        "en impresoras térmicas de 58 mm (32 cols) u 80 mm (48 cols) (RF-08 / Const. Art. 1.2.8)."
+    ),
+)
+async def get_sale_ticket(
+    sale_id: uuid.UUID,
+    width_mm: Optional[int] = Query(None, description="Ancho de papel térmico (58 u 80). Si es None se usa el predeterminado"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.view")),
+):
+    """
+    Generación de comprobante simplificado y formateo de impresión térmica.
+    """
+    service = SalesService(db)
+    return await service.generate_sale_ticket(sale_id, width_mm, current_user)
+
+
+@router.post(
+    "/{sale_id}/commissions",
+    response_model=SaleCommissionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar Comisión de Venta Dinámica para Empleado",
+    description="Calcula y asienta la comisión devengada por un cajero o vendedor en una venta concretada (RF-10).",
+)
+async def record_commission(
+    sale_id: uuid.UUID,
+    user_id: uuid.UUID = Query(..., description="ID del usuario empleado beneficiario"),
+    commission_type: CommissionType = Query(CommissionType.PERCENTAGE_SALE, description="Tipo de comisión aplicada"),
+    commission_rate: Decimal = Query(..., ge=0, description="Tasa porcentual o importe fijo en $ MXN"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.checkout")),
+    _unlocked: None = Depends(require_unlocked_tenant),
+):
+    """
+    Registro contable inmutable de comisión devengada por venta.
+    """
+    service = SalesService(db)
+    return await service.record_sale_commission(
+        sale_id=sale_id,
+        user_id=user_id,
+        commission_type=commission_type,
+        commission_rate=commission_rate,
+        current_user=current_user,
+    )
 
 
 @router.post(
@@ -146,7 +290,7 @@ async def list_sales(
     Listado paginado de ventas del comercio.
     """
     service = SalesService(db)
-    sales, _ = await service.list_sales(
+    return await service.list_sales(
         current_user=current_user,
         start_date=start_date,
         end_date=end_date,
@@ -156,7 +300,6 @@ async def list_sales(
         skip=skip,
         limit=limit,
     )
-    return sales
 
 
 @router.post(

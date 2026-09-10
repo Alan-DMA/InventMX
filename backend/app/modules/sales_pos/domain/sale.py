@@ -224,6 +224,15 @@ class Sale(Base):
         doc="Desglose contable de los pagos aplicados a la venta (RF-13, RF-14)",
     )
 
+    # Relación uno-a-muchos con las comisiones devengadas por la venta
+    commissions: Mapped[List["SaleCommission"]] = relationship(
+        "SaleCommission",
+        back_populates="sale",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        doc="Asientos de comisiones asociados a la venta (RF-10 / Const. Art. 8.2)",
+    )
+
     # Relación con el usuario cajero
     cashier: Mapped["User"] = relationship(
         "User",
