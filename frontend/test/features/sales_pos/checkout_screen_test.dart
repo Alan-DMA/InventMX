@@ -8,6 +8,7 @@ import 'package:nexus_app/features/inventory/domain/product.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/sales_pos/domain/cart_item.dart';
 import 'package:nexus_app/features/sales_pos/domain/cart_state.dart';
+import 'package:nexus_app/features/sales_pos/domain/payment_entry.dart';
 import 'package:nexus_app/features/sales_pos/presentation/cart_provider.dart';
 import 'package:nexus_app/features/sales_pos/presentation/checkout_screen.dart';
 
@@ -63,8 +64,7 @@ void _stubInventoryRepo(MockInventoryRepository repo,
 void _stubSalesRepo(MockSalesRepository repo) {
   when(() => repo.checkout(
         items: any(named: 'items'),
-        paymentMethod: any(named: 'paymentMethod'),
-        cashAmountMxn: any(named: 'cashAmountMxn'),
+        payments: any(named: 'payments'),
       )).thenAnswer((_) async => const CheckoutResult(
         saleId: 'sale-001',
         folio: 'NV-2026-001548',
@@ -113,8 +113,7 @@ Widget _buildScreen({
 void main() {
   setUpAll(() {
     registerFallbackValue(<CartItem>[]);
-    registerFallbackValue('CASH_MXN');
-    registerFallbackValue(0.0);
+    registerFallbackValue(<PaymentEntry>[]);
   });
 
   // ── CA-01: empty state visible con carrito vacío ─────────────────────────
