@@ -19,6 +19,7 @@ from app.core.middleware.subscription import SubscriptionLockMiddleware
 from app.modules.auth_tenancy.api.endpoints import router as auth_router
 from app.modules.customers_credit.api.endpoints import router as customers_router
 from app.modules.inventory.api.endpoints import router as inventory_router
+from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
 from app.modules.sales_pos.api.endpoints import router as sales_router
 
 # Instanciación principal de la aplicación FastAPI
@@ -49,6 +50,7 @@ if settings.BACKEND_CORS_ORIGINS:
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(customers_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
+app.include_router(purchasing_router, prefix=settings.API_V1_STR)
 app.include_router(sales_router, prefix=settings.API_V1_STR)
 
 
