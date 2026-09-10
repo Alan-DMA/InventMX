@@ -22,6 +22,12 @@ from app.modules.purchasing_suppliers.schemas.account_payable import (
     SupplierPaymentRequest,
     SupplierPaymentResponse,
 )
+from app.modules.purchasing_suppliers.schemas.ocr_receipt import (
+    ReceiptOcrParseRequest,
+    ReceiptOcrParseResponse,
+    VoiceDictationParseRequest,
+    VoiceDictationParseResponse,
+)
 from app.modules.purchasing_suppliers.schemas.purchase_order import (
     PurchaseOrderCreateRequest,
     PurchaseOrderReceiveRequest,
@@ -38,6 +44,12 @@ from app.modules.purchasing_suppliers.services.accounts_payable_service import (
 )
 from app.modules.purchasing_suppliers.services.purchasing_service import (
     PurchasingService,
+)
+from app.modules.purchasing_suppliers.services.receipt_parser_service import (
+    ReceiptParserService,
+)
+from app.modules.purchasing_suppliers.services.voice_parser_service import (
+    VoiceParserService,
 )
 
 # Creación del enrutador modular
@@ -319,3 +331,44 @@ async def list_account_payments(
     """Retorna todos los abonos registrados para la cuenta por pagar."""
     service = AccountsPayableService(db)
     return await service.list_account_payments(account_id, current_user)
+
+
+# -----------------------------------------------------------------------------
+# Endpoints de OCR On-Device y Dictado de Voz (RF-28, SR-09)
+# -----------------------------------------------------------------------------
+
+@router.post(
+    "/purchases/parse-receipt",
+    response_model=ReceiptOcrParseResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Parsear texto plano OCR de factura y emparejar con catálogo",
+)
+async def parse_receipt(
+    request: ReceiptOcrParseRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReceiptOcrParseResponse:
+    """
+    Interpreta el texto extraído por Google ML Kit en el dispositivo cliente, detecta productos,
+    cantidades y costos unitarios, y busca coincidencias en el inventario del comercio (RF-28).
+    """
+    service = ReceiptParserService(db)
+    return await service.parse_receipt_text(request, current_user)
+
+
+@router.post(
+    "/purchases/parse-voice-dictation",
+    response_model=VoiceDictationParseResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Interpretar dictado de voz nativo para autocompletar 3 campos vitales",
+)
+async def parse_voice_dictation(
+    request: VoiceDictationParseRequest,
+    current_user: User = Depends(get_current_user),
+) -> VoiceDictationParseResponse:
+    """
+    Procesa el texto dictado por voz en español y extrae los 3 Campos Vitales: Nombre, Precio y Stock (SR-09).
+    """
+    service = VoiceParserService()
+    return service.parse_voice_text(request)
+

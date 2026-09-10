@@ -1,3 +1,11 @@
+from app.modules.purchasing_suppliers.schemas.ocr_receipt import (
+    ReceiptOcrParseRequest,
+    ReceiptOcrItemResponse,
+    ReceiptOcrParseResponse,
+    VoiceDictationParseRequest,
+    VoiceDictationParseResponse,
+)
+
 from app.modules.purchasing_suppliers.schemas.supplier import (
     SupplierCreateRequest,
     SupplierUpdateRequest,
@@ -36,4 +44,9 @@ __all__ = [
     "SupplierPaymentResponse",
     "SupplierPaymentLedgerResponse",
     "AccountsPayableSummaryResponse",
+    "ReceiptOcrParseRequest",
+    "ReceiptOcrItemResponse",
+    "ReceiptOcrParseResponse",
+    "VoiceDictationParseRequest",
+    "VoiceDictationParseResponse",
 ]
