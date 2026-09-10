@@ -1,3 +1,8 @@
+from app.modules.customers_credit.domain.credit_ledger import (
+    CustomerCreditLedger,
+    LedgerEntryType,
+)
+from app.modules.customers_credit.domain.customer import Customer
 from app.modules.sales_pos.domain.cash_movement import (
     CashMovement,
     CashMovementType,
@@ -469,20 +474,26 @@ class SalesService:
         total_change_mxn = Decimal("0.00")
 
         if not request.payments:
-            # Si no se especifican pagos, se asume pago exacto en efectivo CASH_MXN
-            total_paid_mxn = final_total_mxn
-            total_change_mxn = Decimal("0.00")
-            payment_method_type = "CASH_MXN"
-            exact_payment = SalePayment(
-                tenant_id=tenant_id,
-                payment_method=PaymentMethod.CASH_MXN,
-                amount_paid_mxn=final_total_mxn,
-                change_returned_mxn=Decimal("0.00"),
-                reference_code=None,
-                notes="Pago en efectivo registrado en checkout",
-            )
-            sale_payments_to_create.append(exact_payment)
-            sale_status = SaleStatus.COMPLETED
+            if request.allow_partial_payment:
+                total_paid_mxn = Decimal("0.00")
+                total_change_mxn = Decimal("0.00")
+                payment_method_type = "CREDIT" if request.client_id else "PENDING"
+                sale_status = SaleStatus.PENDING_PAYMENT
+            else:
+                # Si no se especifican pagos y no es parcial, se asume pago exacto en efectivo CASH_MXN
+                total_paid_mxn = final_total_mxn
+                total_change_mxn = Decimal("0.00")
+                payment_method_type = "CASH_MXN"
+                exact_payment = SalePayment(
+                    tenant_id=tenant_id,
+                    payment_method=PaymentMethod.CASH_MXN,
+                    amount_paid_mxn=final_total_mxn,
+                    change_returned_mxn=Decimal("0.00"),
+                    reference_code=None,
+                    notes="Pago en efectivo registrado en checkout",
+                )
+                sale_payments_to_create.append(exact_payment)
+                sale_status = SaleStatus.COMPLETED
         else:
             # Validación exhaustiva de lista de pagos
             for p_req in request.payments:
@@ -558,7 +569,7 @@ class SalesService:
             warehouse_id=warehouse.id,
             client_id=request.client_id,
             folio=folio,
-            status=sale_status if request.payments else SaleStatus.COMPLETED,
+            status=sale_status,
             subtotal_mxn=total_subtotal_mxn,
             discount_mxn=total_discount_mxn,
             tax_mxn=Decimal("0.00"),
@@ -571,6 +582,63 @@ class SalesService:
             items=sale_items_to_create,
             payments=sale_payments_to_create,
         )
+
+        # ---------------------------------------------------------------------
+        # 6.1 Integración de Crédito en Tienda / Fiado (RF-06, RF-15 / Const. Art. 7.2)
+        # ---------------------------------------------------------------------
+        unpaid_amount = (final_total_mxn - total_paid_mxn).quantize(Decimal("0.01"))
+        if request.client_id and unpaid_amount > Decimal("0.00"):
+            # Buscar cliente bajo aislamiento de inquilino
+            c_stmt = (
+                select(Customer)
+                .where(
+                    Customer.id == request.client_id,
+                    Customer.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            c_res = await self.session.execute(c_stmt)
+            customer = c_res.scalar_one_or_none()
+            if not customer:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="El cliente especificado para la venta a crédito no fue encontrado.",
+                )
+            if not customer.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"El cliente '{customer.full_name}' está inactivo para operaciones a crédito.",
+                )
+
+            new_credit_balance = (customer.credit_balance_mxn + unpaid_amount).quantize(Decimal("0.01"))
+            if new_credit_balance > customer.credit_limit_mxn:
+                available = max(Decimal("0.00"), customer.credit_limit_mxn - customer.credit_balance_mxn)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"La venta a crédito de ${unpaid_amount:,.2f} MXN excede la línea disponible del cliente "
+                        f"(${available:,.2f} MXN disponible de un límite de ${customer.credit_limit_mxn:,.2f} MXN)."
+                    ),
+                )
+
+            prev_balance = customer.credit_balance_mxn
+            customer.credit_balance_mxn = new_credit_balance
+            self.session.add(customer)
+
+            # Crear asiento contable inmutable de cargo en el libro mayor de crédito
+            credit_charge_entry = CustomerCreditLedger(
+                tenant_id=tenant_id,
+                customer_id=customer.id,
+                sale_id=sale.id,
+                entry_type=LedgerEntryType.CHARGE,
+                amount_mxn=unpaid_amount,
+                previous_balance_mxn=prev_balance,
+                resulting_balance_mxn=new_credit_balance,
+                notes=f"Cargo por venta a crédito / fiado folio {sale.folio}",
+                created_by_user_id=current_user.id,
+                created_at=datetime.now(timezone.utc),
+            )
+            self.session.add(credit_charge_entry)
 
         await self.sale_repo.create_sale(sale)
         return self._build_sale_response(sale)
