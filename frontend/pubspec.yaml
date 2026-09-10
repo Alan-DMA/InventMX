@@ -39,6 +39,9 @@ dependencies:
   # --- Escaneo de códigos de barras ---
   mobile_scanner: ^6.0.0        # Escaneo continuo EAN/QR/Code128 (Tarea 5.2)
 
+  # --- Generación de QR ---
+  qr_flutter: ^4.1.0            # QR de validación en ticket de venta (Tarea 8.2)
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -65,12 +65,17 @@ void _stubSalesRepo(MockSalesRepository repo) {
   when(() => repo.checkout(
         items: any(named: 'items'),
         payments: any(named: 'payments'),
-      )).thenAnswer((_) async => const CheckoutResult(
+        cashierName: any(named: 'cashierName'),
+      )).thenAnswer((_) async => CheckoutResult(
         saleId: 'sale-001',
         folio: 'NV-2026-001548',
         totalMxn: 18.0,
         totalPaidMxn: 18.0,
         changeGivenMxn: 0.0,
+        items: const [],
+        payments: const [],
+        cashierName: 'Cajero de prueba',
+        completedAt: DateTime(2026, 9, 10, 12, 0),
       ));
 }
 
