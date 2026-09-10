@@ -1,16 +1,28 @@
-# Exportación de esquemas del módulo de ventas POS
+# Exportación de esquemas de ventas POS y pagos
+from app.modules.sales_pos.schemas.payment import (
+    BanxicoDenominationBreakdown,
+    PaymentRequest,
+    PaymentResponse,
+    QuickChangeRequest,
+    QuickChangeResponse,
+)
 from app.modules.sales_pos.schemas.sale import (
-    SaleItemRequest,
+    SaleCancelRequest,
     SaleCheckoutRequest,
+    SaleItemRequest,
     SaleItemResponse,
     SaleResponse,
-    SaleCancelRequest,
 )
 
 __all__ = [
-    "SaleItemRequest",
+    "BanxicoDenominationBreakdown",
+    "PaymentRequest",
+    "PaymentResponse",
+    "QuickChangeRequest",
+    "QuickChangeResponse",
+    "SaleCancelRequest",
     "SaleCheckoutRequest",
+    "SaleItemRequest",
     "SaleItemResponse",
     "SaleResponse",
-    "SaleCancelRequest",
 ]
