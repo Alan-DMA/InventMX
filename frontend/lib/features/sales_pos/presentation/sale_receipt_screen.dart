@@ -1,5 +1,9 @@
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../onboarding/presentation/onboarding_provider.dart';
@@ -13,13 +17,26 @@ import 'widgets/sale_receipt_card.dart';
 ///
 /// Trazabilidad: Doc. Maestro RF-08 (Sección 5.2), Sección 6 (SR-05)
 ///              Constitución Art. VIII (8.2) · HU-14 / CU-16
-class SaleReceiptScreen extends ConsumerWidget {
+class SaleReceiptScreen extends ConsumerStatefulWidget {
   const SaleReceiptScreen({super.key, required this.result});
 
   final CheckoutResult result;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SaleReceiptScreen> createState() => _SaleReceiptScreenState();
+}
+
+class _SaleReceiptScreenState extends ConsumerState<SaleReceiptScreen> {
+  /// Permite capturar únicamente la tarjeta del ticket (sin el AppBar ni los
+  /// botones de acción) como imagen PNG.
+  final _receiptKey = GlobalKey();
+
+  bool _isSharing = false;
+
+  CheckoutResult get result => widget.result;
+
+  @override
+  Widget build(BuildContext context) {
     final onboarding = ref.watch(onboardingProvider).data;
     final businessName =
         onboarding.businessName.isEmpty ? 'NEXUS STORE' : onboarding.businessName;
@@ -53,12 +70,17 @@ class SaleReceiptScreen extends ConsumerWidget {
             children: [
               const _SuccessIndicator(),
               const SizedBox(height: 8),
-              SaleReceiptCard(
-                result: result,
-                businessName: businessName,
-                warehouseName: onboarding.warehouseName,
-                footerMessage: footerMessage,
-                pageBackground: AppColors.darkSlate,
+              // RepaintBoundary con key — permite capturar solo la tarjeta
+              // del ticket (sin encabezado ni botones) como imagen PNG.
+              RepaintBoundary(
+                key: _receiptKey,
+                child: SaleReceiptCard(
+                  result: result,
+                  businessName: businessName,
+                  warehouseName: onboarding.warehouseName,
+                  footerMessage: footerMessage,
+                  pageBackground: AppColors.darkSlate,
+                ),
               ),
               const SizedBox(height: 24),
               Row(
@@ -69,10 +91,8 @@ class SaleReceiptScreen extends ConsumerWidget {
                       label: 'WhatsApp',
                       foregroundColor: AppColors.onSurface,
                       borderColor: AppColors.border,
-                      onTap: () => _shareReceipt(
-                        businessName: businessName,
-                        footerMessage: footerMessage,
-                      ),
+                      isLoading: _isSharing,
+                      onTap: _isSharing ? null : _shareReceiptAsImage,
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -115,40 +135,33 @@ class SaleReceiptScreen extends ConsumerWidget {
     );
   }
 
-  /// Comparte el comprobante como texto plano vía la hoja nativa de
-  /// compartir (WhatsApp entre las opciones) — Tarea 8.2.2.
-  ///
-  /// Blocker: sin el endpoint `/sales/{id}/receipt` (Tarea 8.1.1) no hay PDF
-  /// térmico real que adjuntar; se comparte el desglose en texto mientras
-  /// tanto.
-  Future<void> _shareReceipt({
-    required String businessName,
-    required String footerMessage,
-  }) {
-    final buffer = StringBuffer()
-      ..writeln(businessName)
-      ..writeln(result.folio)
-      ..writeln('Atendió: ${result.cashierName}')
-      ..writeln('---------------------------');
-    for (final item in result.items) {
-      buffer.writeln(
-        '${item.name} x${item.quantity}  \$${item.subtotalMxn.toStringAsFixed(2)}',
-      );
-    }
-    buffer
-      ..writeln('---------------------------')
-      ..writeln('Total: \$${result.totalMxn.toStringAsFixed(2)} MXN');
-    for (final payment in result.payments) {
-      buffer.writeln(
-        '${payment.method.label}: \$${payment.amountMxn.toStringAsFixed(2)}',
-      );
-    }
-    if (result.changeGivenMxn > 0) {
-      buffer.writeln('Vuelto: \$${result.changeGivenMxn.toStringAsFixed(2)}');
-    }
-    buffer.writeln(footerMessage);
+  /// Comparte el ticket como imagen PNG (no texto plano) vía la hoja nativa
+  /// de compartir — Tarea 8.2.2. Misma técnica de captura que
+  /// `ProductLabelModal` (Tarea 4.2.A): `RenderRepaintBoundary.toImage`.
+  Future<void> _shareReceiptAsImage() async {
+    setState(() => _isSharing = true);
+    try {
+      final boundary = _receiptKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) return;
 
-    return Share.share(buffer.toString(), subject: 'Comprobante ${result.folio}');
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+
+      final tempDir = await getTemporaryDirectory();
+      final fileName =
+          'ticket_${result.folio}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File('${tempDir.path}/$fileName');
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'image/png')],
+        subject: 'Comprobante ${result.folio}',
+      );
+    } finally {
+      if (mounted) setState(() => _isSharing = false);
+    }
   }
 
   void _showPrintBlocker(BuildContext context) {
@@ -212,13 +225,15 @@ class _SecondaryActionButton extends StatelessWidget {
     required this.foregroundColor,
     required this.borderColor,
     required this.onTap,
+    this.isLoading = false,
   });
 
   final IconData icon;
   final String label;
   final Color foregroundColor;
   final Color borderColor;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +251,17 @@ class _SecondaryActionButton extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: foregroundColor, size: 20),
+              if (isLoading)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: foregroundColor,
+                  ),
+                )
+              else
+                Icon(icon, color: foregroundColor, size: 20),
               const SizedBox(height: 4),
               Text(
                 label,

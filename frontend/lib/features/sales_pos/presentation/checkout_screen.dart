@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../analytics/presentation/employee_performance_screen.dart';
 import '../domain/cart_item.dart';
 import 'cart_provider.dart';
 import 'sale_receipt_screen.dart';
@@ -91,7 +92,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
       // Tarea 8.2 — el ticket de venta reemplaza el aviso puntual: muestra
       // el comprobante completo con opción de compartir por WhatsApp.
-      await Navigator.of(context).push(
+      // Usa el rootNavigator para que la pantalla cubra también la barra de
+      // navegación inferior del ShellRoute (si no, queda visible detrás).
+      await Navigator.of(context, rootNavigator: true).push(
         MaterialPageRoute(builder: (_) => SaleReceiptScreen(result: result)),
       );
     } catch (e) {
@@ -238,6 +241,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 fontWeight: FontWeight.w500,
               ),
             ),
+          ),
+        ),
+        // Botón "Mis comisiones" — Tarea 8.2.3
+        IconButton(
+          tooltip: 'Mis comisiones',
+          icon: const Icon(
+            Icons.military_tech_rounded,
+            size: 22,
+            color: AppColors.skyBlue,
+          ),
+          onPressed: () => Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(builder: (_) => const EmployeePerformanceScreen()),
           ),
         ),
         // Botón limpiar carrito
