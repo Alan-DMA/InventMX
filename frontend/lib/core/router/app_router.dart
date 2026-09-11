@@ -13,6 +13,7 @@ import '../../features/inventory/presentation/edit_product_screen.dart';
 import '../../features/inventory/presentation/import_screen.dart';
 import '../../features/inventory/presentation/gondola_scan_screen.dart';
 import '../../features/inventory/presentation/inventory_provider.dart';
+import '../../features/cash_treasury/presentation/cash_session_screen.dart';
 import '../../features/sales_pos/presentation/checkout_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -196,7 +197,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.cash,
                 name: 'cash',
-                builder: (_, __) => const CashPlaceholder(),
+                builder: (_, __) => const CashSessionScreen(),
               ),
             ],
           ),

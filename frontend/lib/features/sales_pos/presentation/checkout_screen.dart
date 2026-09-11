@@ -251,7 +251,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             size: 22,
             color: AppColors.skyBlue,
           ),
-          onPressed: () => Navigator.of(context, rootNavigator: true).push(
+          // Navigator local (no rootNavigator): a diferencia del ticket de
+          // venta, esta pantalla no tiene un CTA fijo al fondo — mantener la
+          // barra de navegación del ShellRoute visible no le corta contenido.
+          onPressed: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const EmployeePerformanceScreen()),
           ),
         ),
