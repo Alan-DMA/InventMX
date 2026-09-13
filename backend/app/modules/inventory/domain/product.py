@@ -141,6 +141,14 @@ class Product(Base):
         doc="Indica si el producto está disponible para venta",
     )
 
+    # Visibilidad en el catálogo web público de WhatsApp (RF-23)
+    show_in_catalog: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        doc="Indica si el producto se muestra en el catálogo web público para clientes",
+    )
+
     # Fecha y hora de creación
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
