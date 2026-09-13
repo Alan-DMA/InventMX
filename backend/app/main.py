@@ -23,6 +23,7 @@ from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_
 from app.modules.sales_pos.api.endpoints import router as sales_router
 from app.modules.whatsapp_catalog.api.endpoints import router as whatsapp_catalog_router
 from app.modules.community_catalog.api.endpoints import router as community_b2b_router
+from app.modules.analytics_reports.api.endpoints import router as analytics_router
 
 # Instanciación principal de la aplicación FastAPI
 app = FastAPI(
@@ -56,6 +57,7 @@ app.include_router(purchasing_router, prefix=settings.API_V1_STR)
 app.include_router(sales_router, prefix=settings.API_V1_STR)
 app.include_router(whatsapp_catalog_router, prefix=settings.API_V1_STR)
 app.include_router(community_b2b_router, prefix=settings.API_V1_STR)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
 
 
 # =============================================================================
