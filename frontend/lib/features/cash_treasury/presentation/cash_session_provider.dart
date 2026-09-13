@@ -4,6 +4,7 @@ import '../../sales_pos/data/sales_repository.dart';
 import '../../sales_pos/domain/payment_entry.dart';
 import '../data/cash_repository.dart';
 import '../domain/banxico_denomination.dart';
+import '../domain/cash_movement.dart';
 import '../domain/cash_session.dart';
 
 final cashRepositoryProvider = Provider<CashRepository>(
@@ -64,6 +65,71 @@ final cashSessionProvider = NotifierProvider<CashSessionNotifier, CashSession?>(
 );
 
 // ---------------------------------------------------------------------------
+// Notifier — movimientos de caja menor del turno activo (Tarea 10.2.2)
+// ---------------------------------------------------------------------------
+
+class CashMovementsNotifier extends Notifier<List<CashMovement>> {
+  @override
+  List<CashMovement> build() {
+    // Recalcula automáticamente al abrir un turno nuevo (`startNewSession`)
+    // — la sesión cambia de id y el `build()` vuelve a leer del store Mock,
+    // que empieza vacío para el nuevo id.
+    final session = ref.watch(cashSessionProvider);
+    if (session == null) return const [];
+    return CashRepositoryMock.movementsFor(session.id);
+  }
+
+  CashRepository get _repo => ref.read(cashRepositoryProvider);
+
+  /// Registra un retiro o entrada de caja menor del turno activo.
+  ///
+  /// Un retiro que exceda el efectivo actualmente disponible se rechaza
+  /// antes de llamar al repositorio — replica el `422
+  /// INSUFFICIENT_CASH_FOR_WITHDRAWAL` de `docs/api/cash.yaml`.
+  Future<void> addMovement({
+    required CashMovementType type,
+    required double amountMxn,
+    required String description,
+  }) async {
+    final session = ref.read(cashSessionProvider);
+    if (session == null) {
+      throw Exception('No hay una sesión de caja activa.');
+    }
+
+    if (type == CashMovementType.withdrawal) {
+      // Lee `_computeExpectedCashMxn` directamente (no `ref.read
+      // (expectedCashMxnProvider)`): ese provider observa
+      // `cashMovementsProvider` para invalidarse, así que leerlo desde el
+      // propio notifier de `cashMovementsProvider` formaría un ciclo que
+      // Riverpod rechaza en tiempo de ejecución (`CircularDependencyError`).
+      final available = _computeExpectedCashMxn(session);
+      if (amountMxn > available) {
+        throw Exception(
+          'Retiro de \$${amountMxn.toStringAsFixed(2)} MXN excede el '
+          'efectivo disponible en caja (\$${available.toStringAsFixed(2)} MXN).',
+        );
+      }
+    }
+
+    final movement = await _repo.addMovement(
+      sessionId: session.id,
+      type: type,
+      amountMxn: amountMxn,
+      description: description,
+    );
+
+    // El movimiento tocado aparece primero — misma convención UX que
+    // `CloseSessionWizard._addEntry` (Tarea 9.2).
+    state = [movement, ...state];
+  }
+}
+
+final cashMovementsProvider =
+    NotifierProvider<CashMovementsNotifier, List<CashMovement>>(
+  CashMovementsNotifier.new,
+);
+
+// ---------------------------------------------------------------------------
 // Providers derivados — recalculados a partir de las ventas del turno
 // (mismo dataset que ya alimenta el tablero de comisiones, Tarea 8.2.3)
 // ---------------------------------------------------------------------------
@@ -83,12 +149,25 @@ double _computeExpectedCashMxn(CashSession session) {
       .where((payment) => payment.method == PaymentMethodMxn.cashMxn)
       .fold(0.0, (sum, payment) => sum + payment.amountMxn);
 
-  return session.openingAmountMxn + cashFromSales;
+  // Fórmula de conciliación (Doc. Maestro, Subtarea 10.1.1):
+  // Fondo Inicial + Ventas Efectivo − Retiros + Entradas.
+  final movementsNet = CashRepositoryMock.movementsFor(session.id).fold<double>(
+        0.0,
+        (sum, m) => sum +
+            (m.type == CashMovementType.deposit ? m.amountMxn : -m.amountMxn),
+      );
+
+  return session.openingAmountMxn + cashFromSales + movementsNet;
 }
 
 final expectedCashMxnProvider = Provider<double>((ref) {
   final session = ref.watch(cashSessionProvider);
   if (session == null) return 0;
+  // Se observa (sin usar el valor) solo para invalidar este provider cuando
+  // se registra un movimiento — `_computeExpectedCashMxn` sigue leyendo el
+  // store Mock directamente para evitar el ciclo de dependencias explicado
+  // arriba.
+  ref.watch(cashMovementsProvider);
   return _computeExpectedCashMxn(session);
 });
 

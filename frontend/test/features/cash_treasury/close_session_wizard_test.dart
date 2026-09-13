@@ -113,7 +113,8 @@ void main() {
     expect(find.text('TOTAL CONTADO'), findsOneWidget);
   });
 
-  testWidgets('confirmar el cierre regresa a Caja con un turno nuevo abierto',
+  testWidgets(
+      'confirmar el cierre navega al resultado del arqueo (Tarea 10.2)',
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
@@ -128,9 +129,37 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar Cierre'));
     await tester.pumpAndSettle();
 
-    // Vuelve a la pantalla de Caja con un turno nuevo (mock) ya abierto.
+    // El wizard es reemplazado por la pantalla de resultado del cierre.
     expect(find.text('Arqueo de Caja'), findsNothing);
+    expect(find.text('Resultado del Cierre'), findsOneWidget);
+    expect(find.text('Ticket Corte Z'), findsOneWidget);
+  });
+
+  testWidgets('"Nuevo turno" en el resultado del cierre regresa a Caja',
+      (tester) async {
+    _setPhoneViewport(tester);
+    await tester.pumpWidget(_buildApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Cerrar turno'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Siguiente'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar Cierre'));
+    await tester.pumpAndSettle();
+
+    // "Nuevo turno" queda debajo del ticket dentro del SingleChildScrollView
+    // — hay que desplazarlo a la vista antes de tocarlo.
+    final newSessionButton = find.widgetWithText(ElevatedButton, 'Nuevo turno');
+    await tester.ensureVisible(newSessionButton);
+    await tester.pumpAndSettle();
+    await tester.tap(newSessionButton);
+    await tester.pumpAndSettle();
+
+    // Vuelve a la pantalla de Caja con un turno nuevo (mock) ya abierto.
+    expect(find.text('Resultado del Cierre'), findsNothing);
     expect(find.text('TURNO ABIERTO'), findsOneWidget);
-    expect(find.textContaining('Turno cerrado'), findsOneWidget); // SnackBar
   });
 }

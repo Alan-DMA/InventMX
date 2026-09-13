@@ -5,6 +5,7 @@ import '../../domain/banxico_denomination.dart';
 import '../../domain/cash_denomination_entry.dart';
 import '../../domain/cash_session.dart';
 import '../cash_session_provider.dart';
+import '../cash_session_summary_screen.dart';
 import 'cash_count_step.dart';
 import 'digital_summary_step.dart';
 
@@ -91,11 +92,26 @@ class _CloseSessionWizardState extends ConsumerState<CloseSessionWizard> {
       final piecesByApiKey = {
         for (final e in _entries) e.denomination.apiKey: e.quantity,
       };
+      final digitalTotals = ref.read(digitalPaymentTotalsProvider);
+      final movements = ref.read(cashMovementsProvider);
       final closed = await ref
           .read(cashSessionProvider.notifier)
           .closeSession(BanxicoCount(piecesByApiKey));
       if (!mounted) return;
-      Navigator.of(context).pop(closed);
+
+      // Navega directo al resultado del arqueo (Tarea 10.2) — reemplaza
+      // este wizard en el stack, no lo apila, para que "Nuevo turno" en la
+      // pantalla de resumen regrese limpiamente a `CashSessionScreen`.
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => CashSessionSummaryScreen(
+            session: closed,
+            physicalEntries: List.unmodifiable(_entries),
+            digitalTotals: digitalTotals,
+            movements: movements,
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

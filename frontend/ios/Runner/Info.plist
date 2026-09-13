@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Tarea 12.2 — OCR de facturas y dictado de voz -->
+	<key>NSCameraUsageDescription</key>
+	<string>Nexus usa la cámara para fotografiar facturas de proveedores y leerlas sin conexión.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nexus usa el micrófono para dictar productos, precios y cantidades.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Nexus convierte tu dictado en texto con el motor de voz del sistema.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

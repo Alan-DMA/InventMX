@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/scan_corner_frame.dart';
 import '../data/import_repository.dart';
 import 'inventory_provider.dart';
 import 'widgets/scan_result_card.dart';
@@ -314,7 +315,9 @@ class _CameraViewport extends StatelessWidget {
         // Marco de escaneo — visible cuando la cámara está activa y sin card
         if (!isCardVisible)
           Center(
-            child: _ScanFrame(isLookingUp: isLookingUp),
+            child: ScanCornerFrame(
+              color: isLookingUp ? AppColors.warning : AppColors.emerald,
+            ),
           ),
 
         // Indicador de lookup en progreso
@@ -382,102 +385,6 @@ class _CameraViewport extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Marco animado de escaneo
-// ---------------------------------------------------------------------------
-
-class _ScanFrame extends StatefulWidget {
-  const _ScanFrame({required this.isLookingUp});
-  final bool isLookingUp;
-
-  @override
-  State<_ScanFrame> createState() => _ScanFrameState();
-}
-
-class _ScanFrameState extends State<_ScanFrame>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-    _pulse = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: _pulse,
-      child: CustomPaint(
-        size: const Size(240, 120),
-        painter: _FramePainter(
-          color: widget.isLookingUp ? AppColors.warning : AppColors.emerald,
-        ),
-      ),
-    );
-  }
-}
-
-/// Dibuja las 4 esquinas del marco de escaneo.
-class _FramePainter extends CustomPainter {
-  const _FramePainter({required this.color});
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 3.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    const cornerLen = 28.0;
-    const r = 8.0;
-
-    final w = size.width;
-    final h = size.height;
-
-    // Esquina superior-izquierda — Offset/Rect usan variables, no pueden ser const
-    canvas.drawLine(Offset(r, 0), Offset(cornerLen, 0), paint);
-    canvas.drawLine(Offset(0, r), Offset(0, cornerLen), paint);
-    canvas.drawArc(
-        Rect.fromLTWH(0, 0, r * 2, r * 2), 3.14, -1.57, false, paint);
-
-    // Esquina superior-derecha
-    canvas.drawLine(Offset(w - cornerLen, 0), Offset(w - r, 0), paint);
-    canvas.drawLine(Offset(w, r), Offset(w, cornerLen), paint);
-    canvas.drawArc(
-        Rect.fromLTWH(w - r * 2, 0, r * 2, r * 2), 4.71, -1.57, false, paint);
-
-    // Esquina inferior-izquierda
-    canvas.drawLine(Offset(0, h - cornerLen), Offset(0, h - r), paint);
-    canvas.drawLine(Offset(r, h), Offset(cornerLen, h), paint);
-    canvas.drawArc(
-        Rect.fromLTWH(0, h - r * 2, r * 2, r * 2), 1.57, -1.57, false, paint);
-
-    // Esquina inferior-derecha
-    canvas.drawLine(Offset(w, h - cornerLen), Offset(w, h - r), paint);
-    canvas.drawLine(Offset(w - cornerLen, h), Offset(w - r, h), paint);
-    canvas.drawArc(Rect.fromLTWH(w - r * 2, h - r * 2, r * 2, r * 2), 0, -1.57,
-        false, paint);
-  }
-
-  @override
-  bool shouldRepaint(_FramePainter old) => old.color != color;
-}
 
 // ---------------------------------------------------------------------------
 // Overlay de guardado en progreso

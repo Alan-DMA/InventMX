@@ -134,6 +134,16 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         ),
       ),
       actions: [
+        // Compras, Proveedores y CxP (Tarea 11.2)
+        IconButton(
+          tooltip: 'Compras y Proveedores',
+          icon: const Icon(
+            Icons.local_shipping_outlined,
+            color: AppColors.onSurface,
+            size: 24,
+          ),
+          onPressed: () => context.push(AppRoutes.purchases),
+        ),
         // Modo Góndola — escaneo continuo de góndola (Tarea 5.2)
         IconButton(
           tooltip: 'Modo Góndola — Escaneo continuo',

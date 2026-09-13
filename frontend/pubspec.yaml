@@ -42,6 +42,15 @@ dependencies:
   # --- Generación de QR ---
   qr_flutter: ^4.1.0            # QR de validación en ticket de venta (Tarea 8.2)
 
+  # --- Llamada / WhatsApp directo desde Directorio de Proveedores ---
+  url_launcher: ^6.3.1          # tel: / https://wa.me/ (Tarea 11.2.2)
+
+  # --- OCR On-Device de facturas (Tarea 12.2) ---
+  google_mlkit_text_recognition: ^0.17.1  # ML Kit local, costo $0 (Constitucion Art. II / VII)
+  # --- Dictado de voz nativo (Tarea 12.2.3 / SR-09) ---
+  speech_to_text: ^7.4.0                  # Android SpeechRecognizer / Web Speech API
+  camera: ^0.12.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
