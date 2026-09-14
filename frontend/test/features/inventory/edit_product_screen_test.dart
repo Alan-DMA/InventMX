@@ -6,6 +6,7 @@ import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
 import 'package:nexus_app/features/inventory/presentation/edit_product_screen.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Mock
@@ -113,6 +114,7 @@ Widget _buildScreen({
   return ProviderScope(
     overrides: [
       inventoryRepositoryProvider.overrideWithValue(mock),
+      categoriesProvider.overrideWith((ref) async => ['Bebidas', 'Botanas', 'Despensa']),
     ],
     child: MaterialApp(
       theme: AppTheme.dark,

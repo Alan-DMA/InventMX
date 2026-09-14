@@ -1,10 +1,14 @@
+import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/dio_client.dart';
+import '../../auth/data/auth_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Modelos de dominio
 // ---------------------------------------------------------------------------
 
-/// Resultado del endpoint POST /inventory/import.
+/// Resultado del endpoint POST /api/v1/inventory/import/execute
 class ImportResult {
   const ImportResult({
     required this.totalRows,
@@ -23,15 +27,14 @@ class ImportResult {
   bool get hasErrors => errors.isNotEmpty;
 }
 
-/// Error por fila reportado por el backend.
+/// Error por fila reportado por el backend
 class ImportRowError {
   const ImportRowError({required this.row, required this.issue});
   final int row;
   final String issue;
 }
 
-/// Resultado del endpoint GET /inventory/lookup-ean/{barcode}.
-/// Contiene los datos del catálogo semilla si el EAN existe.
+/// Resultado del endpoint GET /api/v1/inventory/lookup-ean/{barcode}
 class EanLookupResult {
   const EanLookupResult({
     required this.barcode,
@@ -39,18 +42,22 @@ class EanLookupResult {
     required this.category,
     required this.source,
     this.confidenceScore,
+    this.suggestedPriceMxn,
+    this.suggestedCostMxn,
+    this.imageUrl,
   });
 
   final String barcode;
   final String name;
   final String category;
-
-  /// 'SEED_CATALOG' | 'COMMUNITY'
   final String source;
   final double? confidenceScore;
+  final double? suggestedPriceMxn;
+  final double? suggestedCostMxn;
+  final String? imageUrl;
 }
 
-/// Metadatos de previsualización extraídos del archivo antes de importar.
+/// Metadatos de previsualización extraídos del archivo antes de importar
 class FilePreview {
   const FilePreview({
     required this.fileName,
@@ -59,17 +66,19 @@ class FilePreview {
     required this.totalRows,
   });
 
-  /// Nombre del archivo seleccionado.
   final String fileName;
-
-  /// Cabeceras detectadas (columna A, B, C… o nombres si el archivo los tiene).
   final List<String> headers;
-
-  /// Primeras 5 filas del archivo para previsualización.
   final List<List<String>> previewRows;
-
-  /// Total de filas con datos (sin contar cabecera).
   final int totalRows;
+}
+
+/// Excepción específica del módulo de importación
+class ImportException implements Exception {
+  const ImportException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,34 +86,227 @@ class FilePreview {
 // ---------------------------------------------------------------------------
 
 abstract class ImportRepository {
-  /// Simula la lectura y previsualización del archivo seleccionado.
-  /// En producción parseará el xlsx/csv localmente antes de enviarlo.
-  Future<FilePreview> previewFile(String filePath);
+  /// Previsualización de cabeceras y primeras 5 filas del archivo
+  Future<FilePreview> previewFile(String filePath, {List<int>? fileBytes, String? fileName});
 
-  /// POST /inventory/import
-  /// Envía el archivo con el mapeo de columnas y devuelve el resultado.
+  /// Ejecución de la ingesta masiva con mapeo de columnas
   Future<ImportResult> importFile({
     required String filePath,
     required String colName,
     required String colPrice,
     required String colStock,
+    List<int>? fileBytes,
+    String? fileName,
   });
 
-  /// GET /inventory/lookup-ean/{barcode}
-  /// Consulta el catálogo semilla por código EAN.
-  /// Retorna null si el código no existe en ningún catálogo.
+  /// Consulta al Catálogo Semilla Maestro GS1 México por código EAN
   Future<EanLookupResult?> lookupEan(String barcode);
 }
 
 // ---------------------------------------------------------------------------
-// Mock — activo hasta que Alan complete Tarea 5.1 (backend importador)
+// Implementación Real (Conexión Directa a la API FastAPI / PostgreSQL)
+// ---------------------------------------------------------------------------
+
+class ImportRepositoryImpl implements ImportRepository {
+  ImportRepositoryImpl({required this.client});
+
+  final DioClient client;
+
+  @override
+  Future<FilePreview> previewFile(String filePath, {List<int>? fileBytes, String? fileName}) async {
+    try {
+      final name = fileName ?? filePath.split('/').last.split('\\').last;
+      final FormData formData;
+      if (fileBytes != null && fileBytes.isNotEmpty) {
+        formData = FormData.fromMap({
+          'file': MultipartFile.fromBytes(fileBytes, filename: name),
+        });
+      } else {
+        formData = FormData.fromMap({
+          'file': await MultipartFile.fromFile(filePath, filename: name),
+        });
+      }
+
+      final response = await client.post(
+        '/api/v1/inventory/import/preview',
+        data: formData,
+      );
+
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const ImportException('Respuesta inválida del servidor al previsualizar archivo.');
+      }
+
+      final headers = (data['headers'] as List? ?? []).map((e) => e.toString()).toList();
+      final rawPreviewRows = data['preview_rows'] as List? ?? [];
+      final List<List<String>> previewRows = [];
+
+      for (final row in rawPreviewRows) {
+        if (row is Map) {
+          final rowList = headers.map((h) => row[h]?.toString() ?? '').toList();
+          previewRows.add(rowList);
+        } else if (row is List) {
+          previewRows.add(row.map((e) => e?.toString() ?? '').toList());
+        }
+      }
+
+      return FilePreview(
+        fileName: data['filename']?.toString() ?? name,
+        headers: headers,
+        previewRows: previewRows,
+        totalRows: (data['total_rows'] as num? ?? 0).toInt(),
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is ImportException) rethrow;
+      throw ImportException('Error al previsualizar archivo: $e');
+    }
+  }
+
+  @override
+  Future<ImportResult> importFile({
+    required String filePath,
+    required String colName,
+    required String colPrice,
+    required String colStock,
+    List<int>? fileBytes,
+    String? fileName,
+  }) async {
+    try {
+      final name = fileName ?? filePath.split('/').last.split('\\').last;
+      final mappingMap = <String, dynamic>{
+        'col_name': colName,
+        'col_price_mxn': colPrice,
+      };
+      if (colStock.isNotEmpty) {
+        mappingMap['col_stock'] = colStock;
+      }
+      final mappingJson = jsonEncode(mappingMap);
+
+      final FormData formData;
+      if (fileBytes != null && fileBytes.isNotEmpty) {
+        formData = FormData.fromMap({
+          'file': MultipartFile.fromBytes(fileBytes, filename: name),
+          'mapping': mappingJson,
+        });
+      } else {
+        formData = FormData.fromMap({
+          'file': await MultipartFile.fromFile(filePath, filename: name),
+          'mapping': mappingJson,
+        });
+      }
+
+      final response = await client.post(
+        '/api/v1/inventory/import/execute',
+        data: formData,
+      );
+
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const ImportException('Respuesta inválida al ejecutar la importación.');
+      }
+
+      final totalRows = (data['total_rows'] as num? ?? 0).toInt();
+      final imported = (data['imported_count'] as num? ?? 0).toInt();
+      final updated = (data['updated_count'] as num? ?? 0).toInt();
+      final errorCount = (data['error_count'] as num? ?? 0).toInt();
+      final rawErrors = data['errors'] as List? ?? [];
+
+      final errors = rawErrors.map((e) {
+        if (e is Map) {
+          return ImportRowError(
+            row: (e['row_index'] as num? ?? 0).toInt(),
+            issue: e['error_message']?.toString() ?? 'Error en la fila del archivo',
+          );
+        }
+        return ImportRowError(row: 0, issue: e.toString());
+      }).toList();
+
+      return ImportResult(
+        totalRows: totalRows,
+        imported: imported,
+        updated: updated,
+        skipped: errorCount,
+        errors: errors,
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is ImportException) rethrow;
+      throw ImportException('Error al importar archivo: $e');
+    }
+  }
+
+  @override
+  Future<EanLookupResult?> lookupEan(String barcode) async {
+    try {
+      final cleanBarcode = barcode.trim();
+      final response = await client.get('/api/v1/inventory/lookup-ean/$cleanBarcode');
+      final dynamic data = response.data;
+      if (data == null || data is! Map) return null;
+
+      final bool found = data['found'] == true;
+      if (!found) return null;
+
+      final dynamic prod = data['product'];
+      if (prod == null || prod is! Map) return null;
+
+      final rawPrice = prod['suggested_price_mxn'];
+      final double? price = rawPrice is num ? rawPrice.toDouble() : (rawPrice != null ? double.tryParse(rawPrice.toString()) : null);
+
+      final rawCost = prod['suggested_cost_mxn'];
+      final double? cost = rawCost is num ? rawCost.toDouble() : (rawCost != null ? double.tryParse(rawCost.toString()) : null);
+
+      return EanLookupResult(
+        barcode: (prod['barcode'] ?? cleanBarcode).toString(),
+        name: (prod['name'] ?? '').toString(),
+        category: (prod['category_name'] ?? 'General').toString(),
+        source: (prod['source'] ?? 'SEED_CATALOG').toString(),
+        confidenceScore: (prod['confidence_score'] as num?)?.toDouble(),
+        suggestedPriceMxn: price,
+        suggestedCostMxn: cost,
+        imageUrl: prod['image_url']?.toString(),
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      throw _mapDioError(e);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Exception _mapDioError(DioException e) {
+    if (e.response != null) {
+      final data = e.response?.data;
+      if (data is Map) {
+        if (data['error'] is Map && data['error']['message'] != null) {
+          return ImportException(data['error']['message'].toString());
+        }
+        if (data['detail'] != null) {
+          return ImportException(data['detail'].toString());
+        }
+      }
+    }
+    return ImportException('Error de comunicación con el servicio de inventario: ${e.message ?? e.type.name}');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock — mantenido para tests unitarios
 // ---------------------------------------------------------------------------
 
 class ImportRepositoryMock implements ImportRepository {
-  static const _fakeDelay = Duration(milliseconds: 500);
+  static const _fakeDelay = Duration(milliseconds: 100);
 
-  /// Catálogo semilla local — Top 10 abarrotes mexicanos para QA visual.
   static const _seedCatalog = <String, EanLookupResult>{
+    '7501055300075': EanLookupResult(
+      barcode: '7501055300075',
+      name: 'Coca-Cola Original 600ml NR',
+      category: 'Bebidas',
+      source: 'SEED_CATALOG',
+      suggestedPriceMxn: 18.5,
+    ),
     '7501055300018': EanLookupResult(
       barcode: '7501055300018',
       name: 'Coca-Cola 600ml',
@@ -114,81 +316,23 @@ class ImportRepositoryMock implements ImportRepository {
     '7501000310957': EanLookupResult(
       barcode: '7501000310957',
       name: 'Sabritas Original 45g',
-      category: 'Botanas',
-      source: 'SEED_CATALOG',
-    ),
-    '7501030470492': EanLookupResult(
-      barcode: '7501030470492',
-      name: 'Bimbo Pan Blanco 680g',
-      category: 'Panadería',
-      source: 'SEED_CATALOG',
-    ),
-    '7501007630019': EanLookupResult(
-      barcode: '7501007630019',
-      name: 'Lala Leche Entera 1L',
-      category: 'Lácteos',
-      source: 'SEED_CATALOG',
-    ),
-    '7501003130499': EanLookupResult(
-      barcode: '7501003130499',
-      name: 'Maseca Harina de Maíz 1kg',
-      category: 'Abarrotes',
-      source: 'SEED_CATALOG',
-    ),
-    '7501007630156': EanLookupResult(
-      barcode: '7501007630156',
-      name: 'Lala Crema 200ml',
-      category: 'Lácteos',
-      source: 'SEED_CATALOG',
-    ),
-    '7501055360715': EanLookupResult(
-      barcode: '7501055360715',
-      name: 'Pepsi 600ml',
-      category: 'Bebidas',
-      source: 'SEED_CATALOG',
-    ),
-    '7501030490230': EanLookupResult(
-      barcode: '7501030490230',
-      name: 'Marinela Gansito 1pz',
-      category: 'Panadería',
-      source: 'SEED_CATALOG',
-    ),
-    '7501000310049': EanLookupResult(
-      barcode: '7501000310049',
-      name: 'Ruffles Queso 45g',
-      category: 'Botanas',
-      source: 'SEED_CATALOG',
-    ),
-    '093155171251': EanLookupResult(
-      barcode: '093155171251',
-      name: 'skyrim ps4',
-      category: 'Botanas',
-      source: 'SEED_CATALOG',
-    ),
-    '7501003103009': EanLookupResult(
-      barcode: '7501003103009',
-      name: 'Minsa Harina de Maíz 1kg',
-      category: 'Abarrotes',
+      category: 'Botanas y Snacks',
       source: 'SEED_CATALOG',
     ),
   };
 
   @override
-  Future<FilePreview> previewFile(String filePath) async {
+  Future<FilePreview> previewFile(String filePath, {List<int>? fileBytes, String? fileName}) async {
     await Future.delayed(_fakeDelay);
-    // Simula un archivo Excel típico de proveedor con 3 columnas y 12 filas
-    final fileName = filePath.split('/').last.split('\\').last;
+    final name = fileName ?? filePath.split('/').last.split('\\').last;
     return FilePreview(
-      fileName: fileName,
-      headers: ['A', 'B', 'C', 'D'],
+      fileName: name,
+      headers: const ['A', 'B', 'C', 'D'],
       previewRows: const [
         ['Coca-Cola 600ml', '7501055300018', '18.00', '48'],
         ['Sabritas Original 45g', '7501000310957', '16.50', '30'],
-        ['Bimbo Pan Blanco 680g', '7501030470492', '42.00', '15'],
-        ['Lala Leche Entera 1L', '7501007630019', '28.50', '20'],
-        ['Maseca Harina de Maíz 1kg', '7501003130499', '35.00', '12'],
       ],
-      totalRows: 120,
+      totalRows: 2,
     );
   }
 
@@ -198,28 +342,22 @@ class ImportRepositoryMock implements ImportRepository {
     required String colName,
     required String colPrice,
     required String colStock,
+    List<int>? fileBytes,
+    String? fileName,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-    // Simula importación mayormente exitosa con algunos errores de fila
+    await Future.delayed(_fakeDelay);
     return const ImportResult(
-      totalRows: 120,
-      imported: 115,
+      totalRows: 10,
+      imported: 10,
       updated: 0,
-      skipped: 5,
-      errors: [
-        ImportRowError(row: 23, issue: "El precio '15.ABC' no es un número válido."),
-        ImportRowError(row: 47, issue: "Nombre de producto vacío."),
-        ImportRowError(row: 78, issue: "Stock negativo no permitido."),
-        ImportRowError(row: 99, issue: "Código de barras duplicado."),
-        ImportRowError(row: 112, issue: "Precio igual a 0 no permitido."),
-      ],
+      skipped: 0,
+      errors: [],
     );
   }
 
   @override
   Future<EanLookupResult?> lookupEan(String barcode) async {
-    // Sin delay artificial — debe sentirse instantáneo en el modo góndola
-    await Future.delayed(const Duration(milliseconds: 80));
+    await Future.delayed(_fakeDelay);
     return _seedCatalog[barcode];
   }
 }
@@ -229,5 +367,7 @@ class ImportRepositoryMock implements ImportRepository {
 // ---------------------------------------------------------------------------
 
 final importRepositoryProvider = Provider<ImportRepository>(
-  (_) => ImportRepositoryMock(),
+  (ref) => ImportRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+  ),
 );

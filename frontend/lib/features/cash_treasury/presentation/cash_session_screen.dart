@@ -1,25 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
-import '../domain/cash_movement.dart';
 import '../domain/cash_session.dart';
 import 'cash_session_provider.dart';
-import 'widgets/cash_movement_modal.dart';
-import 'widgets/cash_movements_list_box.dart';
 import 'widgets/close_session_wizard.dart';
 
-/// Pantalla principal de la tab "Caja" — Tarea 9.2 (ampliada en 10.2.2 con
-/// movimientos de caja menor).
+/// Pantalla principal de la tab "Caja" — Tarea 9.2.
 ///
 /// Reemplaza `CashPlaceholder`: muestra el turno activo (cajero, fondo
-/// inicial, apertura, efectivo esperado en vivo), la lista de movimientos de
-/// caja menor del turno y el botón para iniciar el asistente de cierre
-/// (`CloseSessionWizard`). El resultado del cierre ya no se resuelve aquí —
-/// `CloseSessionWizard` navega directamente a `CashSessionSummaryScreen`
-/// (Tarea 10.2) y solo regresa a esta pantalla cuando el usuario confirma un
-/// turno nuevo.
+/// inicial, apertura, efectivo esperado en vivo) y el botón para iniciar el
+/// asistente de cierre (`CloseSessionWizard`).
 ///
-/// Trazabilidad: Constitución Art. VII (7.2) · Doc. Maestro RF-18 · HU-15 / HU-16
+/// Trazabilidad: Constitución Art. VII (7.2) · Doc. Maestro RF-18 · HU-15
 class CashSessionScreen extends ConsumerStatefulWidget {
   const CashSessionScreen({super.key});
 
@@ -36,29 +28,48 @@ class _CashSessionScreenState extends ConsumerState<CashSessionScreen> {
     });
   }
 
-  void _openCloseWizard() {
-    Navigator.of(context).push(
+  Future<void> _openCloseWizard() async {
+    final closed = await Navigator.of(context).push<CashSession>(
       MaterialPageRoute(builder: (_) => const CloseSessionWizard()),
     );
-  }
+    if (closed == null || !mounted) return;
 
-  Future<void> _openMovementModal() async {
-    final registered = await showCashMovementModal(context);
-    if (registered && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Movimiento registrado'),
-          behavior: SnackBarBehavior.floating,
+    final resultColor = switch (closed.balanceResult) {
+      CashBalanceResult.exact => AppColors.emerald,
+      CashBalanceResult.short => AppColors.error,
+      CashBalanceResult.over => AppColors.warning,
+      null => AppColors.onSurfaceMuted,
+    };
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: resultColor, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Turno cerrado — ${closed.balanceResult?.label ?? ''} '
+                '(\$${closed.differenceMxn?.abs().toStringAsFixed(2) ?? '0.00'} MXN)',
+                style: const TextStyle(color: AppColors.onSurface),
+              ),
+            ),
+          ],
         ),
-      );
-    }
+        backgroundColor: AppColors.surface,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+
+    // Permite seguir probando el flujo: abre un turno nuevo automáticamente.
+    await ref.read(cashSessionProvider.notifier).startNewSession();
   }
 
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(cashSessionProvider);
     final expectedCashMxn = ref.watch(expectedCashMxnProvider);
-    final movements = ref.watch(cashMovementsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
@@ -81,17 +92,12 @@ class _CashSessionScreenState extends ConsumerState<CashSessionScreen> {
             ? const Center(
                 child: CircularProgressIndicator(color: AppColors.emerald),
               )
-            : SingleChildScrollView(
+            : Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _ActiveShiftCard(session: session, expectedCashMxn: expectedCashMxn),
-                    const SizedBox(height: 24),
-                    _MovementsSection(
-                      movements: movements,
-                      onRegister: _openMovementModal,
-                    ),
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
@@ -109,62 +115,6 @@ class _CashSessionScreenState extends ConsumerState<CashSessionScreen> {
                 ),
               ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Sección de movimientos de caja menor — Subtarea 10.2.2
-// ---------------------------------------------------------------------------
-
-class _MovementsSection extends StatelessWidget {
-  const _MovementsSection({required this.movements, required this.onRegister});
-
-  final List<CashMovement> movements;
-  final VoidCallback onRegister;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Expanded(
-              child: Text(
-                'Movimientos de caja menor',
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.onSurface),
-              ),
-            ),
-            TextButton.icon(
-              onPressed: onRegister,
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-              label: const Text('Registrar'),
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
-            ),
-          ],
-        ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: movements.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    'Sin movimientos registrados en este turno.',
-                    style: TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted),
-                  ),
-                )
-              : CashMovementsListBox(movements: movements),
-        ),
-      ],
     );
   }
 }

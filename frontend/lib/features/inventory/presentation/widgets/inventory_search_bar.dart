@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../../../../../core/theme/app_colors.dart';
 
-/// Barra de búsqueda píldora con ícono de cámara.
+/// Barra de búsqueda píldora con ícono de cámara y escaneo de código de barras.
 ///
 /// - Fondo: AppColors.surfaceVariant (igual que los inputs del design system)
 /// - Border radius: 28 (píldora completa)
-/// - Ícono cámara: placeholder visual — se conecta en Tarea 5.2
+/// - Ícono cámara: abre el escáner de códigos de barras en tiempo real
 class InventorySearchBar extends StatefulWidget {
   const InventorySearchBar({
     super.key,
     required this.onChanged,
+    this.onScanPressed,
+    this.controller,
     this.hintText = 'Buscar producto o escanear...',
   });
 
   final ValueChanged<String> onChanged;
+  final VoidCallback? onScanPressed;
+  final TextEditingController? controller;
   final String hintText;
 
   @override
@@ -21,16 +25,24 @@ class InventorySearchBar extends StatefulWidget {
 }
 
 class _InventorySearchBarState extends State<InventorySearchBar> {
-  final _controller = TextEditingController();
+  late final TextEditingController _effectiveController;
+
+  @override
+  void initState() {
+    super.initState();
+    _effectiveController = widget.controller ?? TextEditingController();
+  }
 
   @override
   void dispose() {
-    _controller.dispose();
+    if (widget.controller == null) {
+      _effectiveController.dispose();
+    }
     super.dispose();
   }
 
   void _clear() {
-    _controller.clear();
+    _effectiveController.clear();
     widget.onChanged('');
   }
 
@@ -54,7 +66,7 @@ class _InventorySearchBarState extends State<InventorySearchBar> {
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
-              controller: _controller,
+              controller: _effectiveController,
               onChanged: widget.onChanged,
               style: const TextStyle(
                 color: AppColors.onSurface,
@@ -76,7 +88,7 @@ class _InventorySearchBarState extends State<InventorySearchBar> {
           ),
           // Botón limpiar — visible solo cuando hay texto
           ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _controller,
+            valueListenable: _effectiveController,
             builder: (_, value, __) {
               if (value.text.isEmpty) return const SizedBox.shrink();
               return GestureDetector(
@@ -90,15 +102,21 @@ class _InventorySearchBarState extends State<InventorySearchBar> {
             },
           ),
           const SizedBox(width: 8),
-          // Ícono cámara — placeholder Tarea 5.2
-          Tooltip(
-            message: 'Escanear (disponible en Tarea 5.2)',
-            child: Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Icon(
-                Icons.photo_camera_rounded,
-                size: 20,
-                color: AppColors.onSurfaceMuted.withValues(alpha: 0.6),
+          // Ícono cámara — botón interactivo de escáner de código de barras
+          GestureDetector(
+            onTap: widget.onScanPressed,
+            behavior: HitTestBehavior.opaque,
+            child: Tooltip(
+              message: 'Escanear código de barras',
+              child: Padding(
+                padding: const EdgeInsets.only(right: 14),
+                child: Icon(
+                  Icons.photo_camera_rounded,
+                  size: 20,
+                  color: widget.onScanPressed != null
+                      ? AppColors.skyBlue
+                      : AppColors.onSurfaceMuted.withValues(alpha: 0.6),
+                ),
               ),
             ),
           ),

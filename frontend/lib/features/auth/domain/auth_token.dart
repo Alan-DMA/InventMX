@@ -13,10 +13,13 @@ class AuthToken extends Equatable {
   final String refreshToken;
 
   /// Construye desde el JSON que retorna `POST /api/v1/auth/login`
-  factory AuthToken.fromJson(Map<String, dynamic> json) {
+  factory AuthToken.fromJson(Map<dynamic, dynamic> json) {
+    final dynamic rawTokens = json['tokens'];
+    final Map<dynamic, dynamic> tokensMap =
+        rawTokens is Map ? rawTokens : json;
     return AuthToken(
-      accessToken: json['access_token'] as String,
-      refreshToken: json['refresh_token'] as String,
+      accessToken: (tokensMap['access_token'] ?? json['access_token'] ?? '').toString(),
+      refreshToken: (tokensMap['refresh_token'] ?? json['refresh_token'] ?? '').toString(),
     );
   }
 

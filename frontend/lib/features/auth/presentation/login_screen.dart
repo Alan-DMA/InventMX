@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import 'login_provider.dart';
 
@@ -40,12 +39,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Observa cambios de estado para navegar al éxito o mostrar errores.
+    // Observa cambios de estado para mostrar errores al usuario.
     ref.listen<LoginState>(loginProvider, (prev, next) {
-      if (next.status == LoginStatus.success) {
-        // CA-05: Con token → navega al Dashboard (placeholder)
-        context.go('/dashboard');
-      }
       if (next.status == LoginStatus.error && next.errorMessage != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

@@ -6,23 +6,6 @@ import '../../domain/product.dart';
 import '../inventory_provider.dart';
 
 // ---------------------------------------------------------------------------
-// Modelo de almacén (mock MVP — se reemplaza con respuesta real del API
-// cuando Alan complete el endpoint de warehouses)
-// ---------------------------------------------------------------------------
-
-class _Warehouse {
-  const _Warehouse({required this.id, required this.name});
-  final String id;
-  final String name;
-}
-
-const _kWarehouses = [
-  _Warehouse(id: 'wh-001', name: 'Almacén Principal'),
-  _Warehouse(id: 'wh-002', name: 'Mostrador'),
-  _Warehouse(id: 'wh-003', name: 'Bodega'),
-];
-
-// ---------------------------------------------------------------------------
 // Función de conveniencia
 // ---------------------------------------------------------------------------
 
@@ -50,8 +33,8 @@ class TransferStockModal extends ConsumerStatefulWidget {
 }
 
 class _TransferStockModalState extends ConsumerState<TransferStockModal> {
-  _Warehouse _from = _kWarehouses[0];
-  _Warehouse _to = _kWarehouses[1];
+  WarehouseOption? _from;
+  WarehouseOption? _to;
   int _quantity = 1;
   final _notesCtrl = TextEditingController();
   bool _isSaving = false;
@@ -65,9 +48,14 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
 
   // ── Validación ────────────────────────────────────────────────────────────
 
-  bool get _sameWarehouse => _from.id == _to.id;
+  bool get _sameWarehouse => _from != null && _to != null && _from!.id == _to!.id;
   bool get _exceedsStock => _quantity > widget.product.availableStock;
-  bool get _isValid => !_sameWarehouse && !_exceedsStock && _quantity > 0;
+  bool get _isValid =>
+      _from != null &&
+      _to != null &&
+      !_sameWarehouse &&
+      !_exceedsStock &&
+      _quantity > 0;
 
   String? get _validationMessage {
     if (_sameWarehouse) return 'El origen y destino deben ser diferentes.';
@@ -87,8 +75,8 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
     try {
       await ref.read(inventoryProvider.notifier).transferStock(
             productId: widget.product.id,
-            fromWarehouseId: _from.id,
-            toWarehouseId: _to.id,
+            fromWarehouseId: _from!.id,
+            toWarehouseId: _to!.id,
             quantity: _quantity,
             notes:
                 _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
@@ -97,7 +85,7 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
     } catch (e) {
       setState(() {
         _isSaving = false;
-        _error = 'No se pudo realizar el traslado.';
+        _error = 'No se pudo realizar el traslado: ${e.toString()}';
       });
     }
   }
@@ -108,6 +96,7 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     final bottomInset = max(mq.viewInsets.bottom, mq.padding.bottom);
+    final warehousesAsync = ref.watch(warehousesProvider);
 
     return Container(
       decoration: const BoxDecoration(
@@ -115,29 +104,74 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _handle(),
-          _header(),
-          const SizedBox(height: 20),
-          _warehouseSelectors(),
-          const SizedBox(height: 20),
-          _stepper(),
-          const SizedBox(height: 16),
-          _notesField(),
-          if (_validationMessage != null) ...[
-            const SizedBox(height: 10),
-            _validationBanner(_validationMessage!),
+      child: warehousesAsync.when(
+        loading: () => const Center(
+          child: Padding(
+            padding: EdgeInsets.all(32.0),
+            child: CircularProgressIndicator(),
+          ),
+        ),
+        error: (e, _) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _handle(),
+            _header(),
+            const SizedBox(height: 16),
+            Text(
+              'No se pudieron cargar los almacenes: $e',
+              style: const TextStyle(color: AppColors.error),
+            ),
           ],
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            _errorBanner(),
-          ],
-          const SizedBox(height: 20),
-          _submitButton(),
-        ],
+        ),
+        data: (warehouses) {
+          if (warehouses.isEmpty) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _handle(),
+                _header(),
+                const SizedBox(height: 16),
+                const Text(
+                  'No hay almacenes disponibles.',
+                  style: TextStyle(color: AppColors.onSurfaceMuted),
+                ),
+              ],
+            );
+          }
+
+          // Inicializa _from y _to si son nulos
+          if (_from == null || !warehouses.contains(_from)) {
+            _from = warehouses.first;
+          }
+          if (_to == null || !warehouses.contains(_to)) {
+            _to = warehouses.length > 1 ? warehouses[1] : warehouses.first;
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _handle(),
+              _header(),
+              const SizedBox(height: 20),
+              _warehouseSelectors(warehouses),
+              const SizedBox(height: 20),
+              _stepper(),
+              const SizedBox(height: 16),
+              _notesField(),
+              if (_validationMessage != null) ...[
+                const SizedBox(height: 10),
+                _validationBanner(_validationMessage!),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                _errorBanner(),
+              ],
+              const SizedBox(height: 20),
+              _submitButton(),
+            ],
+          );
+        },
       ),
     );
   }
@@ -177,10 +211,10 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
         ],
       );
 
-  Widget _warehouseSelectors() => Row(
+  Widget _warehouseSelectors(List<WarehouseOption> warehouses) => Row(
         children: [
           Expanded(
-              child: _warehouseDropdown('Origen', _from, (w) {
+              child: _warehouseDropdown('Origen', _from!, warehouses, (w) {
             setState(() => _from = w);
           })),
           const Padding(
@@ -189,7 +223,7 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
                 size: 20, color: AppColors.onSurfaceMuted),
           ),
           Expanded(
-              child: _warehouseDropdown('Destino', _to, (w) {
+              child: _warehouseDropdown('Destino', _to!, warehouses, (w) {
             setState(() => _to = w);
           })),
         ],
@@ -197,8 +231,9 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
 
   Widget _warehouseDropdown(
     String label,
-    _Warehouse selected,
-    ValueChanged<_Warehouse> onChanged,
+    WarehouseOption selected,
+    List<WarehouseOption> warehouses,
+    ValueChanged<WarehouseOption> onChanged,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,14 +253,14 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
             border: Border.all(color: AppColors.border),
           ),
           child: DropdownButtonHideUnderline(
-            child: DropdownButton<_Warehouse>(
+            child: DropdownButton<WarehouseOption>(
               value: selected,
               isExpanded: true,
               dropdownColor: AppColors.surface,
               style: const TextStyle(fontSize: 13, color: AppColors.onSurface),
               icon: const Icon(Icons.expand_more_rounded,
                   size: 18, color: AppColors.onSurfaceMuted),
-              items: _kWarehouses
+              items: warehouses
                   .map((w) => DropdownMenuItem(
                         value: w,
                         child: Text(w.name,

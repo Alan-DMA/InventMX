@@ -5,6 +5,7 @@ import 'package:nexus_app/core/router/app_router.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/auth/presentation/login_screen.dart';
+import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_wizard_screen.dart';
 
@@ -23,6 +24,7 @@ void main() {
       overrides: [
         sessionProvider.overrideWith((ref) => hasSession),
         onboardingCompleteProvider.overrideWith((ref) => onboardingDone),
+        inventoryRepositoryProvider.overrideWithValue(InventoryRepositoryMock()),
       ],
       child: Consumer(
         builder: (_, ref, __) {

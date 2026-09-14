@@ -32,6 +32,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
 
   // Paso 0 — archivo seleccionado
   String? _filePath;
+  String? _fileName;
+  List<int>? _fileBytes;
 
   // Paso 1 — previsualización
   FilePreview? _preview;
@@ -57,10 +59,14 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       type: FileType.custom,
       allowedExtensions: ['xlsx', 'xls', 'csv'],
       allowMultiple: false,
+      withData: true,
     );
     if (result != null && result.files.isNotEmpty) {
+      final file = result.files.first;
       setState(() {
-        _filePath = result.files.first.path ?? result.files.first.name;
+        _filePath = file.path ?? file.name;
+        _fileName = file.name;
+        _fileBytes = file.bytes;
         _errorMessage = null;
       });
     }
@@ -73,8 +79,11 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       _errorMessage = null;
     });
     try {
-      final preview =
-          await ref.read(importRepositoryProvider).previewFile(_filePath!);
+      final preview = await ref.read(importRepositoryProvider).previewFile(
+            _filePath!,
+            fileBytes: _fileBytes,
+            fileName: _fileName,
+          );
       setState(() {
         _preview = preview;
         // Intenta auto-mapear columnas si solo hay 3 o 4
@@ -107,6 +116,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
             colName: _colName!,
             colPrice: _colPrice!,
             colStock: _colStock ?? '',
+            fileBytes: _fileBytes,
+            fileName: _fileName,
           );
       setState(() {
         _result = result;
@@ -117,7 +128,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       setState(() {
         _isLoading = false;
         _errorMessage =
-            'Error al importar. Verifica tu conexión e intenta de nuevo.';
+            'Error al importar: ${e.toString()}';
       });
     }
   }
@@ -126,6 +137,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
     setState(() {
       _step = 0;
       _filePath = null;
+      _fileName = null;
+      _fileBytes = null;
       _preview = null;
       _colName = null;
       _colPrice = null;

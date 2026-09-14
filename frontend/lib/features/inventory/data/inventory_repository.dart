@@ -1,4 +1,7 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/dio_client.dart';
+import '../../auth/data/auth_repository.dart';
 import '../domain/inventory_movement.dart';
 import '../domain/product.dart';
 import 'inventory_mock_data.dart';
@@ -7,7 +10,7 @@ import 'inventory_mock_data.dart';
 // Modelos auxiliares de respuesta
 // ---------------------------------------------------------------------------
 
-/// Respuesta paginada — espejo de PaginationMeta del API.
+/// Respuesta paginada de productos de inventario
 class PaginatedProducts {
   const PaginatedProducts({
     required this.items,
@@ -24,11 +27,7 @@ class PaginatedProducts {
   final int totalPages;
 }
 
-// ---------------------------------------------------------------------------
-// Contrato
-// ---------------------------------------------------------------------------
-
-/// Respuesta paginada de movimientos Kardex.
+/// Respuesta paginada de movimientos Kardex
 class PaginatedMovements {
   const PaginatedMovements({
     required this.items,
@@ -46,12 +45,23 @@ class PaginatedMovements {
 }
 
 // ---------------------------------------------------------------------------
-// Contrato
+// Excepción de dominio para Inventario
+// ---------------------------------------------------------------------------
+
+class InventoryException implements Exception {
+  const InventoryException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+// ---------------------------------------------------------------------------
+// Contrato de Repositorio de Inventario
 // ---------------------------------------------------------------------------
 
 abstract class InventoryRepository {
-  /// GET /inventory/products
-  /// Parámetros alineados con docs/api/inventory.yaml
+  /// GET /api/v1/inventory/products
   Future<PaginatedProducts> getProducts({
     String? query,
     String? category,
@@ -60,18 +70,22 @@ abstract class InventoryRepository {
     int pageSize = 20,
   });
 
-  /// GET /inventory/products/{id}
+  /// GET /api/v1/inventory/products/{id}
   Future<Product> getProductById(String id);
 
-  /// POST /inventory/products
+  /// POST /api/v1/inventory/products
   Future<Product> createProduct({
     required String name,
     required double priceMxn,
     int stock = 0,
+    String? category,
+    String? barcode,
+    double? costMxn,
+    int? minStockAlert,
+    String? imageUrl,
   });
 
-  /// PATCH /inventory/products/{id}
-  /// Actualización parcial — solo envía los campos que cambiaron.
+  /// PUT /api/v1/inventory/products/{id}
   Future<Product> updateProduct({
     required String productId,
     String? name,
@@ -84,15 +98,16 @@ abstract class InventoryRepository {
     bool? isActive,
   });
 
-  /// POST /inventory/products/{id}/adjust-stock
+  /// POST /api/v1/inventory/adjust-stock
   Future<void> adjustStock({
     required String productId,
     required String movementType,
     required int quantity,
     required String reason,
+    String? warehouseId,
   });
 
-  /// POST /inventory/products/{id}/transfer
+  /// POST /api/v1/inventory/transfer-stock
   Future<void> transferStock({
     required String productId,
     required String fromWarehouseId,
@@ -101,8 +116,7 @@ abstract class InventoryRepository {
     String? notes,
   });
 
-  /// GET /inventory/products/{id}/movements
-  /// Parámetros alineados con docs/api/inventory.yaml
+  /// GET /api/v1/inventory/movements
   Future<PaginatedMovements> getMovements({
     required String productId,
     String? movementType,
@@ -114,12 +128,447 @@ abstract class InventoryRepository {
 }
 
 // ---------------------------------------------------------------------------
-// Mock — activo hasta que Alan complete Tarea 3.1 (backend inventario)
+// Implementación Real (Conexión Directa a la API FastAPI / PostgreSQL)
+// ---------------------------------------------------------------------------
+
+class InventoryRepositoryImpl implements InventoryRepository {
+  InventoryRepositoryImpl({required this.client});
+
+  final DioClient client;
+  String? _cachedDefaultWarehouseId;
+  final Map<String, String> _categoryCache = {};
+
+  /// Obtiene o consulta el almacén principal asignado al comercio
+  Future<String> _getDefaultWarehouseId() async {
+    if (_cachedDefaultWarehouseId != null) {
+      return _cachedDefaultWarehouseId!;
+    }
+    try {
+      final response = await client.get('/api/v1/inventory/warehouses');
+      final data = response.data;
+      if (data is List && data.isNotEmpty) {
+        final first = data.first;
+        if (first is Map && first['id'] != null) {
+          _cachedDefaultWarehouseId = first['id'].toString();
+          return _cachedDefaultWarehouseId!;
+        }
+      }
+    } catch (_) {}
+    return '00000000-0000-0000-0000-000000000000';
+  }
+
+  /// Resuelve el UUID de una categoría por nombre (creándola si no existe)
+  Future<String?> _resolveCategoryId(String? categoryName) async {
+    if (categoryName == null ||
+        categoryName.trim().isEmpty ||
+        categoryName.trim().toLowerCase() == 'general' ||
+        categoryName.trim().toLowerCase() == 'todos') {
+      return null;
+    }
+
+    final trimmed = categoryName.trim();
+    // Si ya es un UUID válido de 36 caracteres con guiones
+    if (RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+        .hasMatch(trimmed)) {
+      return trimmed;
+    }
+
+    if (_categoryCache.containsKey(trimmed.toLowerCase())) {
+      return _categoryCache[trimmed.toLowerCase()];
+    }
+
+    try {
+      // 1. Buscar en categorías existentes del tenant
+      final response = await client.get('/api/v1/inventory/categories');
+      final data = response.data;
+      if (data is List) {
+        for (final item in data) {
+          if (item is Map && item['name'] != null && item['id'] != null) {
+            final catName = item['name'].toString().trim().toLowerCase();
+            final catId = item['id'].toString();
+            _categoryCache[catName] = catId;
+            if (catName == trimmed.toLowerCase()) {
+              return catId;
+            }
+          }
+        }
+      }
+
+      // 2. Si no existe, crear la categoría dinámicamente
+      final createResp = await client.post(
+        '/api/v1/inventory/categories',
+        data: {'name': trimmed},
+      );
+      final createData = createResp.data;
+      if (createData is Map && createData['id'] != null) {
+        final newId = createData['id'].toString();
+        _categoryCache[trimmed.toLowerCase()] = newId;
+        return newId;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  Future<PaginatedProducts> getProducts({
+    String? query,
+    String? category,
+    bool lowStock = false,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'skip': (page - 1) * pageSize,
+        'limit': pageSize,
+      };
+
+      if (query != null && query.trim().isNotEmpty) {
+        queryParams['q'] = query.trim();
+      }
+      if (lowStock) {
+        queryParams['low_stock'] = true;
+      }
+
+      final response = await client.get(
+        '/api/v1/inventory/products',
+        queryParameters: queryParams,
+      );
+
+      final dynamic data = response.data;
+      if (data is! List) {
+        throw const InventoryException('Formato de respuesta de catálogo inválido.');
+      }
+
+      var items = data
+          .map((json) => Product.fromJson(json as Map<dynamic, dynamic>))
+          .toList();
+
+      // Filtro local complementario de categoría
+      if (category != null &&
+          category.isNotEmpty &&
+          category.toLowerCase() != 'todos') {
+        items = items
+            .where((p) =>
+                p.category.toLowerCase() == category.toLowerCase())
+            .toList();
+      }
+
+      final total = items.length;
+      final totalPages = items.length < pageSize ? page : page + 1;
+
+      return PaginatedProducts(
+        items: items,
+        total: total,
+        page: page,
+        pageSize: pageSize,
+        totalPages: totalPages < 1 ? 1 : totalPages,
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al cargar catálogo de productos: $e');
+    }
+  }
+
+  @override
+  Future<Product> getProductById(String id) async {
+    try {
+      final response = await client.get('/api/v1/inventory/products/$id');
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const InventoryException('Producto no encontrado.');
+      }
+      return Product.fromJson(data);
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al obtener detalle del producto: $e');
+    }
+  }
+
+  @override
+  Future<Product> createProduct({
+    required String name,
+    required double priceMxn,
+    int stock = 0,
+    String? category,
+    String? barcode,
+    double? costMxn,
+    int? minStockAlert,
+    String? imageUrl,
+  }) async {
+    try {
+      final categoryId = await _resolveCategoryId(category);
+      final payload = <String, dynamic>{
+        'name': name.trim(),
+        'price_mxn': priceMxn,
+        'initial_stock': stock,
+        if (costMxn != null) 'cost_mxn': costMxn,
+        if (barcode != null && barcode.trim().isNotEmpty) 'barcode': barcode.trim(),
+        if (categoryId != null) 'category_id': categoryId,
+        if (minStockAlert != null) 'min_stock_alert': minStockAlert,
+        if (imageUrl != null && imageUrl.trim().isNotEmpty) 'image_url': imageUrl.trim(),
+      };
+
+      final response = await client.post(
+        '/api/v1/inventory/products',
+        data: payload,
+      );
+
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const InventoryException('Respuesta inválida al registrar producto.');
+      }
+      return Product.fromJson(data);
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al registrar producto: $e');
+    }
+  }
+
+  @override
+  Future<Product> updateProduct({
+    required String productId,
+    String? name,
+    double? priceMxn,
+    double? costMxn,
+    String? category,
+    String? barcode,
+    int? minStockAlert,
+    String? imageUrl,
+    bool? isActive,
+  }) async {
+    try {
+      final payload = <String, dynamic>{};
+      if (name != null) payload['name'] = name.trim();
+      if (priceMxn != null) payload['price_mxn'] = priceMxn;
+      if (costMxn != null) payload['cost_mxn'] = costMxn;
+      if (barcode != null) {
+        payload['barcode'] = barcode.trim().isEmpty ? null : barcode.trim();
+      }
+      if (category != null) {
+        final catId = await _resolveCategoryId(category);
+        payload['category_id'] = catId;
+      }
+      if (minStockAlert != null) payload['min_stock_alert'] = minStockAlert;
+      if (imageUrl != null) payload['image_url'] = imageUrl;
+      if (isActive != null) payload['is_active'] = isActive;
+
+      final response = await client.put(
+        '/api/v1/inventory/products/$productId',
+        data: payload,
+      );
+
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const InventoryException('Respuesta inválida al actualizar producto.');
+      }
+      return Product.fromJson(data);
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al actualizar producto: $e');
+    }
+  }
+
+  @override
+  Future<void> adjustStock({
+    required String productId,
+    required String movementType,
+    required int quantity,
+    required String reason,
+    String? warehouseId,
+  }) async {
+    try {
+      final targetWarehouseId = warehouseId ?? await _getDefaultWarehouseId();
+
+      final isEntry = movementType == 'MANUAL_ADJUSTMENT_IN' ||
+          movementType == 'ADJUSTMENT_IN' ||
+          movementType == 'PURCHASE_ENTRY' ||
+          movementType == 'PURCHASE_IN';
+      final isWaste = movementType == 'WASTE' || movementType == 'WASTE_MERMA';
+
+      final String backendMovementType;
+      final int signedQuantity;
+
+      if (isEntry) {
+        backendMovementType = 'ADJUSTMENT_IN';
+        signedQuantity = quantity.abs();
+      } else if (isWaste) {
+        backendMovementType = 'WASTE_MERMA';
+        signedQuantity = -quantity.abs();
+      } else {
+        backendMovementType = 'ADJUSTMENT_OUT';
+        signedQuantity = -quantity.abs();
+      }
+
+      final payload = {
+        'product_id': productId,
+        'warehouse_id': targetWarehouseId,
+        'quantity': signedQuantity,
+        'movement_type': backendMovementType,
+        'notes': reason.trim(),
+      };
+
+      await client.post(
+        '/api/v1/inventory/adjust-stock',
+        data: payload,
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al aplicar ajuste de existencias: $e');
+    }
+  }
+
+  @override
+  Future<void> transferStock({
+    required String productId,
+    required String fromWarehouseId,
+    required String toWarehouseId,
+    required int quantity,
+    String? notes,
+  }) async {
+    try {
+      final payload = {
+        'product_id': productId,
+        'from_warehouse_id': fromWarehouseId,
+        'to_warehouse_id': toWarehouseId,
+        'quantity': quantity.abs(),
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      };
+
+      await client.post(
+        '/api/v1/inventory/transfer-stock',
+        data: payload,
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al transferir mercancía: $e');
+    }
+  }
+
+  @override
+  Future<PaginatedMovements> getMovements({
+    required String productId,
+    String? movementType,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'product_id': productId,
+        'skip': (page - 1) * pageSize,
+        'limit': pageSize,
+      };
+
+      if (movementType != null && movementType.isNotEmpty) {
+        queryParams['movement_type'] = movementType;
+      }
+
+      final response = await client.get(
+        '/api/v1/inventory/movements',
+        queryParameters: queryParams,
+      );
+
+      final dynamic data = response.data;
+      if (data is! List) {
+        throw const InventoryException('Respuesta de Kardex inválida.');
+      }
+
+      var items = data
+          .map((json) =>
+              InventoryMovement.fromJson(json as Map<dynamic, dynamic>))
+          .toList();
+
+      if (dateFrom != null) {
+        items = items
+            .where((m) => m.createdAt
+                .isAfter(dateFrom.subtract(const Duration(seconds: 1))))
+            .toList();
+      }
+      if (dateTo != null) {
+        final endOfDay =
+            DateTime(dateTo.year, dateTo.month, dateTo.day, 23, 59, 59);
+        items = items.where((m) => m.createdAt.isBefore(endOfDay)).toList();
+      }
+
+      final total = items.length;
+      final totalPages = items.length < pageSize ? page : page + 1;
+
+      return PaginatedMovements(
+        items: items,
+        total: total,
+        page: page,
+        pageSize: pageSize,
+        totalPages: totalPages < 1 ? 1 : totalPages,
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al consultar movimientos en Kardex: $e');
+    }
+  }
+
+  Exception _mapDioError(DioException e) {
+    if (e.response != null) {
+      final data = e.response?.data;
+      if (data is Map) {
+        if (data['error'] is Map && data['error']['message'] != null) {
+          return InventoryException(data['error']['message'].toString());
+        }
+        if (data['detail'] != null) {
+          return InventoryException(data['detail'].toString());
+        }
+      }
+    }
+
+    switch (e.response?.statusCode) {
+      case 400:
+        return const InventoryException('Datos de inventario inválidos.');
+      case 401:
+        return const InventoryException('Sesión expirada. Inicie sesión nuevamente.');
+      case 403:
+        return const InventoryException('No tiene permisos para gestionar inventario.');
+      case 404:
+        return const InventoryException('Recurso de inventario no encontrado.');
+      case 409:
+        return const InventoryException('Conflicto: SKU o código de barras duplicado.');
+      case 422:
+        return const InventoryException('Error de validación en los datos del producto.');
+      case 500:
+      case 502:
+      case 503:
+        return const InventoryException('Servidor no disponible. Intente más tarde.');
+      default:
+        if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.connectionError) {
+          return const InventoryException('Sin conexión con el servidor. Verifique su red.');
+        }
+        return InventoryException('Error de red: ${e.message ?? e.type.name}');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock — mantenido para pruebas unitarias de UI y widget tests
 // ---------------------------------------------------------------------------
 
 class InventoryRepositoryMock implements InventoryRepository {
-  /// Simula latencia de red para QA visual de estados loading.
-  static const _fakeDelay = Duration(milliseconds: 600);
+  static const _fakeDelay = Duration(milliseconds: 100);
 
   @override
   Future<PaginatedProducts> getProducts({
@@ -133,7 +582,6 @@ class InventoryRepositoryMock implements InventoryRepository {
 
     var filtered = List<Product>.from(mockProducts);
 
-    // Filtro fuzzy por texto — simula pg_trgm del backend
     if (query != null && query.isNotEmpty) {
       final q = query.toLowerCase();
       filtered = filtered
@@ -144,12 +592,10 @@ class InventoryRepositoryMock implements InventoryRepository {
           .toList();
     }
 
-    // Filtro por categoría exacta
-    if (category != null && category.isNotEmpty) {
+    if (category != null && category.isNotEmpty && category != 'Todos') {
       filtered = filtered.where((p) => p.category == category).toList();
     }
 
-    // Filtro stock bajo — simula ?low_stock=true
     if (lowStock) {
       filtered = filtered.where((p) {
         final threshold = p.minStockAlert;
@@ -158,7 +604,6 @@ class InventoryRepositoryMock implements InventoryRepository {
       }).toList();
     }
 
-    // Paginación
     final total = filtered.length;
     final totalPages = (total / pageSize).ceil().clamp(1, 9999);
     final start = ((page - 1) * pageSize).clamp(0, total);
@@ -188,23 +633,30 @@ class InventoryRepositoryMock implements InventoryRepository {
     required String name,
     required double priceMxn,
     int stock = 0,
+    String? category,
+    String? barcode,
+    double? costMxn,
+    int? minStockAlert,
+    String? imageUrl,
   }) async {
     await Future.delayed(_fakeDelay);
 
-    // Genera un ID y SKU simulados — el backend real los autogenera
     final id = 'prod-${DateTime.now().millisecondsSinceEpoch}';
     final skuSuffix = id.substring(id.length - 5).toUpperCase();
 
     return Product(
       id: id,
       sku: 'NEX-$skuSuffix',
+      barcode: barcode,
       name: name,
-      category: 'General',
+      category: category ?? 'General',
       priceMxn: priceMxn,
-      costMxn: 0,
+      costMxn: costMxn ?? 0,
       stock: stock,
       reservedStock: 0,
       availableStock: stock,
+      minStockAlert: minStockAlert,
+      imageUrl: imageUrl,
       isActive: true,
       isOnCatalog: false,
       createdAt: DateTime.now(),
@@ -224,8 +676,6 @@ class InventoryRepositoryMock implements InventoryRepository {
     bool? isActive,
   }) async {
     await Future.delayed(_fakeDelay);
-    // El backend real aplica el PATCH y retorna el producto actualizado.
-    // El mock busca el producto en la lista, aplica los cambios y lo retorna.
     final original = mockProducts.firstWhere(
       (p) => p.id == productId,
       orElse: () => throw Exception('Producto no encontrado: $productId'),
@@ -248,10 +698,9 @@ class InventoryRepositoryMock implements InventoryRepository {
     required String movementType,
     required int quantity,
     required String reason,
+    String? warehouseId,
   }) async {
     await Future.delayed(_fakeDelay);
-    // El backend actualiza el stock y registra en Kardex.
-    // El mock simula éxito silencioso — el provider actualiza el estado local.
   }
 
   @override
@@ -263,7 +712,6 @@ class InventoryRepositoryMock implements InventoryRepository {
     String? notes,
   }) async {
     await Future.delayed(_fakeDelay);
-    // Idem — mock simula éxito, el provider actualiza el estado local.
   }
 
   @override
@@ -277,17 +725,14 @@ class InventoryRepositoryMock implements InventoryRepository {
   }) async {
     await Future.delayed(_fakeDelay);
 
-    // Genera movimientos mock representativos para QA visual
     final allMovements = _generateMockMovements(productId);
 
-    // Filtra por tipo si se especificó
     var filtered = movementType != null
         ? allMovements
             .where((m) => m.movementType.apiCode == movementType)
             .toList()
         : allMovements;
 
-    // Filtra por rango de fechas
     if (dateFrom != null) {
       filtered = filtered
           .where((m) => m.createdAt.isAfter(
@@ -315,7 +760,6 @@ class InventoryRepositoryMock implements InventoryRepository {
     );
   }
 
-  /// Genera una lista de 25 movimientos mock variados para QA visual.
   List<InventoryMovement> _generateMockMovements(String productId) {
     final now = DateTime.now();
     return [
@@ -348,45 +792,6 @@ class InventoryRepositoryMock implements InventoryRepository {
       _mov('mv-10', productId, MovementType.manualAdjustmentOut, -3, 38, 35,
           now.subtract(const Duration(days: 8)),
           notes: 'Corrección de inventario'),
-      _mov('mv-11', productId, MovementType.purchaseIn, 20, 18, 38,
-          now.subtract(const Duration(days: 10)),
-          notes: 'OC-2026-000031'),
-      _mov('mv-12', productId, MovementType.saleOut, -6, 24, 18,
-          now.subtract(const Duration(days: 11))),
-      _mov('mv-13', productId, MovementType.saleOut, -4, 28, 24,
-          now.subtract(const Duration(days: 12))),
-      _mov('mv-14', productId, MovementType.transferOut, -5, 33, 28,
-          now.subtract(const Duration(days: 13)),
-          notes: 'Reabastecimiento mostrador'),
-      _mov('mv-15', productId, MovementType.purchaseIn, 15, 18, 33,
-          now.subtract(const Duration(days: 14)),
-          notes: 'OC-2026-000018'),
-      _mov('mv-16', productId, MovementType.saleOut, -3, 21, 18,
-          now.subtract(const Duration(days: 15))),
-      _mov('mv-17', productId, MovementType.manualAdjustmentIn, 5, 16, 21,
-          now.subtract(const Duration(days: 17)),
-          notes: 'Conteo de ajuste semestral'),
-      _mov('mv-18', productId, MovementType.waste, -1, 17, 16,
-          now.subtract(const Duration(days: 18)),
-          notes: 'Caja dañada'),
-      _mov('mv-19', productId, MovementType.saleOut, -4, 21, 17,
-          now.subtract(const Duration(days: 19))),
-      _mov('mv-20', productId, MovementType.purchaseIn, 12, 9, 21,
-          now.subtract(const Duration(days: 20)),
-          notes: 'OC-2026-000008'),
-      _mov('mv-21', productId, MovementType.saleOut, -3, 12, 9,
-          now.subtract(const Duration(days: 22))),
-      _mov('mv-22', productId, MovementType.transferIn, 6, 6, 12,
-          now.subtract(const Duration(days: 23)),
-          notes: 'Reingreso desde bodega'),
-      _mov('mv-23', productId, MovementType.saleOut, -2, 8, 6,
-          now.subtract(const Duration(days: 25))),
-      _mov('mv-24', productId, MovementType.purchaseIn, 8, 0, 8,
-          now.subtract(const Duration(days: 28)),
-          notes: 'OC-2026-000001'),
-      _mov('mv-25', productId, MovementType.initialStock, 0, 0, 0,
-          now.subtract(const Duration(days: 30)),
-          notes: 'Stock inicial al registrar el producto'),
     ];
   }
 
@@ -416,9 +821,11 @@ class InventoryRepositoryMock implements InventoryRepository {
 }
 
 // ---------------------------------------------------------------------------
-// Provider
+// Provider conectado al Repositorio Real de Inventario
 // ---------------------------------------------------------------------------
 
 final inventoryRepositoryProvider = Provider<InventoryRepository>(
-  (_) => InventoryRepositoryMock(),
+  (ref) => InventoryRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+  ),
 );

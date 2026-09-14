@@ -5,6 +5,7 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'inventory_provider.dart';
 import 'widgets/add_product_modal.dart';
+import 'widgets/barcode_search_modal.dart';
 import 'widgets/category_filter_bar.dart';
 import 'widgets/inventory_search_bar.dart';
 import 'widgets/product_list_tile.dart';
@@ -31,6 +32,7 @@ class InventoryScreen extends ConsumerStatefulWidget {
 
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   final _scrollController = ScrollController();
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -41,6 +43,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -72,6 +75,15 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     }
   }
 
+  // ── Abre modal de escaneo y búsqueda de código de barras ─────────────────
+  Future<void> _openBarcodeScanner(BuildContext context) async {
+    final barcodeOrTerm = await showBarcodeSearchModal(context);
+    if (barcodeOrTerm != null && barcodeOrTerm.trim().isNotEmpty && mounted) {
+      _searchController.text = barcodeOrTerm.trim();
+      ref.read(inventoryProvider.notifier).setQuery(barcodeOrTerm.trim());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(inventoryProvider);
@@ -85,8 +97,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: InventorySearchBar(
+              controller: _searchController,
               onChanged: (q) =>
                   ref.read(inventoryProvider.notifier).setQuery(q),
+              onScanPressed: () => _openBarcodeScanner(context),
             ),
           ),
 
@@ -134,16 +148,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         ),
       ),
       actions: [
-        // Compras, Proveedores y CxP (Tarea 11.2)
-        IconButton(
-          tooltip: 'Compras y Proveedores',
-          icon: const Icon(
-            Icons.local_shipping_outlined,
-            color: AppColors.onSurface,
-            size: 24,
-          ),
-          onPressed: () => context.push(AppRoutes.purchases),
-        ),
         // Modo Góndola — escaneo continuo de góndola (Tarea 5.2)
         IconButton(
           tooltip: 'Modo Góndola — Escaneo continuo',

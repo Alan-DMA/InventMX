@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart';
 import 'package:nexus_app/features/inventory/presentation/widgets/transfer_stock_modal.dart';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +60,13 @@ void _stubRepo(MockInventoryRepository mock, {bool throws = false}) {
 
 Widget _buildWidget(Product product, MockInventoryRepository mock) {
   return ProviderScope(
-    overrides: [inventoryRepositoryProvider.overrideWithValue(mock)],
+    overrides: [
+      inventoryRepositoryProvider.overrideWithValue(mock),
+      warehousesProvider.overrideWith((ref) async => const [
+        WarehouseOption(id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+        WarehouseOption(id: 'wh-002', name: 'Mostrador', isDefault: false),
+      ]),
+    ],
     child: MaterialApp(
       theme: AppTheme.dark,
       home: Scaffold(body: TransferStockModal(product: product)),

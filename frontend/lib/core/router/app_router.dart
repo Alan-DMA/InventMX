@@ -15,9 +15,6 @@ import '../../features/inventory/presentation/gondola_scan_screen.dart';
 import '../../features/inventory/presentation/inventory_provider.dart';
 import '../../features/cash_treasury/presentation/cash_session_screen.dart';
 import '../../features/sales_pos/presentation/checkout_screen.dart';
-import '../../features/purchases/presentation/purchases_hub_screen.dart';
-import '../../features/purchases/presentation/purchase_create_screen.dart';
-import '../../features/dictation_diagnostic/presentation/dictation_diagnostic_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Rutas nombradas
@@ -27,10 +24,6 @@ abstract final class AppRoutes {
   static const login = '/login';
   static const onboarding = '/onboarding';
   static const onboardingSuccess = '/onboarding/success';
-
-  // Diagnóstico interno — prototipo CRF de dictado multi-ítem (Fase 3).
-  // No enlazado desde la navegación real, solo por URL directa.
-  static const dictationDiagnostic = '/diagnostic/dictation';
 
   // Shell raíz del dashboard
   static const dashboard = '/dashboard';
@@ -51,10 +44,6 @@ abstract final class AppRoutes {
 
   // Modo Góndola — escaneo continuo (Tarea 5.2)
   static const gondola = '/dashboard/inventory/gondola';
-
-  // Hub de Compras, Proveedores y CxP (Tarea 11.2)
-  static const purchases = '/dashboard/inventory/purchases';
-  static const purchaseCreate = '/dashboard/inventory/purchases/new';
 
   static String productDetailPath(String id) =>
       '/dashboard/inventory/products/$id';
@@ -84,11 +73,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final hasSession = ref.read(sessionProvider);
       final onboardingDone = ref.read(onboardingCompleteProvider);
       final location = routerState.matchedLocation;
-
-      // ── Diagnóstico interno: exento del flujo de auth/onboarding ──────
-      if (location == AppRoutes.dictationDiagnostic) {
-        return null;
-      }
 
       // ── Sin sesión: siempre al login ──────────────────────────────────
       if (!hasSession) {
@@ -131,13 +115,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const Step4SuccessPage(),
       ),
 
-      // ── Diagnóstico interno — prototipo CRF dictado (Fase 3) ──────────
-      GoRoute(
-        path: AppRoutes.dictationDiagnostic,
-        name: 'dictation-diagnostic',
-        builder: (_, __) => const DictationDiagnosticScreen(),
-      ),
-
       // ── Dashboard con NavigationBar (ShellRoute) ─────────────────────
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) => DashboardShell(
@@ -164,20 +141,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     path: 'gondola',
                     name: 'gondola',
                     builder: (_, __) => const GondolaScanScreen(),
-                  ),
-
-                  // Hub de Compras, Proveedores y CxP — Tarea 11.2
-                  GoRoute(
-                    path: 'purchases',
-                    name: 'purchases',
-                    builder: (_, __) => const PurchasesHubScreen(),
-                    routes: [
-                      GoRoute(
-                        path: 'new',
-                        name: 'purchase-create',
-                        builder: (_, __) => const PurchaseCreateScreen(),
-                      ),
-                    ],
                   ),
 
                   // Detalle de producto — Subtarea 3.2.2
