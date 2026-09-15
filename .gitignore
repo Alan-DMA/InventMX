@@ -93,3 +93,5 @@ docs/architecture/funcionalidades_pendientes_post_mvp.md
 .kiro/
 
 claude.md
+# Diffs de goldens fallidos (flutter test genera esta carpeta al comparar imágenes)
+**/test/**/failures/
