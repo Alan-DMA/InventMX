@@ -18,6 +18,9 @@ import '../../features/sales_pos/presentation/checkout_screen.dart';
 import '../../features/purchases/presentation/purchases_hub_screen.dart';
 import '../../features/purchases/presentation/purchase_create_screen.dart';
 import '../../features/dictation_diagnostic/presentation/dictation_diagnostic_screen.dart';
+import '../../features/whatsapp_catalog/presentation/catalog_share_screen.dart';
+import '../../features/whatsapp_catalog/presentation/order_ticket_screen.dart';
+import '../../features/whatsapp_catalog/presentation/public_catalog_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Rutas nombradas
@@ -56,6 +59,18 @@ abstract final class AppRoutes {
   static const purchases = '/dashboard/inventory/purchases';
   static const purchaseCreate = '/dashboard/inventory/purchases/new';
 
+  // Panel de difusión del catálogo digital (Tarea 13.2.3)
+  static const catalogShare = '/dashboard/inventory/catalog';
+
+  // Vitrina pública del catálogo — sin sesión (Tarea 13.2.1, RF-23)
+  static const publicCatalog = '/tienda/:slug';
+
+  static String publicCatalogPath(String slug) => '/tienda/$slug';
+
+  // Ticket de un pedido registrado — enlace que va en el chat (13.2.2)
+  static String publicOrderPath(String slug, String folio) =>
+      '/tienda/$slug/pedido/$folio';
+
   static String productDetailPath(String id) =>
       '/dashboard/inventory/products/$id';
 
@@ -87,6 +102,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ── Diagnóstico interno: exento del flujo de auth/onboarding ──────
       if (location == AppRoutes.dictationDiagnostic) {
+        return null;
+      }
+
+      // ── Vitrina pública: la abre un cliente sin cuenta (RF-23) ────────
+      if (location.startsWith('/tienda/')) {
         return null;
       }
 
@@ -138,6 +158,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const DictationDiagnosticScreen(),
       ),
 
+      // ── Vitrina pública del catálogo — Tarea 13.2.1 ───────────────────
+      GoRoute(
+        path: AppRoutes.publicCatalog,
+        name: 'public-catalog',
+        builder: (_, state) =>
+            PublicCatalogScreen(slug: state.pathParameters['slug']!),
+        routes: [
+          GoRoute(
+            path: 'pedido/:folio',
+            name: 'public-order',
+            builder: (_, state) => OrderTicketScreen(
+              slug: state.pathParameters['slug']!,
+              folio: state.pathParameters['folio']!,
+            ),
+          ),
+        ],
+      ),
+
       // ── Dashboard con NavigationBar (ShellRoute) ─────────────────────
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) => DashboardShell(
@@ -178,6 +216,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         builder: (_, __) => const PurchaseCreateScreen(),
                       ),
                     ],
+                  ),
+
+                  // Panel de difusión del catálogo — Tarea 13.2.3
+                  GoRoute(
+                    path: 'catalog',
+                    name: 'catalog-share',
+                    builder: (_, __) => const CatalogShareScreen(),
                   ),
 
                   // Detalle de producto — Subtarea 3.2.2

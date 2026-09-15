@@ -134,6 +134,17 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         ),
       ),
       actions: [
+        // Catálogo digital: enlace, QR y compartir (Tarea 13.2.3)
+        IconButton(
+          key: const Key('catalogShareButton'),
+          tooltip: 'Mi catálogo digital',
+          icon: const Icon(
+            Icons.storefront_outlined,
+            color: AppColors.onSurface,
+            size: 24,
+          ),
+          onPressed: () => context.push(AppRoutes.catalogShare),
+        ),
         // Compras, Proveedores y CxP (Tarea 11.2)
         IconButton(
           tooltip: 'Compras y Proveedores',

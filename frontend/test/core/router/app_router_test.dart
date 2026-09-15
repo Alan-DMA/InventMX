@@ -7,6 +7,9 @@ import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/auth/presentation/login_screen.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_wizard_screen.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/whatsapp_catalog_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/public_catalog_screen.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/whatsapp_catalog_provider.dart';
 
 /// app_router_redirect_test — CA-04, CA-05, CA-08, CA-09
 ///
@@ -73,5 +76,44 @@ void main() {
         expect(find.byType(NavigationBar), findsOneWidget);
       },
     );
+  });
+
+  group('AppRouter — vitrina pública (Tarea 13.2)', () {
+    testWidgets('/tienda/{slug} abre sin sesión: no redirige al login',
+        (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => false),
+            onboardingCompleteProvider.overrideWith((ref) => false),
+            catalogStoreNameProvider
+                .overrideWith((_) async => 'Abarrotes Don Pepe'),
+            whatsappCatalogRepositoryProvider.overrideWithValue(
+              WhatsappCatalogRepositoryMock(
+                storeName: 'Abarrotes Don Pepe',
+                latency: Duration.zero,
+              ),
+            ),
+          ],
+          child: Consumer(
+            builder: (_, ref, __) {
+              final router = ref.watch(appRouterProvider);
+              // Simula abrir el enlace compartido directamente.
+              router.go(AppRoutes.publicCatalogPath('abarrotes-don-pepe'));
+              return MaterialApp.router(
+                theme: AppTheme.dark,
+                routerConfig: router,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginScreen), findsNothing);
+      expect(find.byType(PublicCatalogScreen), findsOneWidget);
+      expect(find.text('Abarrotes Don Pepe'), findsOneWidget);
+    });
   });
 }
