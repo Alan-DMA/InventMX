@@ -50,6 +50,7 @@ dependencies:
   # --- Dictado de voz nativo (Tarea 12.2.3 / SR-09) ---
   speech_to_text: ^7.4.0                  # Android SpeechRecognizer / Web Speech API
   camera: ^0.12.1
+  pdfx: ^2.11.0                           # Render de PDF a imagen on-device para OCR (Tarea 12.2 / Q-03)
 
 dev_dependencies:
   flutter_test:

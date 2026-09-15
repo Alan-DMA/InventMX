@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -87,6 +88,21 @@ class DictationSegmenter {
   }
 }
 
+/// Resultado interno de `VoiceDictationParser._findPrice()` — la frase de
+/// precio completa y el número en sí pueden empezar en posiciones distintas
+/// ("precio 16" matchea desde "precio", el número está más adelante).
+class _PriceMatch {
+  const _PriceMatch({
+    required this.phraseStart,
+    required this.numberStart,
+    required this.numberText,
+  });
+
+  final int phraseStart;
+  final int numberStart;
+  final String numberText;
+}
+
 /// Convierte un dictado en los 3 campos vitales (SR-09).
 ///
 /// Formato enseñado al usuario (modal de dictado, Tarea 12.2.3 —
@@ -115,7 +131,15 @@ class VoiceDictationParser {
   static final RegExp _priceNearPesos =
       RegExp(r'(\d+(?:[.,]\d{1,2})?)\s*pesos', caseSensitive: false);
 
-  // Respaldo para frases sin la palabra "pesos" (patrón original SR-09:
+  // Respaldo cuando el motor de voz transcribe el signo de pesos en vez de
+  // la palabra ("$20" o "20$") — encontrado en dictado real, ver bitácora.
+  // Dos alternativas porque el motor no es consistente con dónde pone el
+  // signo; solo una de las dos captura en cada match.
+  static final RegExp _priceWithDollarSign = RegExp(
+      r'\$\s*(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s*\$',
+      caseSensitive: false);
+
+  // Respaldo para frases sin "pesos" ni "$" (patrón original SR-09:
   // "precio 16").
   static final RegExp _priceKeyword = RegExp(
       r'precios?\s+(?:de\s+)?\$?\s*(\d+(?:[.,]\d{1,2})?)',
@@ -135,35 +159,95 @@ class VoiceDictationParser {
     'mexicano', 'mexicanos',
   ];
 
+  // El motor de voz nativo a veces transcribe un número como palabra en vez
+  // de dígito ("veinte" en vez de "20") — encontrado en dictado real, ver
+  // bitácora. Sin esto, `_anyNumber` (que solo busca `\d+`) nunca lo
+  // reconoce y el campo queda vacío aunque el usuario sí haya dicho un
+  // número. Deliberadamente SIN "un"/"una": esas palabras ya son muletillas
+  // gramaticales frecuentes ("con UN costo de...") — incluirlas como "1"
+  // rompería esas frases; alguien que quiere cantidad 1 dice "uno" a secas.
+  // Solo números de una palabra (hasta "treinta") — "treinta y cinco"
+  // colisionaría con el conector "y" del segmentador.
+  static const Map<String, String> _numberWords = {
+    'uno': '1', 'dos': '2', 'tres': '3', 'cuatro': '4', 'cinco': '5',
+    'seis': '6', 'siete': '7', 'ocho': '8', 'nueve': '9', 'diez': '10',
+    'once': '11', 'doce': '12', 'trece': '13', 'catorce': '14',
+    'quince': '15', 'dieciséis': '16', 'dieciseis': '16',
+    'diecisiete': '17', 'dieciocho': '18', 'diecinueve': '19',
+    'veinte': '20', 'veintiuno': '21', 'veintidós': '22',
+    'veintidos': '22', 'veintitrés': '23', 'veintitres': '23',
+    'veinticuatro': '24', 'veinticinco': '25', 'veintiséis': '26',
+    'veintiseis': '26', 'veintisiete': '27', 'veintiocho': '28',
+    'veintinueve': '29', 'treinta': '30',
+  };
+
+  // `\b` con letras acentuadas no siempre calza bien en Dart/ICU, así que
+  // el patrón delimita por espacio/inicio/fin — cubre el caso real (número
+  // suelto entre espacios, con o sin coma pegada) sin depender de \b.
+  static final RegExp _wordToken = RegExp(r'[a-záéíóúñ]+', caseSensitive: false);
+
+  String _normalizeSpokenNumbers(String text) {
+    return text.replaceAllMapped(_wordToken, (m) {
+      final replacement = _numberWords[m.group(0)!.toLowerCase()];
+      return replacement ?? m.group(0)!;
+    });
+  }
+
+  /// Precio detectado, ya normalizado: dónde empieza la FRASE completa
+  /// (para el límite del nombre) y dónde empieza el DÍGITO en sí (para
+  /// desambiguar contra la cantidad) pueden no coincidir — `_priceKeyword`
+  /// matchea desde "precio"/"costo", no desde el número.
+  _PriceMatch? _findPrice(String text) {
+    final nearPesos = _priceNearPesos.firstMatch(text);
+    if (nearPesos != null) {
+      return _PriceMatch(
+        phraseStart: nearPesos.start,
+        numberStart: nearPesos.start,
+        numberText: nearPesos.group(1)!,
+      );
+    }
+
+    final dollarSign = _priceWithDollarSign.firstMatch(text);
+    if (dollarSign != null) {
+      // Grupo 1 = "$20", grupo 2 = "20$" — solo uno de los dos captura.
+      final numberText = dollarSign.group(1) ?? dollarSign.group(2)!;
+      final numberStart =
+          dollarSign.start + dollarSign.group(0)!.indexOf(numberText);
+      return _PriceMatch(
+        phraseStart: dollarSign.start,
+        numberStart: numberStart,
+        numberText: numberText,
+      );
+    }
+
+    final keyword = _priceKeyword.firstMatch(text);
+    if (keyword != null) {
+      return _PriceMatch(
+        phraseStart: keyword.start,
+        numberStart:
+            keyword.start + keyword.group(0)!.lastIndexOf(keyword.group(1)!),
+        numberText: keyword.group(1)!,
+      );
+    }
+
+    return null;
+  }
+
   DictatedProductInput parse(String transcript) {
-    final normalized = transcript.trim();
+    final normalized = _normalizeSpokenNumbers(transcript.trim());
     if (normalized.isEmpty) {
       return DictatedProductInput(transcript: transcript);
     }
 
-    final priceMatch = _priceNearPesos.firstMatch(normalized) ??
-        _priceKeyword.firstMatch(normalized);
-
+    final price = _findPrice(normalized);
     final allNumbers = _anyNumber.allMatches(normalized).toList();
-    // Posición del DÍGITO del precio, no del match completo — `_priceKeyword`
-    // matchea desde "precio"/"costo", no desde el número, así que comparar
-    // contra `priceMatch.start` (match completo) nunca coincidiría con la
-    // posición real del número y la cantidad tomaría el número de precio
-    // por error. `Match` en Dart no expone la posición de un grupo
-    // capturado directamente, así que se ubica dentro del texto del match
-    // completo (el grupo del número es lo último que matchea en ambos
-    // patrones de precio, `lastIndexOf` es seguro aquí).
-    final priceNumberStart = priceMatch == null
-        ? null
-        : priceMatch.start +
-            priceMatch.group(0)!.lastIndexOf(priceMatch.group(1)!);
 
     // Cantidad = primer número de la frase, salvo que sea el mismo número
     // que ya se tomó como precio (frase sin cantidad, solo nombre+precio —
     // caso real encontrado al validar con dictado real, ver bitácora).
     RegExpMatch? qtyMatch;
     for (final n in allNumbers) {
-      final isPriceNumber = n.start == priceNumberStart;
+      final isPriceNumber = n.start == price?.numberStart;
       if (!isPriceNumber) {
         qtyMatch = n;
         break;
@@ -171,7 +255,7 @@ class VoiceDictationParser {
     }
 
     final nameStart = qtyMatch?.end ?? 0;
-    final nameEnd = priceMatch?.start ?? normalized.length;
+    final nameEnd = price?.phraseStart ?? normalized.length;
     final rawName = nameStart < nameEnd
         ? normalized.substring(nameStart, nameEnd)
         : '';
@@ -179,9 +263,9 @@ class VoiceDictationParser {
     return DictatedProductInput(
       transcript: normalized,
       name: _cleanName(rawName),
-      priceMxn: priceMatch == null
+      priceMxn: price == null
           ? null
-          : double.tryParse(priceMatch.group(1)!.replaceAll(',', '.')),
+          : double.tryParse(price.numberText.replaceAll(',', '.')),
       quantity: qtyMatch == null
           ? null
           : int.tryParse(qtyMatch.group(0)!.split('.').first),
@@ -219,9 +303,17 @@ abstract interface class VoiceDictationService {
   /// Escucha hasta que el usuario calla o llama a [stop].
   ///
   /// [onResult] recibe transcripciones parciales y la final; [isFinal] indica
-  /// cuál es la definitiva.
+  /// cuál es la definitiva. [onError] avisa si el motor cortó por un error
+  /// de plataforma (red, timeout del reconocedor, etc.) — sin esto el
+  /// caller no tiene forma de saber que la escucha murió en silencio y
+  /// quedaría esperando resultados que nunca llegan. [onListening] avisa el
+  /// instante en que el micrófono está de verdad captando audio — entre
+  /// llamar `listen()` y eso hay un hueco (arranque del reconocedor, tono
+  /// del sistema) en el que lo dicho se pierde.
   Future<void> listen({
     required void Function(String transcript, bool isFinal) onResult,
+    void Function()? onError,
+    void Function()? onListening,
   });
 
   Future<void> stop();
@@ -241,6 +333,12 @@ class NativeVoiceDictationService implements VoiceDictationService {
   final SpeechToText _speech;
   bool _initialized = false;
 
+  /// Callback de error del `listen()` EN CURSO — se reasigna en cada
+  /// llamada porque `SpeechToText.initialize()` solo se corre una vez
+  /// (cacheado en `_initialized`) pero `listen()` se llama muchas veces
+  /// (una por cada "Volver a grabar" de `DictationModal`).
+  void Function()? _currentOnError;
+
   static const _localeId = 'es_MX';
 
   @override
@@ -249,36 +347,87 @@ class NativeVoiceDictationService implements VoiceDictationService {
   @override
   Future<bool> initialize() async {
     if (_initialized) return true;
-    _initialized = await _speech.initialize();
+    _initialized = await _speech.initialize(
+      onError: (_) => _currentOnError?.call(),
+    );
     return _initialized;
   }
+
+  /// Canal hacia `MainActivity.kt` para silenciar el tono que el
+  /// reconocedor de Google emite en cada arranque — el plugin no lo expone.
+  static const _audioChannel = MethodChannel('nexus/dictation_audio');
+  bool _beepMuted = false;
 
   @override
   Future<void> listen({
     required void Function(String transcript, bool isFinal) onResult,
+    void Function()? onError,
+    void Function()? onListening,
   }) async {
+    _currentOnError = onError;
+    // Tras un resultado final, el plugin sigue marcado como "listening" en
+    // Android hasta que vence un temporizador interno de `pauseFor` ms
+    // (SpeechToTextPlugin.kt, onEndOfSpeech). Si el usuario toca "Volver a
+    // grabar" en esa ventana, Kotlin devuelve `false` y el arranque falla EN
+    // SILENCIO — sin error ni callback (bug real: "digo cosas y no
+    // transcribe"). `stop()` baja el flag y cancela ese temporizador.
+    if (_speech.isListening) await _speech.stop();
+    await _setBeepMuted(true);
+
+    // El plugin no notifica `onReadyForSpeech`; el primer evento de nivel de
+    // sonido es la señal real de que el micrófono ya está captando.
+    var announcedListening = false;
     await _speech.listen(
       onResult: (SpeechRecognitionResult result) =>
           onResult(result.recognizedWords, result.finalResult),
+      onSoundLevelChange: (_) {
+        if (announcedListening) return;
+        announcedListening = true;
+        onListening?.call();
+      },
       listenOptions: SpeechListenOptions(
         localeId: _localeId,
         listenMode: ListenMode.dictation,
         partialResults: true,
-        cancelOnError: true,
-        // Un dictado de varios productos toma más que una sola línea —
-        // ventana más amplia que la original (Tarea 12.2.3 solo cubría un
-        // producto a la vez). El corte por silencio sigue en 3s.
-        pauseFor: const Duration(seconds: 3),
-        listenFor: const Duration(seconds: 45),
+        // false: un error NO debe cancelar la sesión en silencio — se
+        // maneja explícitamente vía `onError` para poder reintentar (bug
+        // real encontrado en dictado: con `true` y sin `onError` conectado,
+        // un error de plataforma mataba la escucha sin que el modal se
+        // enterara, sintiéndose como que "se cae sola" sin explicación).
+        cancelOnError: false,
+        // Un segmento por toque: al callar este tiempo el motor cierra y
+        // `DictationModal` queda en "detenido" hasta que el usuario vuelva a
+        // grabar — sin reinicio automático (pedido explícito de Eduardo: el
+        // bucle de bips no le dejaba pensar qué decir). Es un máximo, no un
+        // mínimo: el reconocedor de Google tiene su propio corte interno
+        // (~1-2s) que a veces ignora este valor.
+        pauseFor: const Duration(seconds: 4),
+        listenFor: const Duration(seconds: 55),
       ),
     );
   }
 
   @override
-  Future<void> stop() => _speech.stop();
+  Future<void> stop() async {
+    await _speech.stop();
+    await _setBeepMuted(false);
+  }
 
   @override
   void dispose() {
     if (_speech.isListening) _speech.cancel();
+    _setBeepMuted(false);
+  }
+
+  Future<void> _setBeepMuted(bool muted) async {
+    if (_beepMuted == muted) return;
+    _beepMuted = muted;
+    try {
+      await _audioChannel.invokeMethod<bool>('setRecognizerBeepMuted', muted);
+    } on PlatformException {
+      // El OEM rechazó tocar el volumen: se oye el tono, nada más.
+    } on MissingPluginException {
+      // Web / plataformas sin MainActivity propia.
+    }
   }
 }

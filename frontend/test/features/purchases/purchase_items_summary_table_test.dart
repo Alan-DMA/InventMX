@@ -19,6 +19,7 @@ List<PurchaseOrderItem> _makeItems(int count) {
 Widget _buildTable(
   List<PurchaseOrderItem> items, {
   ValueChanged<PurchaseOrderItem>? onRemove,
+  ValueChanged<PurchaseOrderItem>? onEdit,
   String? justAddedId,
 }) {
   return MaterialApp(
@@ -27,6 +28,7 @@ Widget _buildTable(
       body: PurchaseItemsSummaryTable(
         items: items,
         onRemove: onRemove ?? (_) {},
+        onEdit: onEdit ?? (_) {},
         justAddedId: justAddedId,
       ),
     ),
@@ -112,5 +114,137 @@ void main() {
     for (final c in containers) {
       expect(c.color!.a, 0);
     }
+  });
+
+  group('edición inline (iteración post-exploración CRF, Tarea 12.2.3)', () {
+    testWidgets('tocar una fila la expande con los 3 campos editables',
+        (tester) async {
+      final items = _makeItems(1);
+      await tester.pumpWidget(_buildTable(items));
+      await tester.pump();
+
+      expect(find.byKey(Key('purchaseItemEditName-${items.first.productId}')),
+          findsNothing);
+
+      await tester.tap(find.text('Producto 0'));
+      await tester.pump();
+
+      expect(find.byKey(Key('purchaseItemEditName-${items.first.productId}')),
+          findsOneWidget);
+      expect(find.byKey(Key('purchaseItemEditQty-${items.first.productId}')),
+          findsOneWidget);
+      expect(find.byKey(Key('purchaseItemEditCost-${items.first.productId}')),
+          findsOneWidget);
+    });
+
+    testWidgets('confirmar la edición invoca onEdit con los valores nuevos',
+        (tester) async {
+      final items = _makeItems(1);
+      PurchaseOrderItem? edited;
+      await tester.pumpWidget(
+          _buildTable(items, onEdit: (i) => edited = i));
+      await tester.pump();
+
+      await tester.tap(find.text('Producto 0'));
+      await tester.pump();
+
+      final id = items.first.productId;
+      await tester.enterText(
+          find.byKey(Key('purchaseItemEditQty-$id')), '9');
+      await tester.enterText(
+          find.byKey(Key('purchaseItemEditCost-$id')), '15.50');
+      await tester.tap(find.byKey(Key('purchaseItemEditConfirm-$id')));
+      await tester.pump();
+
+      expect(edited?.quantity, 9);
+      expect(edited?.unitCostMxn, 15.50);
+      expect(edited?.productName, 'Producto 0');
+    });
+
+    testWidgets('cancelar la edición no invoca onEdit y cierra el modo edición',
+        (tester) async {
+      final items = _makeItems(1);
+      var editCalled = false;
+      await tester.pumpWidget(
+          _buildTable(items, onEdit: (_) => editCalled = true));
+      await tester.pump();
+
+      final id = items.first.productId;
+      await tester.tap(find.text('Producto 0'));
+      await tester.pump();
+
+      await tester.enterText(find.byKey(Key('purchaseItemEditQty-$id')), '99');
+      await tester.tap(find.byKey(Key('purchaseItemEditCancel-$id')));
+      await tester.pump();
+
+      expect(editCalled, isFalse);
+      expect(find.byKey(Key('purchaseItemEditQty-$id')), findsNothing);
+    });
+
+    testWidgets('un producto con precio en 0 muestra el chip "falta precio"',
+        (tester) async {
+      final items = [
+        const PurchaseOrderItem(
+          productId: 'p1',
+          productName: 'Tornillos',
+          quantity: 5,
+          unitCostMxn: 0,
+        ),
+      ];
+      await tester.pumpWidget(_buildTable(items));
+      await tester.pump();
+
+      expect(find.text('falta precio'), findsOneWidget);
+      expect(find.text('falta cantidad'), findsNothing);
+      expect(find.text('falta nombre'), findsNothing);
+    });
+
+    testWidgets('un producto sin nombre ni cantidad muestra ambos chips',
+        (tester) async {
+      final items = [
+        const PurchaseOrderItem(
+          productId: 'p1',
+          productName: '',
+          quantity: 0,
+          unitCostMxn: 20,
+        ),
+      ];
+      await tester.pumpWidget(_buildTable(items));
+      await tester.pump();
+
+      expect(find.text('falta nombre'), findsOneWidget);
+      expect(find.text('falta cantidad'), findsOneWidget);
+      expect(find.text('(sin nombre)'), findsOneWidget);
+    });
+
+    testWidgets('un producto completo no muestra ningún chip', (tester) async {
+      final items = _makeItems(1);
+      await tester.pumpWidget(_buildTable(items));
+      await tester.pump();
+
+      expect(find.textContaining('falta'), findsNothing);
+    });
+
+    testWidgets('"Quitar" en una fila incompleta no dispara el modo edición',
+        (tester) async {
+      final items = [
+        const PurchaseOrderItem(
+          productId: 'p1',
+          productName: 'Tornillos',
+          quantity: 5,
+          unitCostMxn: 0,
+        ),
+      ];
+      PurchaseOrderItem? removed;
+      await tester.pumpWidget(
+          _buildTable(items, onRemove: (i) => removed = i));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Quitar'));
+      await tester.pump();
+
+      expect(removed, items.first);
+      expect(find.byKey(const Key('purchaseItemEditName-p1')), findsNothing);
+    });
   });
 }

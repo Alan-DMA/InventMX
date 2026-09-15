@@ -1,5 +1,15 @@
 # Prototipo — Dictado multi-item con CRFsuite
 
+> **Resultado final (Sep 2026): CRFsuite descartado para producción.** Los huecos
+> encontrados en esta exploración (ver "Fase 3 en vivo" más abajo) llevaron a un pivote de
+> producto — formato de dictado guiado en vez de NLU libre — bajo el cual un regex
+> **posicional** (no el original) iguala o supera al CRF sin el costo de portarlo a Dart.
+> Implementación real en `frontend/lib/core/utils/voice_dictation_helper.dart` +
+> `frontend/lib/features/purchases/presentation/widgets/dictation_modal.dart`. Detalle
+> completo de la decisión en `docs/architecture/registro_implementacion.md`, sección de
+> Tarea 12.2.3. Esta carpeta se conserva como registro de la exploración que informó esa
+> decisión, no se usa en producción.
+
 Exploración personal de Eduardo, **fuera del alcance formal de frontend** definido en
 `CLAUDE.md` (es un script de Python, no Flutter). No es una tarea del plan de 16 días ni
 una entrega de la Tarea 12.1 de Alan — decide si vale la pena invertir en reemplazar/extender

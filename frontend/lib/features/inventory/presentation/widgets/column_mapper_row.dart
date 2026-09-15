@@ -14,7 +14,17 @@ class ColumnMapperRow extends StatelessWidget {
     required this.columns,
     required this.selectedColumn,
     required this.onChanged,
+    this.columnLabel,
+    this.helperText,
   });
+
+  /// Cómo mostrar cada columna en el dropdown. Por defecto "Col. A"; el OCR
+  /// de facturas pasa una muestra de la columna, porque una letra no
+  /// significa nada en una foto.
+  final String Function(String column)? columnLabel;
+
+  /// Texto bajo el nombre del campo. Por defecto "Campo obligatorio/opcional".
+  final String? helperText;
 
   /// Nombre del campo destino (ej. "Nombre", "Precio", "Stock").
   final String fieldLabel;
@@ -42,7 +52,9 @@ class ColumnMapperRow extends StatelessWidget {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: selectedColumn != null ? AppColors.emerald.withValues(alpha: 0.5) : AppColors.border,
+          color: selectedColumn != null
+              ? AppColors.emerald.withValues(alpha: 0.5)
+              : AppColors.border,
         ),
       ),
       child: Row(
@@ -89,7 +101,8 @@ class ColumnMapperRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  isRequired ? 'Campo obligatorio' : 'Campo opcional',
+                  helperText ??
+                      (isRequired ? 'Campo obligatorio' : 'Campo opcional'),
                   style: TextStyle(
                     fontSize: 11,
                     color: AppColors.onSurfaceMuted.withValues(alpha: 0.7),
@@ -100,57 +113,77 @@ class ColumnMapperRow extends StatelessWidget {
           ),
           const SizedBox(width: 12),
 
-          // Dropdown de columna
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceVariant,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selectedColumn != null ? AppColors.emerald : AppColors.border,
+          // Dropdown de columna. Con etiquetas largas (muestras del OCR) se
+          // acota el ancho y se recorta con elipsis; con "Col. A" conserva su
+          // ancho natural.
+          _constrainIfWide(
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceVariant,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: selectedColumn != null
+                      ? AppColors.emerald
+                      : AppColors.border,
+                ),
               ),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: selectedColumn,
-                hint: const Text(
-                  'Columna',
-                  style: TextStyle(
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: selectedColumn,
+                  isExpanded: columnLabel != null,
+                  hint: const Text(
+                    'Columna',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.onSurfaceMuted,
+                    ),
+                  ),
+                  dropdownColor: AppColors.surface,
+                  style: const TextStyle(
                     fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.onSurface,
+                  ),
+                  icon: const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
                     color: AppColors.onSurfaceMuted,
                   ),
-                ),
-                dropdownColor: AppColors.surface,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.onSurface,
-                ),
-                icon: const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  size: 18,
-                  color: AppColors.onSurfaceMuted,
-                ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: null,
-                    child: Text(
-                      '—',
-                      style: TextStyle(color: AppColors.onSurfaceMuted),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text(
+                        '—',
+                        style: TextStyle(color: AppColors.onSurfaceMuted),
+                      ),
                     ),
-                  ),
-                  ...columns.map(
-                    (col) => DropdownMenuItem<String>(
-                      value: col,
-                      child: Text('Col. $col'),
+                    ...columns.map(
+                      (col) => DropdownMenuItem<String>(
+                        value: col,
+                        child: Text(
+                          columnLabel?.call(col) ?? 'Col. $col',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
-                onChanged: onChanged,
+                  ],
+                  onChanged: onChanged,
+                ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _constrainIfWide(Widget dropdown) {
+    if (columnLabel == null) return dropdown;
+    return Flexible(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 190),
+        child: dropdown,
       ),
     );
   }

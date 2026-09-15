@@ -59,6 +59,27 @@ void main() {
       expect(result.coverage, closeTo(0.15, 0.01));
     });
 
+    test('un ticket angosto que llena el alto del cuadro no está lejos (Q-02)',
+        () {
+      // 30 % del ancho, pero 80 % del alto: cobertura = la mayor.
+      final lines = [
+        for (var i = 0; i < 20; i++)
+          OcrLine(
+            text: 'RENGLON ',
+            boundingBox: Rect.fromLTWH(380, 200 + i * 76, 320, 24),
+            angle: 0,
+          ),
+      ];
+      final result = assessCapture(
+        meanLuma: 120,
+        lines: lines,
+        frameSize: _frame,
+      );
+
+      expect(result.issue, CaptureIssue.none);
+      expect(result.coverage, greaterThan(0.7));
+    });
+
     test('una hoja torcida pide enderezarla', () {
       final result = assessCapture(
         meanLuma: 120,
@@ -162,17 +183,16 @@ void main() {
       expect(tracker.isStable, isFalse);
     });
 
-    test('tres cuadros buenos seguidos sí lo habilitan', () {
+    test('dos cuadros buenos seguidos sí lo habilitan (Q-02)', () {
       final tracker = CaptureReadinessTracker();
 
-      tracker.update(ready);
       tracker.update(ready);
 
       expect(tracker.update(ready), isTrue);
     });
 
-    test('un cuadro malo reinicia la racha', () {
-      final tracker = CaptureReadinessTracker();
+    test('antes del verde, un cuadro malo reinicia la racha', () {
+      final tracker = CaptureReadinessTracker(requiredStreak: 3);
 
       tracker.update(ready);
       tracker.update(ready);
@@ -180,6 +200,38 @@ void main() {
 
       expect(tracker.isStable, isFalse);
       expect(tracker.streak, 0);
+    });
+
+    test('ya en verde, un cuadro malo aislado no apaga el disparo (Q-02)', () {
+      final tracker = CaptureReadinessTracker();
+
+      tracker.update(ready);
+      tracker.update(ready);
+
+      expect(tracker.update(dark), isTrue);
+      expect(tracker.update(ready), isTrue);
+    });
+
+    test('ya en verde, dos cuadros malos seguidos sí lo apagan', () {
+      final tracker = CaptureReadinessTracker();
+
+      tracker.update(ready);
+      tracker.update(ready);
+      tracker.update(dark);
+
+      expect(tracker.update(dark), isFalse);
+      expect(tracker.streak, 0);
+    });
+
+    test('reset borra la racha y la tolerancia', () {
+      final tracker = CaptureReadinessTracker();
+
+      tracker.update(ready);
+      tracker.update(ready);
+      tracker.reset();
+
+      expect(tracker.isStable, isFalse);
+      expect(tracker.update(dark), isFalse);
     });
 
     test('la racha requerida es configurable', () {

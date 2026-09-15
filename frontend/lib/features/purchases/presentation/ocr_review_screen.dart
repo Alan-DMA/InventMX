@@ -109,8 +109,8 @@ class _OcrReviewScreenState extends State<OcrReviewScreen> {
         child: isEmpty
             ? _EmptyScanState(
                 rowsRead: widget.result.rowsRead,
-                onRescan: () => Navigator.of(context)
-                    .pop(const OcrReviewOutcome.rescan()),
+                onRescan: () =>
+                    Navigator.of(context).pop(const OcrReviewOutcome.rescan()),
                 onManual: () => Navigator.of(context).pop(null),
               )
             : Column(
@@ -196,6 +196,33 @@ class _ScanSummary extends StatelessWidget {
         Text(
           supplier == null ? detail : '$supplier · $detail',
           style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted),
+        ),
+        const SizedBox(height: 6),
+        // El OCR también lee lo que no es mercancía; lo que el filtro no
+        // atrapó se quita aquí con un toque — Tarea 12.2, QA de ruido.
+        Row(
+          key: const Key('ocrReviewNoiseHint'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(Icons.delete_outline_rounded,
+                  size: 14,
+                  color: AppColors.onSurfaceMuted.withValues(alpha: 0.85)),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Si se coló algo que no es producto (fecha, teléfono, '
+                'dirección), quítalo con el bote de basura.',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.35,
+                  color: AppColors.onSurfaceMuted.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -351,8 +378,7 @@ class _LineEditor extends StatelessWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: AppColors.warning.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(6),

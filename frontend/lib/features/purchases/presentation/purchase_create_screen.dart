@@ -3,11 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/ocr_helper.dart';
-import '../../../core/utils/voice_dictation_helper.dart';
+import '../data/receipt_line_parser.dart';
 import '../domain/purchase_order.dart';
+import '../domain/receipt_scan.dart';
 import '../domain/supplier.dart';
+import 'ocr_column_mapping_screen.dart';
 import 'ocr_review_screen.dart';
 import 'purchases_provider.dart';
+import 'widgets/dictation_modal.dart';
 import 'widgets/purchase_items_summary_table.dart';
 
 /// `PurchaseCreateScreen` — Subtarea 11.2.1 (Pantalla de Registro de Compras
@@ -51,10 +54,8 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
   bool _isSaving = false;
   String? _error;
 
-  /// Escaneo de factura (12.2.1 / 12.2.2) y dictado (12.2.3).
+  /// Escaneo de factura — Subtareas 12.2.1 / 12.2.2.
   bool _isScanning = false;
-  bool _isListening = false;
-  String _partialTranscript = '';
 
   @override
   void dispose() {
@@ -110,21 +111,19 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
   void _removeItem(PurchaseOrderItem item) =>
       setState(() => _items.remove(item));
 
-  // ── Escaneo de factura — Subtareas 12.2.1 y 12.2.2 ──────────────────────
+  // ── Escaneo de factura — Subtareas 12.2.1 y 12.2.2 (+ Q-01 / Q-03) ──────
 
-  /// Foto → ML Kit (on-device) → parser → pantalla de revisión.
+  /// Foto → ML Kit (on-device) → tabla → mapeo de columnas → revisión.
   ///
   /// La lectura corre en el procesador del teléfono: ni la imagen ni el texto
   /// salen del dispositivo (Constitución Art. IV, 4.2).
   Future<void> _scanReceipt() async {
     if (_isScanning) return;
-
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
 
-    final String? photoPath;
+    final ReceiptCapture? capture;
     try {
-      photoPath = await ref.read(receiptPhotoSourceProvider).capture(context);
+      capture = await ref.read(receiptPhotoSourceProvider).capture(context);
     } catch (_) {
       messenger.showSnackBar(
         const SnackBar(
@@ -135,26 +134,106 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
       );
       return;
     }
-    if (photoPath == null) return; // El usuario canceló la captura.
+    if (capture == null) return; // El usuario canceló la captura.
+    await _processCapture(capture, onRescan: _scanReceipt);
+  }
+
+  /// Archivo (PDF o imagen) → mismo pipeline que la foto — Q-03. Las páginas
+  /// del PDF se apilan en una sola tabla; el mapeo se hace una vez.
+  Future<void> _uploadReceipt() async {
+    if (_isScanning) return;
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() => _isScanning = true);
+    final ReceiptCapture? capture;
+    try {
+      capture = await ref.read(receiptFileSourceProvider).pick();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isScanning = false);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo abrir el archivo. Prueba con un PDF o '
+              'una imagen de la factura.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isScanning = false);
+    if (capture == null) return; // El usuario canceló el selector.
+    await _processCapture(capture, onRescan: _uploadReceipt);
+  }
+
+  /// OCR → `detectTable` (sin renglones de ruido) → parser por renglones
+  /// (proveedor, total) → mapeo recordado → `OcrColumnMappingScreen` →
+  /// `OcrReviewScreen` → orden.
+  ///
+  /// [onRescan] es la salida "tomar otra foto" / "elegir otro archivo" de
+  /// las pantallas intermedias — vuelve al origen del que vino la captura.
+  Future<void> _processCapture(
+    ReceiptCapture capture, {
+    required Future<void> Function() onRescan,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     setState(() => _isScanning = true);
     try {
-      final lines =
-          await ref.read(ocrTextRecognizerProvider).recognizeLines(photoPath);
+      final lines = await ref.read(receiptReaderProvider).read(capture);
+      // Fecha, teléfono, RFC y dirección se quedan fuera del grid y se
+      // anuncian en el mapeo (Tarea 12.2, QA de ruido). El proveedor y el
+      // total impreso siguen saliendo del parser por renglones, que sí ve
+      // la hoja completa.
+      const parser = ReceiptLineParser();
+      final table = detectTable(lines, ignoreRow: parser.classifier.isNoise);
       final parsed = await ref
           .read(purchasesRepositoryProvider)
-          .parseReceiptRows(groupLinesIntoRows(lines));
+          .parseReceiptRows(table.rowTexts);
+
+      final mappingStore = ref.read(receiptMappingStoreProvider);
+      final supplier = parsed.detectedSupplier;
+      final remembered =
+          supplier == null ? null : await mappingStore.load(supplier);
 
       if (!mounted) return;
       setState(() => _isScanning = false);
 
+      var result = parsed.copyWith(
+        items: const [],
+        ignoredRows: table.ignoredRows,
+      );
+      if (!table.isEmpty) {
+        final mappingOutcome = await navigator.push<OcrColumnMappingOutcome>(
+          MaterialPageRoute(
+            builder: (_) => OcrColumnMappingScreen(
+              table: table,
+              suggested: parser.suggestMapping(table),
+              remembered: remembered,
+              supplier: supplier,
+            ),
+          ),
+        );
+        if (!mounted || mappingOutcome == null) return;
+        if (mappingOutcome.rescanRequested) {
+          await onRescan();
+          return;
+        }
+        if (supplier != null) {
+          await mappingStore.save(supplier, mappingOutcome.mapping);
+        }
+        result = result.copyWith(items: mappingOutcome.items);
+      }
+
+      if (!mounted) return;
       final outcome = await navigator.push<OcrReviewOutcome>(
-        MaterialPageRoute(builder: (_) => OcrReviewScreen(result: parsed)),
+        MaterialPageRoute(builder: (_) => OcrReviewScreen(result: result)),
       );
       if (!mounted || outcome == null) return;
 
       if (outcome.rescanRequested) {
-        await _scanReceipt();
+        await onRescan();
         return;
       }
       if (outcome.items.isEmpty) return;
@@ -194,75 +273,68 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
     }
   }
 
-  // ── Dictado de voz — Subtarea 12.2.3 (SR-09) ───────────────────────────
+  // ── Dictado de voz — Subtarea 12.2.3, iteración post-exploración CRF ────
+  //
+  // Reemplaza el botón embebido en el campo "nombre" por un modal a nivel
+  // de sección (DictationModal) — un solo producto o varios de corrido,
+  // separados por un conector de la familia enseñada en el propio modal.
+  // Ver docs/architecture/registro_implementacion.md (Tarea 12.2.3) y
+  // prototypes/dictation_crf/ para el porqué se descartó CRFsuite.
 
-  /// Escucha una frase del tipo *"Maruchan Pollo, precio 16, 36 piezas"* y
-  /// rellena los campos que reconozca. Lo que no entiende lo deja en blanco:
-  /// nunca completa un costo a ciegas.
-  Future<void> _toggleDictation() async {
-    final service = ref.read(voiceDictationServiceProvider);
-    final messenger = ScaffoldMessenger.of(context);
+  Future<void> _openDictationModal() async {
+    final parsedItems = await showDictationModal(context);
+    if (!mounted || parsedItems == null || parsedItems.isEmpty) return;
 
-    if (_isListening) {
-      await service.stop();
-      if (mounted) setState(() => _isListening = false);
-      return;
-    }
+    setState(() {
+      for (final parsed in parsedItems) {
+        _items.insert(
+          0,
+          PurchaseOrderItem(
+            productId: 'draft-${++_lineCounter}',
+            // "" / 0 son la señal explícita de "falta revisar" — nunca se
+            // inventa un valor; PurchaseItemsSummaryTable las muestra con
+            // el chip de advertencia correspondiente.
+            productName: parsed.name ?? '',
+            quantity: parsed.quantity ?? 0,
+            unitCostMxn: parsed.priceMxn ?? 0,
+          ),
+        );
+      }
+      _justAddedId = _items.first.productId;
+    });
 
-    final ready = await service.initialize();
-    if (!mounted) return;
-    if (!ready) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('El dictado no está disponible. Revisa el permiso de '
-              'micrófono en los ajustes del teléfono.'),
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(parsedItems.length == 1
+              ? '1 producto agregado por dictado'
+              : '${parsedItems.length} productos agregados por dictado'),
           behavior: SnackBarBehavior.floating,
         ),
       );
-      return;
     }
-
-    setState(() {
-      _isListening = true;
-      _partialTranscript = '';
-    });
-
-    await service.listen(
-      onResult: (transcript, isFinal) {
-        if (!mounted) return;
-        setState(() => _partialTranscript = transcript);
-        if (isFinal) _applyDictation(transcript, messenger);
-      },
-    );
   }
 
-  void _applyDictation(String transcript, ScaffoldMessengerState messenger) {
-    final parsed = const VoiceDictationParser().parse(transcript);
-
+  void _editItem(PurchaseOrderItem updated) {
     setState(() {
-      _isListening = false;
-      _partialTranscript = '';
-      if (parsed.name != null) _nameCtrl.text = parsed.name!;
-      if (parsed.quantity != null) _qtyCtrl.text = parsed.quantity!.toString();
-      if (parsed.priceMxn != null) {
-        _costCtrl.text = parsed.priceMxn!.toStringAsFixed(2);
-      }
+      final i = _items.indexWhere((it) => it.productId == updated.productId);
+      if (i != -1) _items[i] = updated;
     });
-
-    if (parsed.isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('No se entendió. Prueba así: "Maruchan pollo, '
-              'precio 16, 36 piezas".'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
   }
 
   double get _total => _items.fold<double>(0, (sum, i) => sum + i.subtotalMxn);
 
-  bool get _isValid => _supplier != null && _items.isNotEmpty;
+  /// Además de requerir proveedor y al menos un producto, ningún producto
+  /// puede quedar a medias (nombre vacío, cantidad o precio en 0) — el chip
+  /// de advertencia de la tabla no es solo decorativo, bloquea el envío
+  /// hasta que el usuario lo revise.
+  bool get _isValid =>
+      _supplier != null &&
+      _items.isNotEmpty &&
+      _items.every((i) =>
+          i.productName.trim().isNotEmpty &&
+          i.quantity > 0 &&
+          i.unitCostMxn > 0);
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -308,6 +380,15 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
         backgroundColor: AppColors.darkSlate,
         title: const Text('Nueva orden de compra'),
         actions: [
+          // Factura en PDF o imagen — Tarea 12.2, Q-03. Mismo pipeline que
+          // la foto; deshabilitado mientras corre cualquiera de los dos.
+          IconButton(
+            key: const Key('uploadReceiptButton'),
+            tooltip: 'Subir factura (PDF o imagen)',
+            onPressed: _isScanning ? null : _uploadReceipt,
+            icon: const Icon(Icons.upload_file_outlined,
+                color: AppColors.skyBlue),
+          ),
           // Escaneo OCR de la factura del repartidor — Tarea 12.2.
           IconButton(
             key: const Key('scanReceiptButton'),
@@ -370,13 +451,14 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          _sectionLabel('Agregar producto'),
+          _sectionLabelWithDictation('Agregar producto'),
           _buildEntryForm(),
           const SizedBox(height: 16),
           _sectionLabel('Productos en esta orden  *'),
           PurchaseItemsSummaryTable(
             items: _items,
             onRemove: _removeItem,
+            onEdit: _editItem,
             justAddedId: _justAddedId,
           ),
           const SizedBox(height: 16),
@@ -452,6 +534,42 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
                 color: AppColors.onSurface)),
       );
 
+  /// Título de sección + ícono de dictado — a nivel de sección, no de un
+  /// solo campo, para comunicar que llena uno o varios productos a la vez
+  /// (Tarea 12.2.3, iteración post-exploración CRF; ver DictationModal).
+  Widget _sectionLabelWithDictation(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(text,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.onSurface)),
+            ),
+            SizedBox(
+              width: 36,
+              height: 36,
+              child: Material(
+                color: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: AppColors.skyBlue),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: const Key('dictationModalOpenButton'),
+                  onTap: _openDictationModal,
+                  child: const Icon(Icons.mic_none_rounded,
+                      size: 18, color: AppColors.skyBlue),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
   // ── Formulario único de captura de línea + botón Agregar ────────────────
 
   Widget _buildEntryForm() {
@@ -464,30 +582,14 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  key: const Key('purchaseEntryNameField'),
-                  controller: _nameCtrl,
-                  onChanged: (_) => setState(() {}),
-                  style: const TextStyle(
-                      color: AppColors.onSurface, fontSize: 14),
-                  decoration: const InputDecoration(
-                      hintText: 'Nombre del producto', isDense: true),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _DictationButton(
-                isListening: _isListening,
-                onPressed: _toggleDictation,
-              ),
-            ],
+          TextFormField(
+            key: const Key('purchaseEntryNameField'),
+            controller: _nameCtrl,
+            onChanged: (_) => setState(() {}),
+            style: const TextStyle(color: AppColors.onSurface, fontSize: 14),
+            decoration: const InputDecoration(
+                hintText: 'Nombre del producto', isDense: true),
           ),
-          if (_isListening) ...[
-            const SizedBox(height: 8),
-            _ListeningHint(transcript: _partialTranscript),
-          ],
           const SizedBox(height: 10),
           Row(
             children: [
@@ -538,85 +640,6 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
             onPressed: _canAddEntry ? _addEntry : null,
             icon: const Icon(Icons.add_rounded, size: 18),
             label: const Text('Agregar'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Dictado de voz — Subtarea 12.2.3
-// ---------------------------------------------------------------------------
-
-/// Botón de micrófono del formulario de captura.
-///
-/// Relleno mientras escucha y contorneado en reposo: el estado se lee sin
-/// depender del color, que en una tienda con mala luz no siempre se distingue.
-class _DictationButton extends StatelessWidget {
-  const _DictationButton({required this.isListening, required this.onPressed});
-
-  final bool isListening;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 48,
-      height: 48,
-      child: Material(
-        color: isListening ? AppColors.skyBlue : Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: isListening ? AppColors.skyBlue : AppColors.border,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: const Key('dictationButton'),
-          onTap: onPressed,
-          child: Icon(
-            isListening ? Icons.stop_rounded : Icons.mic_none_rounded,
-            size: 22,
-            color: isListening ? AppColors.darkSlate : AppColors.skyBlue,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Lo que el motor de voz va entendiendo, en vivo.
-///
-/// Sin esto el usuario no sabe si el micrófono lo está tomando o si habla
-/// contra una pantalla muda.
-class _ListeningHint extends StatelessWidget {
-  const _ListeningHint({required this.transcript});
-
-  final String transcript;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.skyBlue.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.graphic_eq_rounded,
-              size: 16, color: AppColors.skyBlue),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              transcript.isEmpty
-                  ? 'Escuchando… di "Maruchan pollo, precio 16, 36 piezas"'
-                  : transcript,
-              style: const TextStyle(fontSize: 12.5, color: AppColors.skyBlue),
-            ),
           ),
         ],
       ),

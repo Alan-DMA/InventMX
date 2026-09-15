@@ -46,7 +46,7 @@ class CaptureAssessment {
   /// Luminancia media del cuadro, 0–255.
   final double meanLuma;
 
-  /// Qué fracción del ancho del cuadro ocupa el texto detectado, 0–1.
+  /// Qué fracción del cuadro (ancho o alto, la mayor) ocupa el texto, 0–1.
   final double coverage;
 
   /// Inclinación media de las líneas en grados; nulo si ML Kit no la reporta.
@@ -57,7 +57,8 @@ class CaptureAssessment {
   /// Instrucción concreta, no diagnóstico: el usuario está de pie frente al
   /// repartidor y necesita saber qué mover, no qué falló.
   String get message => switch (issue) {
-        CaptureIssue.tooDark => 'Falta luz — enciende la linterna o acércate a una lámpara',
+        CaptureIssue.tooDark =>
+          'Falta luz — enciende la linterna o acércate a una lámpara',
         CaptureIssue.noText => 'Apunta a la tabla de productos de la factura',
         CaptureIssue.tooFar => 'Acerca más la cámara a la factura',
         CaptureIssue.tilted => 'Endereza la factura',
@@ -67,12 +68,20 @@ class CaptureAssessment {
 
 /// Umbrales de la evaluación. Se exponen para poder calibrarlos en campo sin
 /// tocar la lógica.
+///
+/// Calibración Q-02 (QA en dispositivo, Sep 2026): Eduardo casi nunca lograba
+/// el verde y disparaba con "Tomar de todos modos". Criterio de producto
+/// fijado en 12.2.1: el filtro orienta, no bloquea — "listo" es la norma y la
+/// advertencia la excepción. Se relajaron los tres umbrales continuos y se
+/// corrigió la cobertura (antes se medía contra el ancho del sensor en
+/// horizontal aunque las cajas vinieran en vertical: el máximo posible era
+/// ~0.56 y el 0.35 exigido equivalía a pegar la hoja al lente).
 class CaptureThresholds {
   const CaptureThresholds({
-    this.minMeanLuma = 55,
+    this.minMeanLuma = 45,
     this.minLineCount = 2,
-    this.minCoverage = 0.35,
-    this.maxTiltDegrees = 8,
+    this.minCoverage = 0.25,
+    this.maxTiltDegrees = 12,
   });
 
   /// Por debajo de esto el OCR empieza a confundir caracteres en papel térmico.
@@ -81,7 +90,8 @@ class CaptureThresholds {
   /// Una sola palabra suelta no es una factura.
   final int minLineCount;
 
-  /// Fracción mínima del ancho del cuadro cubierta por texto.
+  /// Fracción mínima del cuadro (ancho **o** alto, la mayor) cubierta por
+  /// texto — un ticket angosto llena el alto, una orden apaisada el ancho.
   final double minCoverage;
 
   final double maxTiltDegrees;
@@ -143,18 +153,28 @@ CaptureAssessment assessCapture({
   );
 }
 
-/// Ancho de la unión de todas las cajas de texto, como fracción del cuadro.
+/// Unión de todas las cajas de texto como fracción del cuadro — la mayor
+/// entre ancho y alto, para que un ticket angosto y alto cuente igual que
+/// una orden de compra ancha.
 double _textCoverage(List<OcrLine> lines, Size frameSize) {
-  if (lines.isEmpty || frameSize.width <= 0) return 0;
+  if (lines.isEmpty || frameSize.width <= 0 || frameSize.height <= 0) {
+    return 0;
+  }
 
   var left = double.infinity;
   var right = double.negativeInfinity;
+  var top = double.infinity;
+  var bottom = double.negativeInfinity;
   for (final line in lines) {
     left = math.min(left, line.boundingBox.left);
     right = math.max(right, line.boundingBox.right);
+    top = math.min(top, line.boundingBox.top);
+    bottom = math.max(bottom, line.boundingBox.bottom);
   }
 
-  return ((right - left) / frameSize.width).clamp(0.0, 1.0);
+  final horizontal = (right - left) / frameSize.width;
+  final vertical = (bottom - top) / frameSize.height;
+  return math.max(horizontal, vertical).clamp(0.0, 1.0);
 }
 
 /// Inclinación media absoluta; nula si ML Kit no reportó ángulo en ninguna
@@ -187,25 +207,45 @@ double meanLumaFromYPlane(Uint8List yPlane, {int sampleStride = 17}) {
 }
 
 /// Exige que la toma esté bien varios cuadros seguidos antes de habilitar el
-/// disparo.
+/// disparo — y, una vez en verde, tolera un cuadro malo aislado.
 ///
-/// Sin esto, un cuadro afortunado mientras el usuario mueve el teléfono
-/// encendería el botón en verde por un instante — y el temblor de la mano lo
-/// apagaría justo al tocarlo.
+/// Sin la racha, un cuadro afortunado mientras el usuario mueve el teléfono
+/// encendería el botón en verde por un instante. Sin la tolerancia (Q-02),
+/// el temblor de la mano lo apagaba justo al tocarlo: a 400 ms por cuadro,
+/// un solo cuadro borroso reiniciaba la racha completa.
 class CaptureReadinessTracker {
-  CaptureReadinessTracker({this.requiredStreak = 3});
+  CaptureReadinessTracker({this.requiredStreak = 2, this.toleratedMisses = 1});
 
+  /// Cuadros buenos seguidos para encender el verde. Dos a 400 ms = 0.8 s
+  /// de estabilidad, suficiente para descartar un barrido de la cámara.
   final int requiredStreak;
+
+  /// Cuadros malos seguidos que se perdonan **ya estando en verde**. Antes
+  /// de llegar al verde no se perdona ninguno.
+  final int toleratedMisses;
+
   int _streak = 0;
+  int _misses = 0;
 
   int get streak => _streak;
   bool get isStable => _streak >= requiredStreak;
 
   /// Registra la evaluación de un cuadro y devuelve si ya es estable.
   bool update(CaptureAssessment assessment) {
-    _streak = assessment.isReady ? _streak + 1 : 0;
+    if (assessment.isReady) {
+      _streak++;
+      _misses = 0;
+    } else if (isStable && _misses < toleratedMisses) {
+      _misses++;
+    } else {
+      _streak = 0;
+      _misses = 0;
+    }
     return isStable;
   }
 
-  void reset() => _streak = 0;
+  void reset() {
+    _streak = 0;
+    _misses = 0;
+  }
 }

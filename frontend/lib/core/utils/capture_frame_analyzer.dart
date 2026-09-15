@@ -73,9 +73,23 @@ class MlKitCaptureFrameAnalyzer implements CaptureFrameAnalyzer {
     return assessCapture(
       meanLuma: luma,
       lines: lines,
-      frameSize: Size(frame.width.toDouble(), frame.height.toDouble()),
+      frameSize: uprightFrameSize(frame.width, frame.height, sensorOrientation),
       thresholds: thresholds,
     );
+  }
+
+  /// Tamaño del cuadro en el espacio donde ML Kit devuelve las cajas.
+  ///
+  /// El sensor entrega el cuadro apaisado (p. ej. 1280×720) y ML Kit, al
+  /// recibir la rotación en los metadatos, devuelve las cajas ya en el
+  /// cuadro derecho (720×1280). Medir la cobertura contra el ancho del
+  /// sensor era el bug de Q-02: con el teléfono en vertical el máximo
+  /// alcanzable era 720/1280 ≈ 0.56 y el umbral se volvía casi imposible.
+  static Size uprightFrameSize(int width, int height, int sensorOrientation) {
+    final rotated = sensorOrientation % 180 != 0;
+    return rotated
+        ? Size(height.toDouble(), width.toDouble())
+        : Size(width.toDouble(), height.toDouble());
   }
 
   /// Empaqueta el cuadro para ML Kit. Devuelve nulo si el formato del

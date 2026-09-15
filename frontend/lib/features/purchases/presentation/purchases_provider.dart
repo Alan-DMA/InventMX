@@ -6,6 +6,9 @@ import '../../../core/utils/capture_frame_analyzer.dart';
 import '../../../core/utils/ocr_helper.dart';
 import '../../../core/utils/voice_dictation_helper.dart';
 import '../data/purchases_repository.dart';
+import '../data/receipt_file_source.dart';
+import '../data/receipt_mapping_store.dart';
+import '../data/receipt_reader.dart';
 import '../domain/account_payable.dart';
 import '../domain/purchase_order.dart';
 import '../domain/supplier.dart';
@@ -43,6 +46,22 @@ final captureFrameAnalyzerProvider = Provider<CaptureFrameAnalyzer>((ref) {
 /// Origen de la foto de la factura — la pantalla de cámara en vivo.
 final receiptPhotoSourceProvider =
     Provider<ReceiptPhotoSource>((_) => const CameraReceiptPhotoSource());
+
+/// Origen de la factura como archivo (PDF o imagen) — Tarea 12.2, Q-03.
+final receiptFileSourceProvider = Provider<ReceiptFileSource>(
+  (_) => const FilePickerReceiptFileSource(),
+);
+
+/// Foto o páginas → líneas del OCR recortadas al marco y apiladas — Tarea
+/// 12.2, Q-01 + Q-03. Depende del reconocedor inyectable de arriba.
+final receiptReaderProvider = Provider<ReceiptReader>(
+  (ref) => ReceiptReader(recognizer: ref.watch(ocrTextRecognizerProvider)),
+);
+
+/// Mapeo de columnas recordado por proveedor — Tarea 12.2 (QA OCR). Provider
+/// para que los tests inyecten un doble en memoria en vez de Hive.
+final receiptMappingStoreProvider =
+    Provider<ReceiptMappingStore>((_) => ReceiptMappingStoreHive());
 
 /// Sentinel para distinguir "no se pasó el argumento" de "se pasó null" en
 /// los `copyWith` — mismo patrón que `InventoryState`.

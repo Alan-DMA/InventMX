@@ -73,6 +73,70 @@ void main() {
     });
   });
 
+  group('VoiceDictationParser — números deletreados por el motor de voz', () {
+    test('cantidad deletreada se reconoce como dígito', () {
+      final input = parser.parse('veinte unidades de Coca Cola a 20 pesos');
+
+      expect(input.quantity, 20);
+      expect(input.name, 'Coca Cola');
+      expect(input.priceMxn, 20);
+    });
+
+    test('precio deletreado se reconoce como dígito', () {
+      final input = parser.parse('5 unidades de Coca Cola a veinte pesos');
+
+      expect(input.quantity, 5);
+      expect(input.priceMxn, 20);
+    });
+
+    test('cantidad Y precio deletreados en la misma frase', () {
+      final input =
+          parser.parse('quince piezas de jabón Zote a doce pesos');
+
+      expect(input.quantity, 15);
+      expect(input.name, 'jabón Zote');
+      expect(input.priceMxn, 12);
+    });
+
+    test('número deletreado con coma pegada (transcripción real del motor)',
+        () {
+      final input =
+          parser.parse('veinte, unidades de Coca Cola a 20 pesos');
+
+      expect(input.quantity, 20);
+    });
+
+    test('"un"/"una" NO se interpretan como cantidad 1 (son muletilla)', () {
+      final input = parser.parse('pan de dulce con un costo de 20 pesos');
+
+      expect(input.quantity, isNull);
+      expect(input.name, 'pan de dulce');
+      expect(input.priceMxn, 20);
+    });
+  });
+
+  group('VoiceDictationParser — signo de pesos en vez de la palabra', () {
+    test('signo antes del número', () {
+      final input = parser.parse('5 unidades de Coca Cola a \$20');
+
+      expect(input.quantity, 5);
+      expect(input.name, 'Coca Cola');
+      expect(input.priceMxn, 20);
+    });
+
+    test('signo después del número (transcripción real del motor)', () {
+      final input = parser.parse('5 unidades de Coca Cola a 20\$');
+
+      expect(input.quantity, 5);
+      expect(input.name, 'Coca Cola');
+      expect(input.priceMxn, 20);
+    });
+
+    test('signo con decimales', () {
+      expect(parser.parse('jabón zote a \$21.50').priceMxn, 21.50);
+    });
+  });
+
   group('VoiceDictationParser — respaldo sin la palabra "pesos"', () {
     test('patrón original SR-09: nombre, precio, cantidad', () {
       final input = parser.parse('Maruchan Pollo, precio 16, 36 piezas');

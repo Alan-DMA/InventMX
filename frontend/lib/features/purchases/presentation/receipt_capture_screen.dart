@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/capture_quality.dart';
+import '../../../core/utils/viewfinder_region.dart';
 import '../../../core/widgets/scan_corner_frame.dart';
+import '../domain/receipt_scan.dart';
 import 'purchases_provider.dart';
 import 'widgets/capture_guidance.dart';
 
@@ -12,6 +14,11 @@ import 'widgets/capture_guidance.dart';
 /// en los teléfonos de gama baja que son el objetivo del proyecto, y el
 /// usuario no reacciona más rápido que esto de todos modos.
 const _kAnalysisInterval = Duration(milliseconds: 400);
+
+/// Marco guía: vertical para remisiones y tickets, apaisado para órdenes de
+/// compra impresas en horizontal. Solo lo que queda dentro se lee.
+const _kPortraitFrame = Size(300, 400);
+const _kLandscapeFrame = Size(400, 260);
 
 /// Captura de la factura con revisión previa de condiciones — Tarea 12.2.1.
 ///
@@ -26,7 +33,9 @@ const _kAnalysisInterval = Duration(milliseconds: 400);
 /// pasar nunca la revisión, y dejar al usuario sin salida sería peor que una
 /// foto mediocre.
 ///
-/// Devuelve la ruta de la foto, o `null` si el usuario canceló.
+/// Devuelve un [ReceiptCapture] con la ruta de la foto y la región del marco
+/// guía (Q-01: solo se lee lo que el usuario vio dentro del marco), o `null`
+/// si canceló.
 class ReceiptCaptureScreen extends ConsumerStatefulWidget {
   const ReceiptCaptureScreen({super.key});
 
@@ -49,6 +58,12 @@ class _ReceiptCaptureScreenState extends ConsumerState<ReceiptCaptureScreen>
 
   /// Mensaje de error de inicialización — cámara ausente o permiso negado.
   String? _cameraError;
+
+  /// Tamaño del visor y del marco guía en el último `build` — con ellos se
+  /// calcula qué parte de la foto corresponde a lo que el usuario encuadró.
+  Size? _viewportSize;
+  Size _frameSize = _kPortraitFrame;
+  bool _portraitViewport = true;
 
   @override
   void initState() {
@@ -154,8 +169,7 @@ class _ReceiptCaptureScreenState extends ConsumerState<ReceiptCaptureScreen>
     final controller = _controller;
     if (controller == null) return;
     try {
-      await controller
-          .setFlashMode(_torchOn ? FlashMode.off : FlashMode.torch);
+      await controller.setFlashMode(_torchOn ? FlashMode.off : FlashMode.torch);
       if (mounted) setState(() => _torchOn = !_torchOn);
     } on CameraException {
       if (!mounted) return;
@@ -180,7 +194,28 @@ class _ReceiptCaptureScreenState extends ConsumerState<ReceiptCaptureScreen>
       }
       final photo = await controller.takePicture();
       if (!mounted) return;
-      Navigator.of(context).pop(photo.path);
+
+      // Q-01: la foto es el cuadro completo del sensor; el visor solo mostró
+      // la parte que cabía en pantalla. Se anota la región del marco para
+      // que el OCR ignore todo lo demás. Sin medida del visor (no debería
+      // pasar tras el primer build) se lee la foto completa.
+      final viewport = _viewportSize;
+      final region = viewport == null
+          ? null
+          : viewfinderRegion(
+              viewport: viewport,
+              frame: _frameSize,
+              previewAspect: _portraitViewport
+                  ? 1 / controller.value.aspectRatio
+                  : controller.value.aspectRatio,
+            );
+      Navigator.of(context).pop(
+        ReceiptCapture.single(
+          photo.path,
+          region: region,
+          portraitViewport: _portraitViewport,
+        ),
+      );
     } on CameraException {
       if (!mounted) return;
       setState(() => _isCapturing = false);
@@ -208,7 +243,9 @@ class _ReceiptCaptureScreenState extends ConsumerState<ReceiptCaptureScreen>
               tooltip: _torchOn ? 'Apagar linterna' : 'Encender linterna',
               onPressed: _toggleTorch,
               icon: Icon(
-                _torchOn ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+                _torchOn
+                    ? Icons.flashlight_on_rounded
+                    : Icons.flashlight_off_rounded,
                 color: _torchOn ? AppColors.warning : AppColors.onSurface,
               ),
             ),
@@ -232,43 +269,113 @@ class _ReceiptCaptureScreenState extends ConsumerState<ReceiptCaptureScreen>
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        CameraPreview(controller),
+    // Una orden de compra apaisada se fotografía con el teléfono en
+    // horizontal: el marco sigue a la pantalla en vez de pedir girar la hoja.
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final frame = landscape ? _kLandscapeFrame : _kPortraitFrame;
+    final previewAspect = landscape
+        ? controller.value.aspectRatio
+        : 1 / controller.value.aspectRatio;
 
-        // Marco guía — verde solo cuando la toma se mantuvo estable.
-        Center(
-          child: ScanCornerFrame(
-            color: _isReady ? AppColors.emerald : AppColors.warning,
-            size: const Size(300, 400),
-            animate: !_isReady,
-          ),
-        ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Se anota lo que el usuario está viendo para que `_capture` pueda
+        // limitar la lectura al marco (Q-01).
+        _viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
+        _frameSize = frame;
+        _portraitViewport = !landscape;
 
-        Positioned(
-          left: 16,
-          right: 16,
-          top: 16,
-          child: Center(
-            child: CaptureGuidance(
-              assessment: _assessment,
-              isReady: _isReady,
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // La vista previa cubre el visor sin deformarse; lo que se
+            // recorta por los lados es justo lo que `viewfinderRegion`
+            // descuenta después.
+            ClipRect(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: 100 * previewAspect,
+                  height: 100,
+                  child: CameraPreview(controller),
+                ),
+              ),
             ),
-          ),
-        ),
 
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: _CaptureBar(
-            isReady: _isReady,
-            isCapturing: _isCapturing,
-            onCapture: _capture,
-          ),
+            // Marco guía — verde solo cuando la toma se mantuvo estable.
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ScanCornerFrame(
+                    color: _isReady ? AppColors.emerald : AppColors.warning,
+                    size: frame,
+                    animate: !_isReady,
+                  ),
+                  const SizedBox(height: 10),
+                  const _FrameCaption(),
+                ],
+              ),
+            ),
+
+            Positioned(
+              left: 16,
+              right: 16,
+              top: 16,
+              child: Center(
+                child: CaptureGuidance(
+                  assessment: _assessment,
+                  isReady: _isReady,
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _CaptureBar(
+                isReady: _isReady,
+                isCapturing: _isCapturing,
+                onCapture: _capture,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Leyenda del marco
+// ---------------------------------------------------------------------------
+
+/// Dice para qué es el marco. Es la instrucción más barata contra el ruido:
+/// si el usuario encuadra solo la tabla de productos, la fecha, el RFC y el
+/// teléfono del proveedor nunca llegan al OCR (Tarea 12.2, QA de ruido).
+class _FrameCaption extends StatelessWidget {
+  const _FrameCaption();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('frameCaption'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.darkSlate.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Text(
+        'Encuadra solo la tabla de productos — lo de fuera no se lee',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.3,
+          color: AppColors.onSurfaceMuted,
         ),
-      ],
+      ),
     );
   }
 }
@@ -438,16 +545,16 @@ class _CameraErrorState extends StatelessWidget {
 /// fija: la pantalla de cámara necesita hardware y no se puede montar en
 /// `flutter test`.
 abstract interface class ReceiptPhotoSource {
-  /// Ruta de la foto tomada, o `null` si el usuario canceló.
-  Future<String?> capture(BuildContext context);
+  /// Foto tomada y región del marco guía, o `null` si el usuario canceló.
+  Future<ReceiptCapture?> capture(BuildContext context);
 }
 
 class CameraReceiptPhotoSource implements ReceiptPhotoSource {
   const CameraReceiptPhotoSource();
 
   @override
-  Future<String?> capture(BuildContext context) =>
-      Navigator.of(context).push<String>(
+  Future<ReceiptCapture?> capture(BuildContext context) =>
+      Navigator.of(context).push<ReceiptCapture>(
         MaterialPageRoute(builder: (_) => const ReceiptCaptureScreen()),
       );
 }

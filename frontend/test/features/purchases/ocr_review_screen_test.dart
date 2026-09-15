@@ -61,6 +61,16 @@ void main() {
     expect(find.widgetWithText(TextField, 'COCA COLA 600ML'), findsOneWidget);
   });
 
+  testWidgets('recuerda que el OCR también lee lo que no es producto',
+      (tester) async {
+    _setPhoneViewport(tester);
+    await _pump(tester, _result());
+
+    expect(find.byKey(const Key('ocrReviewNoiseHint')), findsOneWidget);
+    expect(find.textContaining('quítalo con el bote de basura'),
+        findsOneWidget);
+  });
+
   testWidgets('confirma el cuadre cuando la suma coincide con el total impreso',
       (tester) async {
     _setPhoneViewport(tester);

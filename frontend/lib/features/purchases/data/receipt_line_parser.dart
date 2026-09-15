@@ -1,4 +1,6 @@
+import '../../../core/utils/ocr_helper.dart';
 import '../domain/receipt_scan.dart';
+import 'receipt_row_classifier.dart';
 
 /// Parser heurístico de las filas de texto que devuelve el OCR on-device.
 ///
@@ -17,11 +19,19 @@ import '../domain/receipt_scan.dart';
 /// los nombres de producto traen cifras dentro ("600ML", "45G", "1L") y un
 /// `replaceAll` de números los destruiría.
 class ReceiptLineParser {
-  const ReceiptLineParser();
+  const ReceiptLineParser({this.classifier = const ReceiptRowClassifier()});
 
-  /// Cifra con o sin separador de miles, con o sin `$`.
+  /// Decide qué renglones no son producto (cabecera, total, fecha, teléfono,
+  /// RFC…). Ver `ReceiptRowClassifier` — Tarea 12.2, QA de ruido.
+  final ReceiptRowClassifier classifier;
+
+  /// Cifra con o sin separador de miles, con o sin `$`. La coma seguida de
+  /// exactamente 2 dígitos al final es decimal ("100,00" — formato de
+  /// órdenes de compra genéricas); seguida de 3 es millar ("1,500").
   static final RegExp _money =
-      RegExp(r'^\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?$');
+      RegExp(r'^\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.,]\d{1,2})?\$?$');
+
+  static final RegExp _decimalComma = RegExp(r',(\d{1,2})$');
 
   /// Entero corto sin decimales — candidato a cantidad.
   static final RegExp _shortInt = RegExp(r'^\d{1,3}$');
@@ -47,33 +57,6 @@ class ReceiptLineParser {
     'PQT',
   };
 
-  /// Palabras de encabezado o pie que nunca son un producto.
-  static const _noiseWords = {
-    'CANTIDAD',
-    'CANT',
-    'DESCRIPCION',
-    'DESCRIPCIÓN',
-    'CONCEPTO',
-    'UNIDAD',
-    'PRECIO',
-    'IMPORTE',
-    'SUBTOTAL',
-    'IVA',
-    'RFC',
-    'FOLIO',
-    'FACTURA',
-    'REMISION',
-    'REMISIÓN',
-    'FECHA',
-    'CLIENTE',
-    'PROVEEDOR',
-    'FIRMA',
-    'GRACIAS',
-    'SUCURSAL',
-    'VENDEDOR',
-    'RUTA',
-  };
-
   ReceiptParseResult parseRows(List<String> rows) {
     final cleaned =
         rows.map((r) => r.trim()).where((r) => r.length > 2).toList();
@@ -83,13 +66,12 @@ class ReceiptLineParser {
     double? total;
 
     for (final row in cleaned) {
-      final upper = row.toUpperCase();
-
-      if (_looksLikeTotal(upper)) {
+      final kind = classifier.classify(row);
+      if (kind == ReceiptRowKind.total) {
         total ??= _lastAmountIn(row);
         continue;
       }
-      if (_isNoise(upper)) continue;
+      if (kind.isNeverProduct) continue;
 
       final item = _parseItemRow(row);
       if (item != null) items.add(item);
@@ -103,25 +85,177 @@ class ReceiptLineParser {
     );
   }
 
-  // ── Clasificación de filas ────────────────────────────────────────────────
+  // ── Mapeo de columnas (tabla detectada por `detectTable`) ─────────────────
+  //
+  // El parser por renglones de arriba adivina; aquí solo PROPONE y el usuario
+  // confirma o corrige en `OcrColumnMappingScreen`. La propuesta se apoya en
+  // el único checksum honesto de una factura: en algún par de columnas
+  // numéricas, cantidad × precio da la columna de importe.
 
-  bool _looksLikeTotal(String upper) =>
-      upper.contains('TOTAL') && !upper.contains('SUBTOTAL');
+  /// Propone qué columna es nombre, cantidad y precio. Puede venir
+  /// incompleto (campos en `null`) — la pantalla de mapeo le pide al usuario
+  /// lo que falte. `null` si la tabla no da ni para eso.
+  ReceiptColumnMapping? suggestMapping(OcrTable table) {
+    if (table.isEmpty) return null;
 
-  bool _isNoise(String upper) {
-    final tokens = upper.split(RegExp(r'[\s:.]+'));
-    final noiseHits = tokens.where(_noiseWords.contains).length;
-    // Dos o más palabras de encabezado en la misma fila = cabecera de tabla.
-    if (noiseHits >= 2) return true;
-    // Una sola palabra de encabezado y ninguna otra palabra con letras.
-    return noiseHits == 1 &&
-        tokens.where((t) => t.isNotEmpty && _hasLetters.hasMatch(t)).length == 1;
+    // Solo las filas que pueden ser producto: la cabecera y el total
+    // desvían el perfil de cada columna ("CANTIDAD" no es una cifra), y una
+    // fila de una sola celda es el proveedor o un título, no un renglón de
+    // la tabla.
+    final rows = table.cells.where((row) {
+      final filled = row.where((c) => c.isNotEmpty).toList();
+      if (filled.length < 2) return false;
+      return classifier.classify(filled.join(' ')) == ReceiptRowKind.content;
+    }).toList();
+    if (rows.isEmpty) return null;
+
+    final columns = List.generate(
+        table.columnCount,
+        (c) => _ColumnProfile(
+              index: c,
+              cells: [for (final row in rows) row[c]],
+              numbersIn: _numbersIn,
+              hasLetters: _hasLetters,
+            ));
+
+    _ColumnProfile? nameCandidate;
+    for (final col in columns) {
+      if (col.letterCells == 0) continue;
+      if (nameCandidate == null ||
+          col.letterCells > nameCandidate.letterCells) {
+        nameCandidate = col;
+      }
+    }
+    if (nameCandidate == null) return null;
+    final name = nameCandidate;
+
+    final numeric = columns
+        .where((c) => c.index != name.index && c.isMostlyNumeric)
+        .toList();
+    if (numeric.isEmpty) return ReceiptColumnMapping(nameCol: name.index);
+
+    // Checksum: (q, p, t) con q antes de p y t a la derecha de ambos, donde
+    // q × p ≈ t en la mayoría de las filas con las tres celdas.
+    _ColumnProfile? bestQ, bestP, bestT;
+    var bestHits = 0;
+    for (final q in numeric) {
+      for (final p in numeric) {
+        if (p.index <= q.index) continue;
+        for (final t in numeric) {
+          if (t.index <= p.index) continue;
+          var hits = 0;
+          var candidates = 0;
+          for (var r = 0; r < rows.length; r++) {
+            final qv = q.amountAt(r);
+            final pv = p.amountAt(r);
+            final tv = t.amountAt(r);
+            if (qv == null || pv == null || tv == null) continue;
+            if (tv <= 0) continue;
+            candidates++;
+            if (_matches(qv * pv, tv)) hits++;
+          }
+          if (candidates > 0 && hits * 2 > candidates && hits > bestHits) {
+            bestHits = hits;
+            bestQ = q;
+            bestP = p;
+            bestT = t;
+          }
+        }
+      }
+    }
+    if (bestQ != null) {
+      return ReceiptColumnMapping(
+        nameCol: name.index,
+        quantityCol: bestQ.index,
+        priceCol: bestP!.index,
+        subtotalCol: bestT!.index,
+      );
+    }
+
+    // Sin checksum posible: enteros = cantidad, decimales = precio; si no se
+    // distinguen, el orden de la factura (cantidad antes que precio).
+    if (numeric.length == 1) {
+      return ReceiptColumnMapping(
+          nameCol: name.index, priceCol: numeric.single.index);
+    }
+    final withDecimals = numeric.where((c) => c.decimalCells > 0).toList();
+    final integers = numeric.where((c) => c.decimalCells == 0).toList();
+    if (withDecimals.isNotEmpty && integers.isNotEmpty) {
+      return ReceiptColumnMapping(
+        nameCol: name.index,
+        quantityCol: integers.first.index,
+        priceCol: withDecimals.first.index,
+      );
+    }
+    return ReceiptColumnMapping(
+      nameCol: name.index,
+      quantityCol: numeric[0].index,
+      priceCol: numeric[1].index,
+    );
   }
 
+  /// Convierte cada fila de la tabla en un producto según [mapping]. Salta
+  /// cabeceras, totales y filas sin nombre. Si cantidad y precio apuntan a la
+  /// misma columna (el OCR pegó dos celdas), se toman el 1º y 2º número.
+  List<DetectedReceiptItem> applyMapping(
+    OcrTable table,
+    ReceiptColumnMapping mapping,
+  ) {
+    if (!mapping.isComplete || !mapping.fitsColumnCount(table.columnCount)) {
+      return const [];
+    }
+    final items = <DetectedReceiptItem>[];
+    for (final row in table.cells) {
+      final rowText = row.where((c) => c.isNotEmpty).join(' ');
+      if (classifier.classify(rowText).isNeverProduct) continue;
+
+      final name = row[mapping.nameCol!]
+          .replaceAll(RegExp(r'^[^\wÁÉÍÓÚÑáéíóúñ]+'), '')
+          .trim();
+      if (name.isEmpty || !_hasLetters.hasMatch(name)) continue;
+
+      final int? quantity;
+      final double? price;
+      if (mapping.quantityCol == mapping.priceCol) {
+        final numbers = _numbersIn(row[mapping.quantityCol!]);
+        quantity = numbers.isNotEmpty ? numbers[0].round() : null;
+        price = numbers.length > 1 ? numbers[1] : null;
+      } else {
+        quantity = _numbersIn(row[mapping.quantityCol!]).firstOrNull?.round();
+        price = _numbersIn(row[mapping.priceCol!]).firstOrNull;
+      }
+      final subtotal =
+          mapping.subtotalCol == null || mapping.subtotalCol! >= row.length
+              ? null
+              : _numbersIn(row[mapping.subtotalCol!]).lastOrNull;
+      if (quantity == null && price == null) continue;
+
+      items.add(_reconcile(
+        name: name,
+        quantity: quantity,
+        unitPrice: price,
+        subtotal: subtotal,
+      ));
+    }
+    return items;
+  }
+
+  List<double> _numbersIn(String cell) => cell
+      .split(RegExp(r'\s+'))
+      .where(_money.hasMatch)
+      .map(_toAmount)
+      .whereType<double>()
+      .toList();
+
+  // ── Proveedor ─────────────────────────────────────────────────────────────
+
+  /// Primer renglón "de texto" de la cabecera: con letras, sin cifras y que
+  /// el clasificador no reconozca como fecha, contacto, referencia ni
+  /// cabecera de tabla — "RFC: XAXX010101000" ya no puede salir como
+  /// proveedor.
   String? _detectSupplier(List<String> rows) {
-    for (final row in rows.take(4)) {
-      final upper = row.toUpperCase();
-      if (_isNoise(upper) || _looksLikeTotal(upper)) continue;
+    for (final row in rows.take(6)) {
+      if (classifier.classify(row) != ReceiptRowKind.content) continue;
       final tokens = row.split(RegExp(r'\s+'));
       if (tokens.any(_money.hasMatch)) continue;
       if (_hasLetters.allMatches(row).length >= 4) return row;
@@ -158,7 +292,9 @@ class ReceiptLineParser {
     }
 
     // Cantidad embebida en la cola: "CLORALEX 950ML  3  34.00  102.00".
-    if (quantity == null && tail.length == 3 && _shortInt.hasMatch(tail.first)) {
+    if (quantity == null &&
+        tail.length == 3 &&
+        _shortInt.hasMatch(tail.first)) {
       quantity = int.tryParse(tail.first);
       tail.removeAt(0);
     }
@@ -176,10 +312,8 @@ class ReceiptLineParser {
       subtotal = null;
     }
 
-    final name = head
-        .join(' ')
-        .replaceAll(RegExp(r'^[^\wÁÉÍÓÚÑáéíóúñ]+'), '')
-        .trim();
+    final name =
+        head.join(' ').replaceAll(RegExp(r'^[^\wÁÉÍÓÚÑáéíóúñ]+'), '').trim();
     if (name.isEmpty || !_hasLetters.hasMatch(name)) return null;
 
     return _reconcile(
@@ -204,6 +338,8 @@ class ReceiptLineParser {
     var price = unitPrice;
     var total = subtotal;
 
+    // Un precio leído como 0 (columna de descuento, dígito perdido) no puede
+    // dividir: `(total / 0).round()` lanza en Dart.
     if (qty != null && price != null && total != null) {
       if (_matches(qty * price, total)) {
         confidence = 0.95;
@@ -214,7 +350,7 @@ class ReceiptLineParser {
         total = swapped;
         confidence = 0.8;
       } else {
-        final derived = (total / price).round();
+        final derived = price > 0 ? (total / price).round() : 0;
         if (derived > 0 && _matches(derived * price, total)) {
           qty = derived;
           confidence = 0.7;
@@ -223,7 +359,7 @@ class ReceiptLineParser {
         }
       }
     } else if (qty == null && price != null && total != null) {
-      final derived = (total / price).round();
+      final derived = price > 0 ? (total / price).round() : 0;
       if (derived > 0 && _matches(derived * price, total)) {
         qty = derived;
         confidence = 0.75;
@@ -253,8 +389,11 @@ class ReceiptLineParser {
     return (a - b).abs() <= tolerance;
   }
 
-  double? _toAmount(String token) =>
-      double.tryParse(token.replaceAll(RegExp(r'[\$,]'), ''));
+  double? _toAmount(String token) {
+    var t = token.replaceAll(r'$', '');
+    t = t.replaceAllMapped(_decimalComma, (m) => '.${m.group(1)}');
+    return double.tryParse(t.replaceAll(',', ''));
+  }
 
   double? _lastAmountIn(String row) {
     for (final token in row.split(RegExp(r'\s+')).reversed) {
@@ -262,4 +401,48 @@ class ReceiptLineParser {
     }
     return null;
   }
+}
+
+/// Perfil numérico/alfabético de una columna de `OcrTable`, para que
+/// `suggestMapping` decida cuál es nombre y cuáles son cifras.
+class _ColumnProfile {
+  _ColumnProfile({
+    required this.index,
+    required List<String> cells,
+    required List<double> Function(String) numbersIn,
+    required RegExp hasLetters,
+  }) : _amounts = [for (final cell in cells) numbersIn(cell)] {
+    for (var r = 0; r < cells.length; r++) {
+      final cell = cells[r];
+      if (cell.isEmpty) continue;
+      nonEmpty++;
+      final tokens = cell.split(RegExp(r'\s+'));
+      // "2 PZ" es una cantidad, no un nombre: la celda es numérica si su
+      // primer token es cifra, y solo cuenta como texto si no lo es.
+      final startsNumeric =
+          _amounts[r].isNotEmpty && RegExp(r'^\$?\d').hasMatch(tokens.first);
+      if (startsNumeric) {
+        numericCells++;
+        if (tokens.any((t) => t.contains(RegExp(r'[.,]\d{1,2}$')))) {
+          decimalCells++;
+        }
+      } else if (hasLetters.hasMatch(cell)) {
+        letterCells++;
+      }
+    }
+  }
+
+  final int index;
+  final List<List<double>> _amounts;
+
+  int nonEmpty = 0;
+  int letterCells = 0;
+  int numericCells = 0;
+  int decimalCells = 0;
+
+  bool get isMostlyNumeric => nonEmpty > 0 && numericCells * 2 >= nonEmpty;
+
+  /// Primera cifra de la celda en la fila [r], o `null`.
+  double? amountAt(int r) =>
+      r < _amounts.length ? _amounts[r].firstOrNull : null;
 }
