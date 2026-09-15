@@ -3,7 +3,7 @@ import '../../../../../core/theme/app_colors.dart';
 
 // ---------------------------------------------------------------------------
 // Enum de tipo de movimiento
-// Anclado al enum InventoryMovementType de docs/api/components.yaml
+// Anclado al enum MovementType del backend y docs/api/components.yaml
 // ---------------------------------------------------------------------------
 
 enum MovementType {
@@ -19,29 +19,29 @@ enum MovementType {
 }
 
 extension MovementTypeX on MovementType {
-  /// Convierte desde el string del API (snake_case)
-  static MovementType fromApi(String value) => switch (value) {
-        'PURCHASE_IN'            => MovementType.purchaseIn,
-        'SALE_OUT'               => MovementType.saleOut,
-        'MANUAL_ADJUSTMENT_IN'   => MovementType.manualAdjustmentIn,
-        'MANUAL_ADJUSTMENT_OUT'  => MovementType.manualAdjustmentOut,
-        'TRANSFER_IN'            => MovementType.transferIn,
-        'TRANSFER_OUT'           => MovementType.transferOut,
-        'WASTE'                  => MovementType.waste,
-        'CUSTOMER_RETURN'        => MovementType.customerReturn,
-        'INITIAL_STOCK'          => MovementType.initialStock,
-        _                        => MovementType.manualAdjustmentIn,
+  /// Convierte desde el string del API (tolerante a backend enum y legacy snake_case)
+  static MovementType fromApi(String value) => switch (value.toUpperCase()) {
+        'PURCHASE_ENTRY' || 'PURCHASE_IN'            => MovementType.purchaseIn,
+        'SALE_EXIT' || 'SALE_OUT'                    => MovementType.saleOut,
+        'ADJUSTMENT_IN' || 'MANUAL_ADJUSTMENT_IN'    => MovementType.manualAdjustmentIn,
+        'ADJUSTMENT_OUT' || 'MANUAL_ADJUSTMENT_OUT'  => MovementType.manualAdjustmentOut,
+        'TRANSFER_IN'                                => MovementType.transferIn,
+        'TRANSFER_OUT'                               => MovementType.transferOut,
+        'WASTE_MERMA' || 'WASTE'                     => MovementType.waste,
+        'SALE_RETURN' || 'CUSTOMER_RETURN'           => MovementType.customerReturn,
+        'INITIAL_STOCK'                              => MovementType.initialStock,
+        _                                            => MovementType.manualAdjustmentIn,
       };
 
   String get apiCode => switch (this) {
-        MovementType.purchaseIn           => 'PURCHASE_IN',
-        MovementType.saleOut              => 'SALE_OUT',
-        MovementType.manualAdjustmentIn   => 'MANUAL_ADJUSTMENT_IN',
-        MovementType.manualAdjustmentOut  => 'MANUAL_ADJUSTMENT_OUT',
+        MovementType.purchaseIn           => 'PURCHASE_ENTRY',
+        MovementType.saleOut              => 'SALE_EXIT',
+        MovementType.manualAdjustmentIn   => 'ADJUSTMENT_IN',
+        MovementType.manualAdjustmentOut  => 'ADJUSTMENT_OUT',
         MovementType.transferIn           => 'TRANSFER_IN',
         MovementType.transferOut          => 'TRANSFER_OUT',
-        MovementType.waste                => 'WASTE',
-        MovementType.customerReturn       => 'CUSTOMER_RETURN',
+        MovementType.waste                => 'WASTE_MERMA',
+        MovementType.customerReturn       => 'SALE_RETURN',
         MovementType.initialStock         => 'INITIAL_STOCK',
       };
 
@@ -94,7 +94,7 @@ extension MovementTypeX on MovementType {
 
 // ---------------------------------------------------------------------------
 // Modelo de dominio — InventoryMovement
-// Anclado al schema InventoryMovement de docs/api/components.yaml
+// Anclado al schema InventoryMovementResponse del backend
 // ---------------------------------------------------------------------------
 
 class InventoryMovement {
@@ -108,6 +108,8 @@ class InventoryMovement {
     required this.stockAfter,
     required this.unitCostMxn,
     required this.createdAt,
+    this.productName,
+    this.warehouseName,
     this.referenceId,
     this.referenceType,
     this.notes,
@@ -116,7 +118,9 @@ class InventoryMovement {
 
   final String id;
   final String productId;
+  final String? productName;
   final String warehouseId;
+  final String? warehouseName;
   final MovementType movementType;
 
   /// Positivo para entradas, negativo para salidas (según schema del API).
@@ -128,25 +132,46 @@ class InventoryMovement {
 
   // Opcionales
   final String? referenceId;
-  final String? referenceType; // SALE | PURCHASE | MANUAL | TRANSFER
+  final String? referenceType;
   final String? notes;
   final String? userId;
 
-  factory InventoryMovement.fromJson(Map<String, dynamic> json) {
+  factory InventoryMovement.fromJson(Map<dynamic, dynamic> json) {
+    final rawQty = json['quantity'] ?? 0;
+    final int qty = rawQty is num ? rawQty.toInt() : (int.tryParse(rawQty.toString()) ?? 0);
+
+    final rawBefore = json['previous_stock'] ?? json['stock_before'] ?? 0;
+    final int before = rawBefore is num ? rawBefore.toInt() : (int.tryParse(rawBefore.toString()) ?? 0);
+
+    final rawAfter = json['new_stock'] ?? json['stock_after'] ?? 0;
+    final int after = rawAfter is num ? rawAfter.toInt() : (int.tryParse(rawAfter.toString()) ?? 0);
+
+    final rawCost = json['unit_cost_mxn'] ?? 0;
+    final double cost = rawCost is num ? rawCost.toDouble() : (double.tryParse(rawCost.toString()) ?? 0.0);
+
+    DateTime parsedDate;
+    if (json['created_at'] != null) {
+      parsedDate = DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now();
+    } else {
+      parsedDate = DateTime.now();
+    }
+
     return InventoryMovement(
-      id: json['id'] as String,
-      productId: json['product_id'] as String,
-      warehouseId: json['warehouse_id'] as String,
-      movementType: MovementTypeX.fromApi(json['movement_type'] as String),
-      quantity: json['quantity'] as int,
-      stockBefore: json['stock_before'] as int,
-      stockAfter: json['stock_after'] as int,
-      unitCostMxn: (json['unit_cost_mxn'] as num? ?? 0).toDouble(),
-      createdAt: DateTime.parse(json['created_at'] as String),
-      referenceId: json['reference_id'] as String?,
-      referenceType: json['reference_type'] as String?,
-      notes: json['notes'] as String?,
-      userId: json['user_id'] as String?,
+      id: (json['id'] ?? '').toString(),
+      productId: (json['product_id'] ?? '').toString(),
+      productName: json['product_name']?.toString(),
+      warehouseId: (json['warehouse_id'] ?? '').toString(),
+      warehouseName: json['warehouse_name']?.toString(),
+      movementType: MovementTypeX.fromApi(json['movement_type']?.toString() ?? ''),
+      quantity: qty,
+      stockBefore: before,
+      stockAfter: after,
+      unitCostMxn: cost,
+      createdAt: parsedDate,
+      referenceId: json['reference_id']?.toString(),
+      referenceType: json['reference_type']?.toString(),
+      notes: json['notes']?.toString(),
+      userId: json['user_id']?.toString(),
     );
   }
 

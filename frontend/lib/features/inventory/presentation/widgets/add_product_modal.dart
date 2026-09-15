@@ -11,13 +11,26 @@ import '../inventory_provider.dart';
 
 /// Abre el modal de alta de producto.
 /// Retorna el nombre del producto creado si fue exitoso, null si se canceló.
-Future<String?> showAddProductModal(BuildContext context) {
+Future<String?> showAddProductModal(
+  BuildContext context, {
+  String? initialBarcode,
+  String? initialName,
+  double? initialPrice,
+  int? initialStock,
+  String? initialCategory,
+}) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true, // Respeta el teclado
     useRootNavigator: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => const AddProductModal(),
+    builder: (_) => AddProductModal(
+      initialBarcode: initialBarcode,
+      initialName: initialName,
+      initialPrice: initialPrice,
+      initialStock: initialStock,
+      initialCategory: initialCategory,
+    ),
   );
 }
 
@@ -33,7 +46,20 @@ Future<String?> showAddProductModal(BuildContext context) {
 ///
 /// Trazabilidad: Constitución Art. VII (7.3) · Doc. Maestro SR-08 · CU-05
 class AddProductModal extends ConsumerStatefulWidget {
-  const AddProductModal({super.key});
+  const AddProductModal({
+    super.key,
+    this.initialBarcode,
+    this.initialName,
+    this.initialPrice,
+    this.initialStock,
+    this.initialCategory,
+  });
+
+  final String? initialBarcode;
+  final String? initialName;
+  final double? initialPrice;
+  final int? initialStock;
+  final String? initialCategory;
 
   @override
   ConsumerState<AddProductModal> createState() => _AddProductModalState();
@@ -43,9 +69,9 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
   final _formKey = GlobalKey<FormState>();
 
   // Controllers
-  final _nameController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _stockController = TextEditingController(text: '0');
+  late final TextEditingController _nameController;
+  late final TextEditingController _priceController;
+  late final TextEditingController _stockController;
 
   // Focus nodes para secuencia de foco (CU-05.5)
   final _nameFocus = FocusNode();
@@ -59,14 +85,29 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
   @override
   void initState() {
     super.initState();
-    // Auto-foco en nombre al abrir (CA-05)
+    _nameController = TextEditingController(text: widget.initialName ?? '');
+    _priceController = TextEditingController(
+      text: widget.initialPrice != null && widget.initialPrice! > 0
+          ? widget.initialPrice!.toStringAsFixed(2)
+          : '',
+    );
+    _stockController = TextEditingController(
+      text: (widget.initialStock ?? 0).toString(),
+    );
+
+    // Auto-foco en nombre si está vacío, o en precio si ya tiene nombre (CA-05)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _nameFocus.requestFocus();
+      if (_nameController.text.trim().isEmpty) {
+        _nameFocus.requestFocus();
+      } else if (_priceController.text.trim().isEmpty) {
+        _priceFocus.requestFocus();
+      }
     });
 
     // Validación reactiva en cada cambio
     _nameController.addListener(_validateForm);
     _priceController.addListener(_validateForm);
+    _validateForm();
   }
 
   @override
@@ -115,6 +156,8 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
             name: name,
             priceMxn: priceMxn,
             stock: stock,
+            barcode: widget.initialBarcode,
+            category: widget.initialCategory,
           );
 
       // Éxito: cierra el modal y devuelve el nombre para el SnackBar
@@ -160,7 +203,33 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
           children: [
             _buildHandle(),
             _buildHeader(),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            if (widget.initialBarcode != null && widget.initialBarcode!.trim().isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.qr_code_2_rounded, size: 16, color: AppColors.skyBlue),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Código de Barras: ${widget.initialBarcode}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             _buildNameField(),
             const SizedBox(height: 16),
             _buildPriceField(),

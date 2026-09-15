@@ -79,10 +79,10 @@ class LoginNotifier extends Notifier<LoginState> {
         status: LoginStatus.error,
         errorMessage: e.message,
       );
-    } catch (_) {
+    } catch (e) {
       state = state.copyWith(
         status: LoginStatus.error,
-        errorMessage: 'Error inesperado. Intenta de nuevo.',
+        errorMessage: 'Error inesperado: $e',
       );
     }
   }

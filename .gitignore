@@ -95,3 +95,8 @@ docs/architecture/funcionalidades_pendientes_post_mvp.md
 claude.md
 # Diffs de goldens fallidos (flutter test genera esta carpeta al comparar imágenes)
 **/test/**/failures/
+
+# Local environment & working copy
+Include/
+Scripts/
+nexus_v3/

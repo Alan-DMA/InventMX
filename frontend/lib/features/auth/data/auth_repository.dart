@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../domain/auth_token.dart';
@@ -32,12 +33,21 @@ class AuthRepositoryImpl implements AuthRepository {
     required String password,
   }) async {
     try {
-      final response = await client.post<Map<String, dynamic>>(
+      final response = await client.post(
         '/api/v1/auth/login',
-        data: {'email': email, 'password': password},
+        data: {
+          'username_or_email': email.trim(),
+          'email': email.trim(),
+          'password': password,
+        },
       );
 
-      final token = AuthToken.fromJson(response.data!);
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const AuthException('Respuesta inválida del servidor.');
+      }
+
+      final token = AuthToken.fromJson(data);
       await storage.saveTokens(
         accessToken: token.accessToken,
         refreshToken: token.refreshToken,
@@ -45,6 +55,9 @@ class AuthRepositoryImpl implements AuthRepository {
       return token;
     } on DioException catch (e) {
       throw _mapDioError(e);
+    } catch (e) {
+      if (e is AuthException) rethrow;
+      throw AuthException('Error al autenticar: $e');
     }
   }
 
@@ -55,6 +68,18 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<bool> hasSession() => storage.hasSession();
 
   Exception _mapDioError(DioException e) {
+    if (e.response != null) {
+      final data = e.response?.data;
+      if (data is Map) {
+        if (data['error'] is Map && data['error']['message'] != null) {
+          return AuthException(data['error']['message'].toString());
+        }
+        if (data['detail'] != null) {
+          return AuthException(data['detail'].toString());
+        }
+      }
+    }
+
     switch (e.response?.statusCode) {
       case 401:
         return const AuthException('Correo o contraseña incorrectos.');
@@ -65,10 +90,11 @@ class AuthRepositoryImpl implements AuthRepository {
             'Servidor no disponible. Intenta más tarde.');
       default:
         if (e.type == DioExceptionType.connectionTimeout ||
-            e.type == DioExceptionType.receiveTimeout) {
-          return const AuthException('Sin conexión. Verifica tu red.');
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.connectionError) {
+          return const AuthException('Sin conexión con el servidor. Verifica tu red.');
         }
-        return const AuthException('Error inesperado. Intenta de nuevo.');
+        return AuthException('Error de comunicación: ${e.message ?? e.type.name}');
     }
   }
 }
@@ -135,7 +161,19 @@ final secureStorageProvider = Provider<SecureStorage>(
   (_) => SecureStorage(),
 );
 
-/// Mock inyecta SecureStorage para persistir tokens correctamente.
+/// Proveedor del cliente HTTP DioClient configurado con URL dinámica
+final dioClientProvider = Provider<DioClient>((ref) {
+  final storage = ref.watch(secureStorageProvider);
+  return DioClient(
+    baseUrl: getEffectiveApiBaseUrl(),
+    storage: storage,
+  );
+});
+
+/// Repositorio de autenticación conectado al Backend real
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => AuthRepositoryMock(storage: ref.read(secureStorageProvider)),
+  (ref) => AuthRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+    storage: ref.watch(secureStorageProvider),
+  ),
 );

@@ -1,87 +1,89 @@
-# Importación de FastAPI y generador de dependencias
-from fastapi import FastAPI, Depends
-# Importación del middleware de CORS
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-# Importación de constructs de consulta para verificación de salud
-from sqlalchemy import text
-# Importación de la sesión asíncrona de base de datos
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+import asyncio
+import logging
 
-# Importación de la configuración centralizada
-from app.core.config.settings import settings
-# Importación del generador de sesiones de base de datos
-from app.core.database.session import get_db
-# Importación de los manejadores de excepciones globales
-from app.core.exceptions.handlers import register_exception_handlers
-# Importación del middleware de control de morosidad y suscripción SaaS
-from app.core.middleware.subscription import SubscriptionLockMiddleware
-# Importación de los routers de los módulos del sistema
-from app.modules.auth_tenancy.api.endpoints import router as auth_router
-from app.modules.customers_credit.api.endpoints import router as customers_router
-from app.modules.inventory.api.endpoints import router as inventory_router
-from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
-from app.modules.sales_pos.api.endpoints import router as sales_router
-from app.modules.whatsapp_catalog.api.endpoints import router as whatsapp_catalog_router
-from app.modules.community_catalog.api.endpoints import router as community_b2b_router
-from app.modules.analytics_reports.api.endpoints import router as analytics_router
-from app.modules.core_admin.api.endpoints import router as admin_router
+from app.api.v1.auth import router as auth_router
+from app.api.v1.inventory import router as inventory_router
+from app.api.v1.sales import router as sales_router
+from app.core.config import settings
+from app.core.tasks import release_expired_reservations_loop
 
-# Instanciación principal de la aplicación FastAPI
+# Logger del módulo principal
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestiona el ciclo de vida de la aplicación: inicio y apagado ordenado."""
+    # Startup: iniciar la tarea periódica de liberación de stock expirado (TTL 15 min)
+    cleanup_task = asyncio.create_task(release_expired_reservations_loop())
+    logger.info("Servicio de limpieza de stock reservado iniciado.")
+    yield
+    # Shutdown: cancelar la tarea limpiamente al apagar el servidor
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        logger.info("Servicio de limpieza de stock reservado detenido correctamente.")
+
+
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url=f"{settings.API_V1_STR}/docs",
-    redoc_url=f"{settings.API_V1_STR}/redoc",
+    title="Nexus API",
+    description="Gestión Comercial Modular — Sistema Nexus",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-# 1. Registro de manejadores globales de excepciones (Error Envelopes estandarizados)
-register_exception_handlers(app)
+# --- C-01: CORS con orígenes controlados por configuración ---
+# En producción se usan settings.ALLOWED_ORIGINS estrictos.
+# En desarrollo se permiten explícitamente localhost, 127.0.0.1 y la IP local, además de regex.
+_dev_origins = [
+    "http://localhost:8088",
+    "http://127.0.0.1:8088",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://192.168.10.10:8088",
+    "http://localhost:3000",
+]
 
-# 2. Registro del middleware de control de morosidad y suscripciones (Soft / Hard Lock)
-app.add_middleware(SubscriptionLockMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS if settings.ENVIRONMENT == "production" else _dev_origins,
+    allow_origin_regex=None if settings.ENVIRONMENT == "production" else r"^https?://.*",
+    allow_credentials=True,                   # Necesario para cookies / auth headers
+    allow_methods=["*"],                       # GET, POST, PUT, DELETE, PATCH, OPTIONS
+    allow_headers=["*"],                       # Authorization, Content-Type, etc.
+    allow_private_network=True,                # Soporte nativo para Chrome Private Network Access (PNA)
+)
 
-# 3. Configuración del middleware de CORS para conexiones seguras desde clientes frontend
-if settings.BACKEND_CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+# --- B-07: Handler global de errores 500 ---
+# Evita que los stack traces del servidor se expongan en la respuesta HTTP.
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Captura cualquier excepción no manejada y devuelve un 500 seguro."""
+    logger.exception(f"Error no manejado en {request.method} {request.url}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno del servidor. Por favor intente más tarde."},
     )
 
-# 4. Inclusión de los routers de la API versión 1
-app.include_router(auth_router, prefix=settings.API_V1_STR)
-app.include_router(customers_router, prefix=settings.API_V1_STR)
-app.include_router(inventory_router, prefix=settings.API_V1_STR)
-app.include_router(purchasing_router, prefix=settings.API_V1_STR)
-app.include_router(sales_router, prefix=settings.API_V1_STR)
-app.include_router(whatsapp_catalog_router, prefix=settings.API_V1_STR)
-app.include_router(community_b2b_router, prefix=settings.API_V1_STR)
-app.include_router(analytics_router, prefix=settings.API_V1_STR)
-app.include_router(admin_router, prefix=settings.API_V1_STR)
+
+# --- Registrar Routers ---
+app.include_router(auth_router,      prefix="/api/v1/auth",      tags=["auth"])
+app.include_router(inventory_router, prefix="/api/v1/inventory",  tags=["inventory"])
+app.include_router(sales_router,     prefix="/api/v1/sales",      tags=["sales"])
 
 
-# =============================================================================
-# ENDPOINT DE SALUD Y MONITOREO (/health)
-# =============================================================================
-
-@app.get("/health", tags=["Health"])
-async def health_check(db: AsyncSession = Depends(get_db)):
-    """
-    Endpoint de monitoreo y verificación de salud de la API.
-    Ejecuta un ping asíncrono a PostgreSQL para validar conectividad.
-    """
-    try:
-        # Consulta de comprobación elemental
-        result = await db.execute(text("SELECT 1"))
-        db_status = "connected" if result.scalar() == 1 else "unhealthy"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-
+@app.get("/", tags=["health"])
+def read_root():
+    """Health-check básico del servidor."""
     return {
-        "status": "online",
-        "service": settings.PROJECT_NAME,
+        "name": "Nexus API",
+        "version": "1.0.0",
+        "status": "active",
         "environment": settings.ENVIRONMENT,
-        "database": db_status,
+        "message": "Bienvenido al Sistema de Gestión Comercial Nexus",
     }

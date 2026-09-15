@@ -1,10 +1,36 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../auth/data/auth_repository.dart';
 import '../data/inventory_repository.dart';
 import '../domain/product.dart';
 
 // ---------------------------------------------------------------------------
-// Estado
+// Modelos auxiliares para UI y selección
+// ---------------------------------------------------------------------------
+
+/// Modelo ligero para selección y visualización de almacenes
+class WarehouseOption {
+  const WarehouseOption({
+    required this.id,
+    required this.name,
+    this.isDefault = false,
+  });
+
+  final String id;
+  final String name;
+  final bool isDefault;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WarehouseOption && other.id == id && other.name == name);
+
+  @override
+  int get hashCode => Object.hash(id, name);
+}
+
+// ---------------------------------------------------------------------------
+// Estado del Inventario
 // ---------------------------------------------------------------------------
 
 class InventoryState {
@@ -34,18 +60,16 @@ class InventoryState {
   bool get hasProducts => products.isNotEmpty;
   bool get hasError => error != null;
 
-  /// Categorías únicas derivadas de los productos cargados.
+  /// Categorías únicas derivadas de los productos cargados
   List<String> get availableCategories {
     final cats = products.map((p) => p.category).toSet().toList()..sort();
     return cats;
   }
 
-  /// copyWith con sentinel para campos nullable (activeCategory, error).
-  /// Los booleanos y primitivos se pasan directamente.
+  /// copyWith con sentinel para campos nullable
   InventoryState copyWith({
     List<Product>? products,
     String? query,
-    // Sentinel: usar _keep para no cambiar el valor actual
     Object? activeCategory = _keep,
     bool? showLowStock,
     int? currentPage,
@@ -70,11 +94,11 @@ class InventoryState {
   }
 }
 
-/// Sentinel para distinguir "no se pasó el argumento" de "se pasó null".
+/// Sentinel para distinguir "no se pasó el argumento" de "se pasó null"
 const Object _keep = Object();
 
 // ---------------------------------------------------------------------------
-// Notifier
+// Notifier del Catálogo de Inventario
 // ---------------------------------------------------------------------------
 
 class InventoryNotifier extends Notifier<InventoryState> {
@@ -130,7 +154,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
 
   // ── API pública del notifier ─────────────────────────────────────────────
 
-  /// Actualiza el texto de búsqueda con debounce de 300 ms.
+  /// Actualiza el texto de búsqueda con debounce de 300 ms
   void setQuery(String value) {
     _debounce?.cancel();
     state = state.copyWith(query: value, currentPage: 1);
@@ -139,8 +163,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
     });
   }
 
-  /// Selecciona o deselecciona una categoría.
-  /// Pasar null limpia el filtro (→ "Todos").
+  /// Selecciona o deselecciona una categoría (null = "Todos")
   void setCategory(String? category) {
     state = state.copyWith(
       activeCategory: category,
@@ -149,7 +172,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
     _load(resetList: true);
   }
 
-  /// Alterna el filtro de stock bajo.
+  /// Alterna el filtro de stock bajo
   void toggleLowStock() {
     state = state.copyWith(
       showLowStock: !state.showLowStock,
@@ -158,14 +181,14 @@ class InventoryNotifier extends Notifier<InventoryState> {
     _load(resetList: true);
   }
 
-  /// Carga la siguiente página (llamado al llegar al 80% del scroll).
+  /// Carga la siguiente página para scroll infinito
   Future<void> loadMore() async {
     if (state.isLoadingMore || !state.hasMorePages) return;
     state = state.copyWith(currentPage: state.currentPage + 1);
     await _load(resetList: false);
   }
 
-  /// Reintenta la carga tras un error.
+  /// Reintenta la carga tras un error
   Future<void> retry() async {
     state = state.copyWith(
       error: null,
@@ -174,45 +197,56 @@ class InventoryNotifier extends Notifier<InventoryState> {
     await _load(resetList: true);
   }
 
-  /// Crea un producto nuevo con los 3 campos vitales y lo inserta
-  /// al inicio de la lista sin necesidad de recargar desde el servidor.
-  /// Lanza excepción si el API devuelve error (la captura el modal).
+  /// Crea un producto nuevo con los 3 campos vitales (o extendidos) y lo inserta al inicio
   Future<Product> addProduct({
     required String name,
     required double priceMxn,
     int stock = 0,
+    String? category,
+    String? barcode,
+    double? costMxn,
+    int? minStockAlert,
+    String? imageUrl,
   }) async {
     final product = await _repo.createProduct(
       name: name,
       priceMxn: priceMxn,
       stock: stock,
+      category: category,
+      barcode: barcode,
+      costMxn: costMxn,
+      minStockAlert: minStockAlert,
+      imageUrl: imageUrl,
     );
-    // Inserta al inicio para que sea inmediatamente visible
+    // Inserta al inicio para que sea inmediatamente visible en UI
     state = state.copyWith(products: [product, ...state.products]);
     return product;
   }
 
-  /// Ajusta el stock de un producto y actualiza su estado local.
-  /// direction: +1 para entrada, -1 para salida/merma.
+  /// Ajusta el stock de un producto y actualiza su estado local
   Future<void> adjustStock({
     required String productId,
     required String movementType,
     required int quantity,
     required String reason,
+    String? warehouseId,
   }) async {
     await _repo.adjustStock(
       productId: productId,
       movementType: movementType,
       quantity: quantity,
       reason: reason,
+      warehouseId: warehouseId,
     );
-    // Actualiza el available_stock localmente según la dirección
-    final isIn = movementType == 'MANUAL_ADJUSTMENT_IN';
+    final isIn = movementType == 'MANUAL_ADJUSTMENT_IN' ||
+        movementType == 'ADJUSTMENT_IN' ||
+        movementType == 'PURCHASE_ENTRY' ||
+        movementType == 'PURCHASE_IN';
     final delta = isIn ? quantity : -quantity;
     _patchProductStock(productId, delta);
   }
 
-  /// Traslada stock entre almacenes y actualiza el estado local.
+  /// Traslada stock entre almacenes y actualiza el estado local
   Future<void> transferStock({
     required String productId,
     required String fromWarehouseId,
@@ -227,15 +261,9 @@ class InventoryNotifier extends Notifier<InventoryState> {
       quantity: quantity,
       notes: notes,
     );
-    // En MVP mono-almacén el stock total no cambia; el provider
-    // refresca el producto para reflejar el cambio de almacén.
-    // Cuando el backend soporte multi-almacén correctamente,
-    // este método recibirá el producto actualizado en la respuesta.
   }
 
-  /// Actualiza los campos editables de un producto vía PATCH /inventory/products/{id}.
-  /// Retorna el producto actualizado y lo reemplaza en la lista en memoria.
-  /// Lanza excepción si el API devuelve error (la captura EditProductScreen).
+  /// Actualiza los campos editables de un producto vía PUT /api/v1/inventory/products/{id}
   Future<Product> updateProduct({
     required String productId,
     String? name,
@@ -266,7 +294,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
     return updated;
   }
 
-  /// Actualiza available_stock de un producto en la lista en memoria.
+  /// Actualiza available_stock de un producto en la lista en memoria
   void _patchProductStock(String productId, int delta) {
     final updated = state.products.map((p) {
       if (p.id != productId) return p;
@@ -292,14 +320,9 @@ final inventoryProvider = NotifierProvider<InventoryNotifier, InventoryState>(
   InventoryNotifier.new,
 );
 
-/// FutureProvider.family para el detalle de un producto individual.
-///
-/// Estrategia: caché primero (si el producto ya está en inventoryProvider
-/// no lanza una petición adicional), fallback a getProductById cuando no
-/// está en memoria (acceso directo por URL o lista vacía).
+/// FutureProvider.family para el detalle de un producto individual
 final productDetailProvider =
     FutureProvider.family<Product, String>((ref, id) async {
-  // Intenta obtener desde la lista ya cargada en memoria
   final cached = ref
       .watch(inventoryProvider)
       .products
@@ -308,12 +331,48 @@ final productDetailProvider =
 
   if (cached != null) return cached;
 
-  // Fallback: petición directa al repositorio
   return ref.read(inventoryRepositoryProvider).getProductById(id);
 });
 
-/// Expone las categorías únicas ya cargadas en el inventario.
-/// Usado por EditProductScreen para los chips de sugerencia.
+/// Categorías cargadas dinámicamente desde el backend PostgreSQL
+final categoriesProvider = FutureProvider<List<String>>((ref) async {
+  final client = ref.watch(dioClientProvider);
+  try {
+    final response = await client.get('/api/v1/inventory/categories');
+    final data = response.data;
+    if (data is List && data.isNotEmpty) {
+      final list = data
+          .map((c) => (c is Map && c['name'] != null) ? c['name'].toString() : '')
+          .where((name) => name.isNotEmpty)
+          .toList();
+      return list..sort();
+    }
+  } catch (_) {}
+  return ref.watch(inventoryProvider).availableCategories;
+});
+
+/// Proveedor de almacenes del comercio
+final warehousesProvider = FutureProvider<List<WarehouseOption>>((ref) async {
+  final client = ref.watch(dioClientProvider);
+  try {
+    final response = await client.get('/api/v1/inventory/warehouses');
+    final data = response.data;
+    if (data is List && data.isNotEmpty) {
+      return data.map((w) => WarehouseOption(
+        id: (w['id'] ?? '').toString(),
+        name: (w['name'] ?? 'Almacén').toString(),
+        isDefault: w['is_default'] == true,
+      )).toList();
+    }
+  } catch (_) {}
+  return const [WarehouseOption(id: 'default', name: 'Almacén Principal', isDefault: true)];
+});
+
+/// Expone las categorías únicas ya cargadas en el inventario
 final availableCategoriesProvider = Provider<List<String>>((ref) {
+  final dynamicCats = ref.watch(categoriesProvider).valueOrNull;
+  if (dynamicCats != null && dynamicCats.isNotEmpty) {
+    return dynamicCats;
+  }
   return ref.watch(inventoryProvider).availableCategories;
 });

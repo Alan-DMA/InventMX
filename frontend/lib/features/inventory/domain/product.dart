@@ -1,6 +1,6 @@
 /// Modelo de dominio — Producto de Inventario
 ///
-/// Anclado al schema `Product` de docs/api/components.yaml.
+/// Anclado al schema `Product` de docs/api/components.yaml y backend ProductResponse.
 /// Constitución Art. I (1.2.4): todos los montos en MXN.
 library;
 
@@ -102,25 +102,72 @@ class Product {
   // Serialización — alineada con el schema API (snake_case → camelCase)
   // ---------------------------------------------------------------------------
 
-  factory Product.fromJson(Map<String, dynamic> json) {
+  factory Product.fromJson(Map<dynamic, dynamic> json) {
+    // Extracción tolerante y segura de existencias
+    final rawStock = json['total_stock'] ?? json['stock'] ?? 0;
+    final int stockVal = rawStock is num ? rawStock.toInt() : (int.tryParse(rawStock.toString()) ?? 0);
+
+    final rawReserved = json['reserved_stock'] ?? 0;
+    final int resStockVal = rawReserved is num ? rawReserved.toInt() : (int.tryParse(rawReserved.toString()) ?? 0);
+
+    final rawAvail = json['available_stock'] ?? json['total_stock'] ?? json['stock'] ?? 0;
+    final int availStockVal = rawAvail is num ? rawAvail.toInt() : (int.tryParse(rawAvail.toString()) ?? 0);
+
+    // Umbral de stock mínimo
+    int? minAlertVal;
+    if (json['min_stock_alert'] != null) {
+      final rawAlert = json['min_stock_alert'];
+      minAlertVal = rawAlert is num ? rawAlert.toInt() : int.tryParse(rawAlert.toString());
+    }
+
+    // Extracción de warehouse_id directo o desde lista de stocks
+    String? whId = json['warehouse_id']?.toString();
+    if (whId == null && json['stocks'] is List && (json['stocks'] as List).isNotEmpty) {
+      final firstStock = (json['stocks'] as List).first;
+      if (firstStock is Map && firstStock['warehouse_id'] != null) {
+        whId = firstStock['warehouse_id'].toString();
+      }
+    }
+
+    // Precios y costos
+    final rawPrice = json['price_mxn'] ?? 0;
+    final double priceVal = rawPrice is num ? rawPrice.toDouble() : (double.tryParse(rawPrice.toString()) ?? 0.0);
+
+    final rawCost = json['cost_mxn'] ?? 0;
+    final double costVal = rawCost is num ? rawCost.toDouble() : (double.tryParse(rawCost.toString()) ?? 0.0);
+
+    double? costUsd;
+    if (json['cost_usd_import'] != null) {
+      final rawUsd = json['cost_usd_import'];
+      costUsd = rawUsd is num ? rawUsd.toDouble() : double.tryParse(rawUsd.toString());
+    }
+
+    // Fechas
+    DateTime parsedDate;
+    if (json['created_at'] != null) {
+      parsedDate = DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now();
+    } else {
+      parsedDate = DateTime.now();
+    }
+
     return Product(
-      id: json['id'] as String,
-      sku: json['sku'] as String,
-      barcode: json['barcode'] as String?,
-      name: json['name'] as String,
-      category: (json['category'] as String?) ?? 'General',
-      priceMxn: (json['price_mxn'] as num).toDouble(),
-      costMxn: (json['cost_mxn'] as num? ?? 0).toDouble(),
-      costUsdImport: (json['cost_usd_import'] as num?)?.toDouble(),
-      stock: (json['stock'] as int?) ?? 0,
-      reservedStock: (json['reserved_stock'] as int?) ?? 0,
-      availableStock: (json['available_stock'] as int?) ?? 0,
-      minStockAlert: json['min_stock_alert'] as int?,
-      imageUrl: json['image_url'] as String?,
-      warehouseId: json['warehouse_id'] as String?,
-      isActive: (json['is_active'] as bool?) ?? true,
-      isOnCatalog: (json['is_on_catalog'] as bool?) ?? false,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      id: (json['id'] ?? '').toString(),
+      sku: (json['sku'] ?? '').toString(),
+      barcode: json['barcode']?.toString(),
+      name: (json['name'] ?? '').toString(),
+      category: (json['category_name'] ?? json['category'])?.toString() ?? 'General',
+      priceMxn: priceVal,
+      costMxn: costVal,
+      costUsdImport: costUsd,
+      stock: stockVal,
+      reservedStock: resStockVal,
+      availableStock: availStockVal,
+      minStockAlert: minAlertVal,
+      imageUrl: json['image_url']?.toString(),
+      warehouseId: whId,
+      isActive: json['is_active'] is bool ? json['is_active'] as bool : (json['is_active']?.toString() != 'false'),
+      isOnCatalog: json['is_on_catalog'] is bool ? json['is_on_catalog'] as bool : (json['is_on_catalog']?.toString() == 'true'),
+      createdAt: parsedDate,
     );
   }
 
