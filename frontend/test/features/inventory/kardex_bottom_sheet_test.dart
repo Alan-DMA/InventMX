@@ -177,4 +177,83 @@ void main() {
     expect(find.text('No se pudo cargar\nel historial'), findsOneWidget);
     expect(find.text('Reintentar'), findsOneWidget);
   });
+
+  // ── CA-10: deserialización tolerante de strings decimales del backend ───
+  test('InventoryMovement.fromJson parsea strings decimales de Postgres correctamente', () {
+    final payloadEntrada = {
+      'id': '97ca3214-5fb0-4241-b2b9-543bd3b55db3',
+      'product_id': 'b1a2a3a4-b1b2-c1c2-d1d2-000000000001',
+      'warehouse_id': 'f1a2a3a4-b1b2-c1c2-d1d2-000000000001',
+      'quantity': '20.0000',
+      'type': 'ENTRADA',
+      'previous_stock': '21.0000',
+      'new_stock': '41.0000',
+      'notes': 'Prueba 2',
+      'created_at': '2026-09-14T13:20:57.744370',
+    };
+
+    final mEntrada = InventoryMovement.fromJson(payloadEntrada);
+    expect(mEntrada.quantity, 20);
+    expect(mEntrada.stockBefore, 21);
+    expect(mEntrada.stockAfter, 41);
+    expect(mEntrada.movementType, MovementType.manualAdjustmentIn);
+
+    final payloadSalida = {
+      'id': '5637df6f-9182-4675-b3ae-e00d5787c8d7',
+      'product_id': 'b1a2a3a4-b1b2-c1c2-d1d2-000000000001',
+      'warehouse_id': 'f1a2a3a4-b1b2-c1c2-d1d2-000000000001',
+      'quantity': '2.0000',
+      'type': 'SALIDA',
+      'reference_document': 'NV-2026-000002',
+      'previous_stock': '23.0000',
+      'new_stock': '21.0000',
+      'notes': 'Venta POS (NV-2026-000002): Venta POS mostrador: 2 x Harina PAN 1kg',
+      'created_at': '2026-09-14T12:46:37.632175',
+    };
+
+    final mSalida = InventoryMovement.fromJson(payloadSalida);
+    expect(mSalida.quantity, -2); // Normalizado a negativo
+    expect(mSalida.stockBefore, 23);
+    expect(mSalida.stockAfter, 21);
+    expect(mSalida.movementType, MovementType.saleOut);
+    expect(mSalida.referenceId, 'NV-2026-000002');
+  });
+
+  test('asiento inicial en alta de producto se clasifica como Stock inicial con cantidad positiva', () {
+    final payloadAlta = {
+      'id': '73b9d2c5-e144-4406-b8b5-19861dea0108',
+      'product_id': '511dde2e-9f7c-4513-a78f-7dad242eb59b',
+      'warehouse_id': '51513cee-b691-4034-925c-62e565b39ab1',
+      'movement_type': 'ADJUSTMENT_IN',
+      'quantity': '25.00',
+      'previous_stock': '0.00',
+      'new_stock': '25.00',
+      'notes': 'Inventario inicial registrado en alta de producto',
+      'created_at': '2026-09-14T23:02:00.000000',
+    };
+
+    final mAlta = InventoryMovement.fromJson(payloadAlta);
+    expect(mAlta.movementType, MovementType.initialStock);
+    expect(mAlta.movementType.label, 'Stock inicial');
+    expect(mAlta.quantity, 25); // Positivo, NO negativo
+    expect(mAlta.stockBefore, 0);
+    expect(mAlta.stockAfter, 25);
+
+    // Movimientos con palabra 'inventario' no deben confundirse con 'VENTA'
+    final payloadConteo = {
+      'id': '88b9d2c5-e144-4406-b8b5-19861dea0109',
+      'product_id': '511dde2e-9f7c-4513-a78f-7dad242eb59b',
+      'warehouse_id': '51513cee-b691-4034-925c-62e565b39ab1',
+      'movement_type': 'ADJUSTMENT_IN',
+      'quantity': '10.00',
+      'previous_stock': '25.00',
+      'new_stock': '35.00',
+      'notes': 'Conteo físico de inventario de fin de mes',
+      'created_at': '2026-09-14T23:05:00.000000',
+    };
+
+    final mConteo = InventoryMovement.fromJson(payloadConteo);
+    expect(mConteo.movementType, MovementType.manualAdjustmentIn);
+    expect(mConteo.quantity, 10);
+  });
 }

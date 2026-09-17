@@ -13,7 +13,7 @@ Future<bool> showTransferStockModal(BuildContext context, Product product) {
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    useRootNavigator: true,
+    useRootNavigator: false,
     backgroundColor: Colors.transparent,
     builder: (_) => TransferStockModal(product: product),
   ).then((v) => v ?? false);
@@ -103,75 +103,77 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
-      child: warehousesAsync.when(
-        loading: () => const Center(
-          child: Padding(
-            padding: EdgeInsets.all(32.0),
-            child: CircularProgressIndicator(),
-          ),
-        ),
-        error: (e, _) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _handle(),
-            _header(),
-            const SizedBox(height: 16),
-            Text(
-              'No se pudieron cargar los almacenes: $e',
-              style: const TextStyle(color: AppColors.error),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
+        child: warehousesAsync.when(
+          loading: () => const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: CircularProgressIndicator(),
             ),
-          ],
-        ),
-        data: (warehouses) {
-          if (warehouses.isEmpty) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _handle(),
-                _header(),
-                const SizedBox(height: 16),
-                const Text(
-                  'No hay almacenes disponibles.',
-                  style: TextStyle(color: AppColors.onSurfaceMuted),
-                ),
-              ],
-            );
-          }
-
-          // Inicializa _from y _to si son nulos
-          if (_from == null || !warehouses.contains(_from)) {
-            _from = warehouses.first;
-          }
-          if (_to == null || !warehouses.contains(_to)) {
-            _to = warehouses.length > 1 ? warehouses[1] : warehouses.first;
-          }
-
-          return Column(
+          ),
+          error: (e, _) => Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _handle(),
               _header(),
-              const SizedBox(height: 20),
-              _warehouseSelectors(warehouses),
-              const SizedBox(height: 20),
-              _stepper(),
               const SizedBox(height: 16),
-              _notesField(),
-              if (_validationMessage != null) ...[
-                const SizedBox(height: 10),
-                _validationBanner(_validationMessage!),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                _errorBanner(),
-              ],
-              const SizedBox(height: 20),
-              _submitButton(),
+              Text(
+                'No se pudieron cargar los almacenes: $e',
+                style: const TextStyle(color: AppColors.error),
+              ),
             ],
-          );
-        },
+          ),
+          data: (warehouses) {
+            if (warehouses.isEmpty) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _handle(),
+                  _header(),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No hay almacenes disponibles.',
+                    style: TextStyle(color: AppColors.onSurfaceMuted),
+                  ),
+                ],
+              );
+            }
+
+            // Inicializa _from y _to si son nulos
+            if (_from == null || !warehouses.contains(_from)) {
+              _from = warehouses.first;
+            }
+            if (_to == null || !warehouses.contains(_to)) {
+              _to = warehouses.length > 1 ? warehouses[1] : warehouses.first;
+            }
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _handle(),
+                _header(),
+                const SizedBox(height: 20),
+                _warehouseSelectors(warehouses),
+                const SizedBox(height: 20),
+                _stepper(),
+                const SizedBox(height: 16),
+                _notesField(),
+                if (_validationMessage != null) ...[
+                  const SizedBox(height: 10),
+                  _validationBanner(_validationMessage!),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  _errorBanner(),
+                ],
+                const SizedBox(height: 20),
+                _submitButton(),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

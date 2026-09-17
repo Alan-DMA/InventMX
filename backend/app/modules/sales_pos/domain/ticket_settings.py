@@ -32,13 +32,13 @@ class TicketSettings(Base):
     # Constraints de tabla
     __table_args__ = (
         CheckConstraint("paper_width_mm IN (58, 80)", name="chk_ticket_paper_width"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador del inquilino / comercio (Relación 1 a 1 como clave primaria)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         primary_key=True,
         doc="Identificador del comercio propietario de la configuración",
     )

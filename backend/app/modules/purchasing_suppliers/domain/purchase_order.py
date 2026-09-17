@@ -52,7 +52,7 @@ class PurchaseOrder(Base):
         Index("idx_purchase_orders_tenant_supplier", "tenant_id", "supplier_id"),
         Index("idx_purchase_orders_tenant_status", "tenant_id", "status"),
         Index("idx_purchase_orders_tenant_created_at", "tenant_id", "created_at"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID
@@ -60,26 +60,26 @@ class PurchaseOrder(Base):
     # Identificador del inquilino (Aislamiento RLS)
     tenant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Identificador del proveedor
     supplier_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.suppliers.id", ondelete="RESTRICT"),
+        ForeignKey("public.suppliers.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Almacén de destino para la recepción física
     warehouse_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="RESTRICT"),
+        ForeignKey("public.warehouses.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Consecutivo único de orden de compra (ej: OC-00001)
     folio = Column(String(50), nullable=False)
     # Estado actual de la orden
     status = Column(
-        Enum(PurchaseOrderStatus, name="purchase_order_status_enum", schema="inventmx"),
+        Enum(PurchaseOrderStatus, name="purchase_order_status_enum", schema="public"),
         nullable=False,
         default=PurchaseOrderStatus.DRAFT,
     )
@@ -100,7 +100,7 @@ class PurchaseOrder(Base):
     # Usuario que registró la orden de compra
     created_by_user_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="RESTRICT"),
+        ForeignKey("public.users.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Marcas de tiempo
@@ -134,7 +134,7 @@ class PurchaseOrderItem(Base):
         CheckConstraint("subtotal_mxn >= 0", name="chk_po_items_subtotal_mxn"),
         Index("idx_po_items_tenant_order", "tenant_id", "purchase_order_id"),
         Index("idx_po_items_tenant_product", "tenant_id", "product_id"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID
@@ -142,19 +142,19 @@ class PurchaseOrderItem(Base):
     # Identificador del inquilino (Aislamiento RLS)
     tenant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Identificador de la orden de compra padre
     purchase_order_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.purchase_orders.id", ondelete="CASCADE"),
+        ForeignKey("public.purchase_orders.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Identificador del producto comprado
     product_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.products.id", ondelete="RESTRICT"),
+        ForeignKey("public.products.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Cantidad total ordenada

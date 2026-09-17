@@ -24,7 +24,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
@@ -51,7 +51,7 @@ def upgrade() -> None:
     )
 
     # -------------------------------------------------------------------------
-    # 2. Creación de la Tabla de Clientes (inventmx.customers)
+    # 2. Creación de la Tabla de Clientes (public.customers)
     # -------------------------------------------------------------------------
     op.create_table(
         "customers",
@@ -104,7 +104,7 @@ def upgrade() -> None:
     op.create_index("idx_customers_tenant_created", "customers", ["tenant_id", "created_at"], schema=SCHEMA)
 
     # -------------------------------------------------------------------------
-    # 3. Creación de la Tabla de Libro Mayor de Crédito (inventmx.customer_credit_ledger)
+    # 3. Creación de la Tabla de Libro Mayor de Crédito (public.customer_credit_ledger)
     # -------------------------------------------------------------------------
     
     # Declaración del tipo enum payment_method_enum existente para los abonos

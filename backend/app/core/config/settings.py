@@ -1,12 +1,16 @@
+import os
 from typing import List, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "InventMX API"
+    PROJECT_NAME: str = "Nexus MX API"
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
+
+    # Static uploads storage
+    UPLOAD_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads"))
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://nexus_app:Admin@localhost:5432/nexus"

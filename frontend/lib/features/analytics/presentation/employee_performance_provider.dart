@@ -1,10 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/dio_client.dart';
+import '../../auth/data/auth_repository.dart';
 import '../../auth/presentation/login_provider.dart';
 import '../data/commissions_repository.dart';
 import '../domain/employee_performance.dart';
 
 final commissionsRepositoryProvider = Provider<CommissionsRepository>(
-  (_) => CommissionsRepositoryMock(),
+  (ref) => CommissionsRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+  ),
 );
 
 /// `autoDispose` a propósito: se recalcula cada vez que se abre el tablero

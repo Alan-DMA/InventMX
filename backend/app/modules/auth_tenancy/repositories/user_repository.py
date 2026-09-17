@@ -3,7 +3,7 @@ import uuid
 # Importación de tipos estáticos para anotación
 from typing import List, Optional
 # Importación de operadores de consulta y funciones de agregación
-from sqlalchemy import func, select, update, delete
+from sqlalchemy import func, select, update, delete, text
 # Importación de la sesión asíncrona de SQLAlchemy
 from sqlalchemy.ext.asyncio import AsyncSession
 # Importación de estrategia de carga anticipada para relaciones
@@ -63,7 +63,7 @@ class UserRepository:
         """
         Busca un usuario por correo a nivel global (usado principalmente en Login).
         """
-        # Sentencia select buscando coincidencia global de email
+        await self.db.execute(text("SELECT set_config('app.bypass_rls', 'on', true);"))
         stmt = (
             select(User)
             .where(User.email == email)
@@ -73,7 +73,9 @@ class UserRepository:
             )
         )
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
+        await self.db.execute(text("SELECT set_config('app.bypass_rls', 'off', true);"))
+        return user
 
     async def list_by_tenant(self, tenant_id: uuid.UUID) -> List[User]:
         """

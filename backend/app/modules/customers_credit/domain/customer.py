@@ -37,7 +37,7 @@ class Customer(Base):
         CheckConstraint("credit_limit_mxn >= 0", name="chk_customers_credit_limit_non_negative"),
         CheckConstraint("credit_balance_mxn >= 0", name="chk_customers_credit_balance_non_negative"),
         CheckConstraint("credit_days >= 0", name="chk_customers_credit_days_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único universal del cliente
@@ -51,7 +51,7 @@ class Customer(Base):
     # Identificador del inquilino / comercio para aislamiento multi-inquilino (RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         doc="Identificador del inquilino propietario",
     )

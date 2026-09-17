@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,11 +12,11 @@ import 'features/onboarding/presentation/onboarding_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  debugPrint('[Nexus] main() started');
 
-  // Inicializar Hive para caché local de solo lectura
-  // (catálogo de productos, preferencias de UI — nunca tokens).
-  // Constitución Art. II (Sección 2.4: Caché Local Solo Lectura)
-  await Hive.initFlutter();
+  bool hasSession = false;
+  bool onboardingDone = false;
+  String? sessionEmail;
 
   // ── Hidratación de estado persistido ANTES del runApp ──────────────────
   //
@@ -27,39 +28,45 @@ Future<void> main() async {
   //
   // Solución: leer ambas fuentes de persistencia aquí, antes del runApp,
   // y pasar los valores reales como `overrides` al ProviderScope. De esta
-  // forma el primer redirect ya tiene el estado correcto.
-  final storage = SecureStorage();
-  final hasSession = await storage.hasSession();
-  final sessionEmail = await storage.readUserEmail();
+  // forma el primer redirect ya tiene el estado correcto. Envuelto en
+  // try/catch: un storage corrupto o Hive sin inicializar no debe tumbar
+  // el arranque de la app, sólo dejarla en el estado por defecto (login).
+  try {
+    await Hive.initFlutter();
 
-  final onboardingRepo = OnboardingRepositoryHive();
-  final onboardingData = await onboardingRepo.load();
-  final onboardingDone = onboardingData.isCompleted;
-  // ───────────────────────────────────────────────────────────────────────
+    final storage = SecureStorage();
+    hasSession = await storage.hasSession();
+    sessionEmail = await storage.readUserEmail();
 
-  // Orientación preferida: portrait en móvil, libre en tablet/web.
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
+    final onboardingRepo = OnboardingRepositoryHive();
+    final onboardingData = await onboardingRepo.load();
+    onboardingDone = onboardingData.isCompleted;
+  } catch (e, st) {
+    debugPrint('[Nexus] Error hydrating storage: $e\n$st');
+  }
 
-  // Estilo de la barra de sistema coherente con el tema oscuro.
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: Color(0xFF0F172A), // AppColors.darkSlate
-      systemNavigationBarIconBrightness: Brightness.light,
-    ),
-  );
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Color(0xFF0F172A),
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
+  }
+
+  debugPrint('[Nexus] runApp() launching with hasSession=$hasSession, onboardingDone=$onboardingDone');
 
   runApp(
     ProviderScope(
-      // Inyectamos los valores reales hidratados desde disco.
-      // Esto garantiza que GoRouter evalúe el redirect correcto
-      // en su primera ejecución, sin parpadeo ni pantalla incorrecta.
       overrides: [
         sessionProvider.overrideWith((ref) => hasSession),
         currentUserNameProvider.overrideWith((ref) => sessionEmail),
@@ -69,6 +76,7 @@ Future<void> main() async {
     ),
   );
 }
+
 
 /// Widget raíz de la aplicación Nexus.
 ///

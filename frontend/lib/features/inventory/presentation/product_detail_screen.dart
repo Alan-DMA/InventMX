@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../domain/product.dart';
 import 'inventory_provider.dart';
+import 'kardex_provider.dart';
 import 'widgets/action_grid.dart';
 import 'widgets/adjust_stock_modal.dart';
 import 'widgets/kardex_bottom_sheet.dart';
@@ -106,13 +108,13 @@ class ProductDetailScreen extends ConsumerWidget {
 // Cuerpo principal — producto cargado
 // ---------------------------------------------------------------------------
 
-class _DetailBody extends StatelessWidget {
+class _DetailBody extends ConsumerWidget {
   const _DetailBody({required this.product});
 
   final Product product;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
@@ -185,24 +187,34 @@ class _DetailBody extends StatelessWidget {
                 ActionGrid(
                   onAdjustStock: () =>
                       showAdjustStockModal(context, product).then((adjusted) {
-                    if (adjusted && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('✓ Stock ajustado correctamente'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
+                    if (adjusted == true) {
+                      ref.invalidate(productDetailProvider(product.id));
+                      ref.invalidate(inventoryProvider);
+                      ref.invalidate(kardexProvider(product.id));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✓ Stock ajustado correctamente'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     }
                   }),
                   onTransfer: () => showTransferStockModal(context, product)
                       .then((transferred) {
-                    if (transferred && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('✓ Traslado registrado correctamente'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
+                    if (transferred == true) {
+                      ref.invalidate(productDetailProvider(product.id));
+                      ref.invalidate(inventoryProvider);
+                      ref.invalidate(kardexProvider(product.id));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✓ Traslado registrado correctamente'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     }
                   }),
                   onKardex: () => showKardexBottomSheet(
@@ -303,13 +315,13 @@ class _ProductBanner extends StatelessWidget {
       height: 200,
       width: double.infinity,
       color: AppColors.surfaceVariant,
-      child: imageUrl != null
-          ? Image.network(
-              imageUrl!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _placeholder(),
-            )
-          : _placeholder(),
+      child: ProductImageWidget(
+        imageUrl: imageUrl,
+        width: double.infinity,
+        height: 200,
+        fit: BoxFit.cover,
+        placeholder: _placeholder(),
+      ),
     );
   }
 
@@ -569,9 +581,9 @@ class _AdditionalInfoState extends State<_AdditionalInfo> {
                   label: 'Unidad de medida',
                   value: 'Pieza / Botella',
                 ),
-                const _InfoRow(
+                _InfoRow(
                   label: 'Proveedor predeterminado',
-                  value: '—',
+                  value: p.supplierName ?? 'Sin asignar',
                 ),
                 const _InfoRow(
                   label: 'Impuesto aplicable (IVA)',

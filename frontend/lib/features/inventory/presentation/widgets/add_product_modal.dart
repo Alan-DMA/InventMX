@@ -145,7 +145,8 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
     final name = _nameController.text.trim();
     final priceMxn = double.parse(_priceController.text.replaceAll(',', '.'));
     final stockText = _stockController.text.trim();
-    final stock = int.tryParse(stockText) ?? 0;
+    final stock = int.tryParse(stockText) ??
+        (double.tryParse(stockText.replaceAll(',', '.'))?.round() ?? 0);
 
     setState(() {
       _isSaving = true;
@@ -221,17 +222,20 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
                         color: AppColors.skyBlue.withValues(alpha: 0.4)),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.qr_code_2_rounded,
                           size: 16, color: AppColors.skyBlue),
                       const SizedBox(width: 8),
-                      Text(
-                        'Código de Barras: ${widget.initialBarcode}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.onSurface,
+                      Expanded(
+                        child: Text(
+                          'Código de Barras: ${widget.initialBarcode}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.onSurface,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

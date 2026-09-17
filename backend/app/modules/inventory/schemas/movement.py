@@ -20,8 +20,10 @@ class StockAdjustmentCreate(BaseModel):
     """
     # Identificador del producto
     product_id: uuid.UUID = Field(..., description="UUID del producto a ajustar")
-    # Identificador del almacén donde ocurre el ajuste
-    warehouse_id: uuid.UUID = Field(..., description="UUID del almacén donde reside el stock")
+    # Identificador del almacén donde ocurre el ajuste (opcional, recurre al principal)
+    warehouse_id: Optional[uuid.UUID] = Field(
+        None, description="UUID del almacén donde reside el stock (opcional, fallback a principal)"
+    )
     # Cantidad a ajustar (positiva para entrada, negativa para salida o merma)
     quantity: Decimal = Field(
         ...,
@@ -44,6 +46,11 @@ class StockAdjustmentCreate(BaseModel):
         None,
         description="Justificación operativa del ajuste (ej. 'Conteo físico mensual', 'Merma por caducidad')",
         examples=["Conteo físico mensual", "Botella rota en anaquel"],
+    )
+    # Alias para compatibilidad con clientes
+    reason: Optional[str] = Field(
+        None,
+        description="Alias de notas/motivo para compatibilidad",
     )
 
     @field_validator("quantity")

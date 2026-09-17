@@ -19,7 +19,7 @@ from app.modules.customers_credit.domain.credit_ledger import (
 
 class CreditLedgerRepository:
     """
-    Repositorio de persistencia asíncrona para el Libro Mayor de Crédito (inventmx.customer_credit_ledger) (RF-15).
+    Repositorio de persistencia asíncrona para el Libro Mayor de Crédito (public.customer_credit_ledger) (RF-15).
     """
     def __init__(self, session: AsyncSession):
         self.session = session

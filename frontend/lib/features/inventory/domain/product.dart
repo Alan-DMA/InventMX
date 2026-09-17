@@ -42,6 +42,8 @@ class Product {
     this.imageUrl,
     this.warehouseId,
     this.costUsdImport,
+    this.supplierId,
+    this.supplierName,
   });
 
   // --- Identificación ---
@@ -52,6 +54,10 @@ class Product {
   // --- Descripción ---
   final String name;
   final String category;
+
+  // --- Proveedor ---
+  final String? supplierId;
+  final String? supplierName;
 
   // --- Precios en MXN (Constitución Art. I, 1.2.4) ---
   final double priceMxn;
@@ -103,22 +109,61 @@ class Product {
   // ---------------------------------------------------------------------------
 
   factory Product.fromJson(Map<dynamic, dynamic> json) {
+    int parseInt(dynamic value, [int defaultValue = 0]) {
+      if (value == null) return defaultValue;
+      if (value is num) return value.round();
+      final s = value.toString().trim().replaceAll(',', '.');
+      final asDouble = double.tryParse(s);
+      if (asDouble != null) return asDouble.round();
+      return defaultValue;
+    }
+
+    int? parseNullableInt(dynamic value) {
+      if (value == null) return null;
+      if (value is num) return value.round();
+      final s = value.toString().trim().replaceAll(',', '.');
+      final asDouble = double.tryParse(s);
+      return asDouble?.round();
+    }
+
+    double parseDouble(dynamic value, [double defaultValue = 0.0]) {
+      if (value == null) return defaultValue;
+      if (value is num) return value.toDouble();
+      final s = value.toString().trim().replaceAll(',', '.');
+      return double.tryParse(s) ?? defaultValue;
+    }
+
+    double? parseNullableDouble(dynamic value) {
+      if (value == null) return null;
+      if (value is num) return value.toDouble();
+      final s = value.toString().trim().replaceAll(',', '.');
+      return double.tryParse(s);
+    }
+
     // Extracción tolerante y segura de existencias
-    final rawStock = json['total_stock'] ?? json['stock'] ?? 0;
-    final int stockVal = rawStock is num ? rawStock.toInt() : (int.tryParse(rawStock.toString()) ?? 0);
+    final rawStock = json['total_stock'] ??
+        json['stock'] ??
+        json['current_stock'] ??
+        json['available_stock'] ??
+        json['stock_available'];
+    final int stockVal = parseInt(rawStock, 0);
 
-    final rawReserved = json['reserved_stock'] ?? 0;
-    final int resStockVal = rawReserved is num ? rawReserved.toInt() : (int.tryParse(rawReserved.toString()) ?? 0);
+    int resStockVal = parseInt(json['reserved_stock'] ?? json['stock_reserved'], 0);
+    if (resStockVal == 0 && json['stocks'] is List && (json['stocks'] as List).isNotEmpty) {
+      for (final s in (json['stocks'] as List)) {
+        if (s is Map && s['reserved_stock'] != null) {
+          resStockVal += parseInt(s['reserved_stock'], 0);
+        }
+      }
+    }
 
-    final rawAvail = json['available_stock'] ?? json['total_stock'] ?? json['stock'] ?? 0;
-    final int availStockVal = rawAvail is num ? rawAvail.toInt() : (int.tryParse(rawAvail.toString()) ?? 0);
+    final rawAvail = json['available_stock'] ?? json['stock_available'];
+    final int availStockVal = rawAvail != null
+        ? parseInt(rawAvail, 0)
+        : (stockVal - resStockVal).clamp(0, 999999999);
 
     // Umbral de stock mínimo
-    int? minAlertVal;
-    if (json['min_stock_alert'] != null) {
-      final rawAlert = json['min_stock_alert'];
-      minAlertVal = rawAlert is num ? rawAlert.toInt() : int.tryParse(rawAlert.toString());
-    }
+    final int? minAlertVal = parseNullableInt(json['min_stock_alert']);
 
     // Extracción de warehouse_id directo o desde lista de stocks
     String? whId = json['warehouse_id']?.toString();
@@ -130,17 +175,9 @@ class Product {
     }
 
     // Precios y costos
-    final rawPrice = json['price_mxn'] ?? 0;
-    final double priceVal = rawPrice is num ? rawPrice.toDouble() : (double.tryParse(rawPrice.toString()) ?? 0.0);
-
-    final rawCost = json['cost_mxn'] ?? 0;
-    final double costVal = rawCost is num ? rawCost.toDouble() : (double.tryParse(rawCost.toString()) ?? 0.0);
-
-    double? costUsd;
-    if (json['cost_usd_import'] != null) {
-      final rawUsd = json['cost_usd_import'];
-      costUsd = rawUsd is num ? rawUsd.toDouble() : double.tryParse(rawUsd.toString());
-    }
+    final double priceVal = parseDouble(json['price_mxn'] ?? json['price_usd'], 0.0);
+    final double costVal = parseDouble(json['cost_mxn'] ?? json['cost_usd'], 0.0);
+    final double? costUsd = parseNullableDouble(json['cost_usd_import']);
 
     // Fechas
     DateTime parsedDate;
@@ -165,6 +202,8 @@ class Product {
       minStockAlert: minAlertVal,
       imageUrl: json['image_url']?.toString(),
       warehouseId: whId,
+      supplierId: json['supplier_id']?.toString(),
+      supplierName: json['supplier_name']?.toString(),
       isActive: json['is_active'] is bool ? json['is_active'] as bool : (json['is_active']?.toString() != 'false'),
       isOnCatalog: json['is_on_catalog'] is bool ? json['is_on_catalog'] as bool : (json['is_on_catalog']?.toString() == 'true'),
       createdAt: parsedDate,
@@ -177,6 +216,8 @@ class Product {
         'barcode': barcode,
         'name': name,
         'category': category,
+        'supplier_id': supplierId,
+        'supplier_name': supplierName,
         'price_mxn': priceMxn,
         'cost_mxn': costMxn,
         'cost_usd_import': costUsdImport,
@@ -197,6 +238,8 @@ class Product {
     String? barcode,
     String? name,
     String? category,
+    String? supplierId,
+    String? supplierName,
     double? priceMxn,
     double? costMxn,
     double? costUsdImport,
@@ -216,6 +259,8 @@ class Product {
       barcode: barcode ?? this.barcode,
       name: name ?? this.name,
       category: category ?? this.category,
+      supplierId: supplierId ?? this.supplierId,
+      supplierName: supplierName ?? this.supplierName,
       priceMxn: priceMxn ?? this.priceMxn,
       costMxn: costMxn ?? this.costMxn,
       costUsdImport: costUsdImport ?? this.costUsdImport,

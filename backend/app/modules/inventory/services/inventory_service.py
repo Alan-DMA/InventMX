@@ -141,6 +141,8 @@ class InventoryService:
             tenant_id=product.tenant_id,
             category_id=product.category_id,
             category_name=product.category.name if product.category else None,
+            supplier_id=product.supplier_id,
+            supplier_name=product.supplier.name if product.supplier else None,
             name=product.name,
             price_mxn=product.price_mxn,
             cost_mxn=product.cost_mxn,
@@ -270,6 +272,7 @@ class InventoryService:
             cost_usd_import=data.cost_usd_import,
             barcode=final_barcode,
             category_id=category_id,
+            supplier_id=data.supplier_id,
             min_stock_alert=data.min_stock_alert or Decimal("5.00"),
             image_url=data.image_url,
             is_active=True,
@@ -378,6 +381,7 @@ class InventoryService:
             sku=data.sku.strip() if data.sku else None,
             barcode=data.barcode.strip() if data.barcode else None,
             category_id=data.category_id,
+            supplier_id=data.supplier_id,
             min_stock_alert=data.min_stock_alert,
             image_url=data.image_url,
             is_active=data.is_active,
@@ -559,16 +563,21 @@ class InventoryService:
         if not product or product.tenant_id != tenant_id:
             raise NotFoundException(f"Producto con ID '{data.product_id}' no encontrado.")
 
-        # 2. Validar almacén
-        warehouse = await self.warehouse_repo.get_by_id(data.warehouse_id)
+        # 2. Validar o resolver almacén (fallback resiliente a almacén principal)
+        target_warehouse_id = data.warehouse_id
+        zero_uuid = uuid.UUID("00000000-0000-0000-0000-000000000000")
+        warehouse = None
+        if target_warehouse_id and target_warehouse_id != zero_uuid:
+            warehouse = await self.warehouse_repo.get_by_id(target_warehouse_id)
         if not warehouse or warehouse.tenant_id != tenant_id:
-            raise NotFoundException(f"Almacén con ID '{data.warehouse_id}' no encontrado.")
+            warehouse = await self.warehouse_repo.get_or_create_default(tenant_id)
+            target_warehouse_id = warehouse.id
 
         # 3. Buscar o inicializar registro de existencias en el almacén
         stmt = select(ProductStock).where(
             ProductStock.tenant_id == tenant_id,
             ProductStock.product_id == data.product_id,
-            ProductStock.warehouse_id == data.warehouse_id,
+            ProductStock.warehouse_id == target_warehouse_id,
         )
         res = await self.db.execute(stmt)
         stock = res.scalar_one_or_none()
@@ -578,7 +587,7 @@ class InventoryService:
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
                 product_id=data.product_id,
-                warehouse_id=data.warehouse_id,
+                warehouse_id=target_warehouse_id,
                 current_stock=Decimal("0.00"),
                 reserved_stock=Decimal("0.00"),
             )
@@ -610,14 +619,14 @@ class InventoryService:
         movement = await self.movement_repo.record_movement(
             tenant_id=tenant_id,
             product_id=data.product_id,
-            warehouse_id=data.warehouse_id,
+            warehouse_id=target_warehouse_id,
             movement_type=m_type,
             quantity=data.quantity,
             previous_stock=previous_stock,
             new_stock=new_stock,
             unit_cost_mxn=unit_cost,
             user_id=current_user.id,
-            notes=data.notes,
+            notes=data.notes or data.reason,
         )
 
         await self.db.commit()
@@ -1061,6 +1070,10 @@ class InventoryService:
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
         warehouses = await self.warehouse_repo.list_by_tenant(tenant_id)
+        if not warehouses:
+            default_wh = await self.warehouse_repo.get_or_create_default(tenant_id)
+            await self.db.commit()
+            warehouses = [default_wh]
         return [WarehouseResponse.model_validate(w) for w in warehouses]
 
     async def create_warehouse(

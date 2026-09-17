@@ -43,7 +43,7 @@ class PaymentMethod(str, enum.Enum):
 
 class SalePayment(Base):
     """
-    Modelo de Dominio para el Registro Contable de Pagos POS (inventmx.sale_payments).
+    Modelo de Dominio para el Registro Contable de Pagos POS (public.sale_payments).
     Representa cada abono o método de pago liquidado en una nota de venta (RF-13, RF-14).
     """
     # Nombre de la tabla en base de datos
@@ -52,7 +52,7 @@ class SalePayment(Base):
     __table_args__ = (
         CheckConstraint("amount_paid_mxn > 0", name="chk_sale_payments_amount_positive"),
         CheckConstraint("change_returned_mxn >= 0", name="chk_sale_payments_change_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del pago
@@ -66,7 +66,7 @@ class SalePayment(Base):
     # Identificador del inquilino (Tenant) para aislamiento multi-tenant RLS
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID del inquilino propietario de la transacción",
@@ -75,7 +75,7 @@ class SalePayment(Base):
     # Identificador de la venta cabecera a la que pertenece el pago
     sale_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.sales.id", ondelete="CASCADE"),
+        ForeignKey("public.sales.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID de la venta liquidada",
@@ -83,7 +83,7 @@ class SalePayment(Base):
 
     # Método de pago utilizado
     payment_method: Mapped[PaymentMethod] = mapped_column(
-        SQLEnum(PaymentMethod, name="payment_method_enum", schema="inventmx", native_enum=True),
+        SQLEnum(PaymentMethod, name="payment_method_enum", schema="public", native_enum=True),
         nullable=False,
         index=True,
         doc="Método contable de pago recibido",

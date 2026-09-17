@@ -1,3 +1,5 @@
+# Importación del módulo de sistema operativo
+import os
 # Importación de tipado estático
 from typing import List, Optional
 # Importación de UUID para tipado de parámetros de ruta
@@ -7,6 +9,8 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 # Importación de la sesión asíncrona de base de datos
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Importación de la configuración centralizada
+from app.core.config.settings import settings
 # Importación de la dependencia del pool de conexiones
 from app.core.database.session import get_db
 # Importación de dependencias de autenticación y autorización RBAC
@@ -552,4 +556,37 @@ async def execute_import_file(
     file_bytes = await file.read()
     service = InventoryService(db)
     return await service.execute_import(file_bytes, file.filename or "archivo.xlsx", column_mapping, current_user)
+
+
+# =============================================================================
+# ENDPOINT DE SUBIDA DE IMÁGENES DE PRODUCTOS
+# =============================================================================
+
+@router.post(
+    "/upload-image",
+    summary="Subir imagen de producto o artículo de inventario",
+)
+async def upload_product_image(
+    file: UploadFile = File(..., description="Archivo de imagen"),
+    current_user: User = Depends(require_active_tenant),
+):
+    """
+    Recibe una imagen (PNG, JPG, WEBP), la almacena en el servidor y retorna
+    la ruta relativa (/uploads/images/...) para asociarla a cualquier producto.
+    """
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+        ext = ".jpg"
+
+    unique_filename = f"{uuid.uuid4().hex}{ext}"
+    images_dir = os.path.join(settings.UPLOAD_DIR, "images")
+    os.makedirs(images_dir, exist_ok=True)
+    file_path = os.path.join(images_dir, unique_filename)
+
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    return {"url": f"/uploads/images/{unique_filename}"}
+
 

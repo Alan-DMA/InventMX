@@ -1,6 +1,8 @@
 import 'dart:math';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/dio_client.dart';
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
 import '../domain/cart_item.dart';
 import '../domain/cart_state.dart';
@@ -110,17 +112,25 @@ class SaleAlreadyRefundedException implements Exception {
 }
 
 // ---------------------------------------------------------------------------
+// Excepción de dominio para Ventas / POS
+// ---------------------------------------------------------------------------
+
+class SalesException implements Exception {
+  const SalesException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+// ---------------------------------------------------------------------------
 // Contrato
 // ---------------------------------------------------------------------------
 
 abstract class SalesRepository {
-  /// POST /sales/checkout
+  /// POST /api/v1/sales/checkout
   /// Procesa la venta transaccional con uno o más métodos de pago (Tarea 7.2)
   /// y retorna el resultado.
-  ///
-  /// [cashierName] no viaja en el request real (el backend lo deriva del
-  /// JWT) — aquí se pasa solo para que el Mock pueda ecoarlo en el ticket
-  /// (Tarea 8.2) mientras Alan no entrega el perfil de usuario autenticado.
   Future<CheckoutResult> checkout({
     required List<CartItem> items,
     required List<PaymentEntry> payments,
@@ -157,7 +167,188 @@ abstract class SalesRepository {
 }
 
 // ---------------------------------------------------------------------------
-// Mock — activo hasta que Alan complete Tarea 6.1 (backend POS)
+// Implementación Real (Conexión Directa a la API FastAPI / PostgreSQL)
+// ---------------------------------------------------------------------------
+
+class SalesRepositoryImpl implements SalesRepository {
+  SalesRepositoryImpl({required this.client});
+
+  final DioClient client;
+  final List<CheckoutResult> _sessionSales = [];
+
+  List<CheckoutResult> get sessionSales => List.unmodifiable(_sessionSales);
+
+  @override
+  Future<CheckoutResult> checkout({
+    required List<CartItem> items,
+    required List<PaymentEntry> payments,
+    required String cashierName,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'items': items.map((item) {
+          final map = <String, dynamic>{
+            'name': item.name,
+            'quantity': item.quantity,
+            'unit_price_usd': item.unitPriceMxn,
+            'unit_price_mxn': item.unitPriceMxn,
+          };
+          if (item.productId != null && item.productId!.isNotEmpty) {
+            map['product_id'] = item.productId;
+          }
+          return map;
+        }).toList(),
+        'payments': payments.map((p) {
+          final map = <String, dynamic>{
+            'payment_method': p.method.apiValue,
+            'amount_usd': p.amountMxn,
+            'amount_mxn': p.amountMxn,
+          };
+          if (p.referenceCode != null && p.referenceCode!.isNotEmpty) {
+            map['reference_number'] = p.referenceCode;
+          }
+          return map;
+        }).toList(),
+      };
+
+      final response = await client.post(
+        '/api/v1/sales/checkout',
+        data: payload,
+      );
+
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const SalesException('Respuesta inválida al procesar la venta.');
+      }
+
+      final saleId = data['sale_id']?.toString() ??
+          'sale-${DateTime.now().millisecondsSinceEpoch}';
+      final folio = data['folio']?.toString() ?? 'NV-SIN-FOLIO';
+      final totalMxn =
+          (data['total_mxn'] ?? data['total_usd'] as num?)?.toDouble() ??
+              items.fold(0.0, (sum, i) => sum + i.subtotalMxn);
+      final totalPaidMxn =
+          (data['total_paid_mxn'] ?? data['total_paid_usd'] as num?)?.toDouble() ??
+              payments.fold(0.0, (sum, p) => sum + p.amountMxn);
+      final changeGivenMxn =
+          (data['change_given_mxn'] ?? data['change_given_usd'] as num?)?.toDouble() ??
+              (totalPaidMxn - totalMxn).clamp(0.0, double.infinity);
+      final completedAtStr = data['completed_at']?.toString();
+      final completedAt = completedAtStr != null
+          ? DateTime.tryParse(completedAtStr) ?? DateTime.now()
+          : DateTime.now();
+
+      final result = CheckoutResult(
+        saleId: saleId,
+        folio: folio,
+        totalMxn: totalMxn,
+        totalPaidMxn: totalPaidMxn,
+        changeGivenMxn: changeGivenMxn,
+        items: List.unmodifiable(items),
+        payments: List.unmodifiable(payments),
+        cashierName: cashierName,
+        completedAt: completedAt,
+      );
+
+      _sessionSales.add(result);
+      return result;
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is SalesException) rethrow;
+      throw SalesException('Error inesperado al procesar la venta: $e');
+    }
+  }
+
+  Exception _mapDioError(DioException e) {
+    if (e.response != null) {
+      final data = e.response?.data;
+      if (data is Map) {
+        if (data['detail'] is Map && data['detail']['message'] != null) {
+          return SalesException(data['detail']['message'].toString());
+        }
+        if (data['error'] is Map && data['error']['message'] != null) {
+          return SalesException(data['error']['message'].toString());
+        }
+        if (data['detail'] != null && data['detail'] is String) {
+          return SalesException(data['detail'].toString());
+        }
+        if (data['message'] != null && data['message'] is String) {
+          return SalesException(data['message'].toString());
+        }
+      }
+    }
+
+    switch (e.response?.statusCode) {
+      case 400:
+        return const SalesException(
+            'Error en los datos de la venta o existencias insuficientes.');
+      case 401:
+        return const SalesException('Sesión expirada. Inicie sesión nuevamente.');
+      case 403:
+        return const SalesException(
+            'No tiene permisos para procesar cobros en el TPV.');
+      case 404:
+        return const SalesException('Almacén o producto no encontrado.');
+      case 409:
+        return const SalesException(
+            'Conflicto al procesar la venta. Intente de nuevo.');
+      case 422:
+        return const SalesException(
+            'Error de validación en los productos o importes de pago.');
+      case 500:
+      case 502:
+      case 503:
+        return const SalesException(
+            'Servidor no disponible. Intente más tarde.');
+      default:
+        if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.connectionError) {
+          return const SalesException(
+              'Sin conexión con el servidor. Verifique su red.');
+        }
+        return SalesException('Error de red: ${e.message ?? e.type.name}');
+    }
+  }
+
+  // TODO(integración real): Kardex de ventas (Fase 2) — pendiente de
+  // reconciliar contra `GET /sales`, `GET /sales/{id}` y `POST /{id}/cancel`
+  // del backend modular. El contrato real no calza tal cual: cajero
+  // filtrado por `cashier_id` (UUID) en vez de nombre, listado sin
+  // total/suma agregada, y sólo cancelación total (no reembolso parcial por
+  // renglón, que sí existe hoy en el mock). Mientras tanto,
+  // `salesRepositoryProvider` sigue en `SalesRepositoryMock`.
+  @override
+  Future<PaginatedSales> getSales({
+    SalesQuery query = const SalesQuery(),
+    int page = 1,
+    int pageSize = 20,
+  }) =>
+      throw UnimplementedError(
+          'SalesRepositoryImpl.getSales: pendiente de integración real (Kardex).');
+
+  @override
+  Future<CheckoutResult> getSaleById(String id) => throw UnimplementedError(
+      'SalesRepositoryImpl.getSaleById: pendiente de integración real (Kardex).');
+
+  @override
+  Future<List<String>> getCashiers() => throw UnimplementedError(
+      'SalesRepositoryImpl.getCashiers: pendiente de integración real (Kardex).');
+
+  @override
+  Future<CheckoutResult> refundSale({
+    required String saleId,
+    required String reason,
+    required bool refundToStock,
+    List<RefundedLine>? itemsToRefund,
+  }) =>
+      throw UnimplementedError(
+          'SalesRepositoryImpl.refundSale: el backend real sólo tiene cancelación total (POST /{id}/cancel), sin reembolso parcial por renglón — pendiente de decidir con Alan.');
+}
+
+// ---------------------------------------------------------------------------
+// Mock — mantenido para tests offline o pruebas de UI
 // ---------------------------------------------------------------------------
 
 class SalesRepositoryMock implements SalesRepository {
@@ -515,9 +706,16 @@ class SalesRepositoryMock implements SalesRepository {
 }
 
 // ---------------------------------------------------------------------------
-// Provider
+// Provider conectado al Repositorio Real de Ventas
 // ---------------------------------------------------------------------------
 
+// Sigue en Mock por decisión de Eduardo (Sep 2026): `SalesRepositoryImpl`
+// (de Alan) sólo cubre `checkout()` contra el backend real — `getSales`,
+// `getSaleById`, `getCashiers` y `refundSale` (Kardex, Fase 2) están
+// pendientes de una integración aparte, porque su contrato real no calza
+// tal cual (cancelación total vs. reembolso parcial por renglón, cajero
+// filtrado por `cashier_id` en vez de nombre, listado sin total/suma).
 final salesRepositoryProvider = Provider<SalesRepository>(
   (ref) => SalesRepositoryMock(clock: ref.watch(clockProvider)),
 );
+

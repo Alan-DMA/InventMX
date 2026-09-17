@@ -17,6 +17,9 @@ EXEMPT_PATHS = [
     "/api/v1/auth/login",
     "/api/v1/auth/register",
     "/api/v1/auth/refresh",
+    "/api/v1/saas/plans",
+    "/api/v1/billing",
+    "/api/v1/webhooks",
     "/api/v1/saas-billing/webhooks",
     "/api/v1/saas-billing/plans",
 ]

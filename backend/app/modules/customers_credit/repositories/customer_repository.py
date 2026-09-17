@@ -15,7 +15,7 @@ from app.modules.customers_credit.domain.customer import Customer
 
 class CustomerRepository:
     """
-    Repositorio de persistencia asíncrona para Clientes (inventmx.customers) (RF-06).
+    Repositorio de persistencia asíncrona para Clientes (public.customers) (RF-06).
     Garantiza aislamiento multi-inquilino y soporte de búsquedas avanzadas en mostrador.
     """
     def __init__(self, session: AsyncSession):

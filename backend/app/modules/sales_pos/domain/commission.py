@@ -39,7 +39,7 @@ class CommissionType(str, enum.Enum):
 
 class SaleCommission(Base):
     """
-    Modelo de Dominio para el Asiento Inmutable de Comisiones por Venta (inventmx.sale_commissions).
+    Modelo de Dominio para el Asiento Inmutable de Comisiones por Venta (public.sale_commissions).
     Garantiza transparencia en los incentivos laborales de cajeros y vendedores (RF-10 / Const. Art. 8.2).
     """
     # Nombre de la tabla física en PostgreSQL
@@ -48,7 +48,7 @@ class SaleCommission(Base):
     __table_args__ = (
         CheckConstraint("commission_rate >= 0", name="chk_sale_commissions_rate_non_negative"),
         CheckConstraint("commission_amount_mxn >= 0", name="chk_sale_commissions_amount_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del asiento de comisión
@@ -62,7 +62,7 @@ class SaleCommission(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el comercio dueño de la comisión",
@@ -71,7 +71,7 @@ class SaleCommission(Base):
     # Identificador de la venta que originó la comisión
     sale_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.sales.id", ondelete="CASCADE"),
+        ForeignKey("public.sales.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia la venta comisionable",
@@ -80,7 +80,7 @@ class SaleCommission(Base):
     # Identificador del usuario beneficiario (cajero o vendedor asignado)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="CASCADE"),
+        ForeignKey("public.users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el empleado acreedor de la comisión",
@@ -91,7 +91,7 @@ class SaleCommission(Base):
         SQLEnum(
             CommissionType,
             name="commission_type_enum",
-            schema="inventmx",
+            schema="public",
             values_callable=lambda x: [e.value for e in x],
         ),
         nullable=False,

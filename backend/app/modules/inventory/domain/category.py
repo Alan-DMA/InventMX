@@ -15,13 +15,13 @@ from app.core.database.base import Base
 
 class Category(Base):
     """
-    Modelo de Dominio para la entidad Categoría en el schema 'inventmx'.
+    Modelo de Dominio para la entidad Categoría en el schema 'public'.
     Permite clasificar y organizar productos dentro del comercio multi-tenant.
     """
     # Nombre de la tabla física en PostgreSQL
     __tablename__ = "categories"
     # Esquema específico de inventario y aislamiento
-    __table_args__ = {"schema": "inventmx"}
+    __table_args__ = {"schema": "public"}
 
     # Identificador único UUID de la categoría
     id: Mapped[uuid.UUID] = mapped_column(
@@ -34,7 +34,7 @@ class Category(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el inquilino/comercio dueño del registro",

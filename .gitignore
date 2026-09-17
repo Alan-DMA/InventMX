@@ -77,6 +77,10 @@ ENV/
 *.sqlite
 *.sqlite3
 
+# Uploads y archivos multimedia temporales
+backend/app/uploads/
+backend/uploads/
+
 # IDEs & OS
 .idea/
 .vscode/

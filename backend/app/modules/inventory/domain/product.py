@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -26,7 +27,7 @@ from app.core.database.base import Base
 
 class Product(Base):
     """
-    Modelo de Dominio para la entidad Producto en el schema 'inventmx'.
+    Modelo de Dominio para la entidad Producto en el schema 'public'.
     Implementa la regla sagrada de los 3 Campos Vitales:
     1. name: Nombre comercial del artículo
     2. price_mxn: Precio de venta en Pesos Mexicanos (Moneda Base)
@@ -45,7 +46,7 @@ class Product(Base):
         # Validación de umbral de stock mínimo no negativo
         CheckConstraint("min_stock_alert >= 0", name="chk_products_min_stock_non_negative"),
         # Esquema específico de inventario
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del producto
@@ -59,7 +60,7 @@ class Product(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el comercio dueño del producto",
@@ -68,10 +69,19 @@ class Product(Base):
     # Identificador opcional de categoría
     category_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.categories.id", ondelete="SET NULL"),
+        ForeignKey("public.categories.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="Clave foránea hacia la categoría de clasificación",
+    )
+
+    # Identificador opcional de proveedor habitual
+    supplier_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.suppliers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Clave foránea hacia el proveedor habitual del producto",
     )
 
     # Campo Vital 1: Nombre comercial del artículo
@@ -128,7 +138,7 @@ class Product(Base):
 
     # URL o ruta a la imagen del producto
     image_url: Mapped[Optional[str]] = mapped_column(
-        String(500),
+        Text,
         nullable=True,
         doc="Enlace a la fotografía o miniatura del producto",
     )
@@ -171,6 +181,13 @@ class Product(Base):
         "Category",
         back_populates="products",
         doc="Categoría asignada al producto",
+    )
+
+    # Relación con el Proveedor
+    supplier: Mapped[Optional["app.modules.purchasing_suppliers.domain.supplier.Supplier"]] = relationship(
+        "app.modules.purchasing_suppliers.domain.supplier.Supplier",
+        lazy="selectin",
+        doc="Proveedor habitual asignado al producto",
     )
 
     # Relación con las existencias en cada almacén

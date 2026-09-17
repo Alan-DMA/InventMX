@@ -33,7 +33,7 @@ class SeedProduct(Base):
     # Configuración de constraints de esquema y validaciones
     __table_args__ = (
         CheckConstraint("suggested_price_mxn >= 0", name="chk_seed_price_mxn_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del producto semilla

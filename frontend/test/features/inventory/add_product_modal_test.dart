@@ -306,4 +306,32 @@ void main() {
     );
     expect(priceEditable.focusNode.hasFocus, isTrue);
   });
+
+  // ── CA-07: no produce overflow con initialBarcode y teclado abierto ──────
+  testWidgets('con initialBarcode y teclado virtual abierto no produce overflow',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetViewInsets();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark,
+        home: const Scaffold(
+          body: AddProductModal(initialBarcode: '8902080104567'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Código de Barras: 8902080104567'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
+

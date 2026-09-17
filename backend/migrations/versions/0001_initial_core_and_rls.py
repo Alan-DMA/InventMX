@@ -16,7 +16,7 @@ down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
@@ -25,7 +25,7 @@ def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
     op.execute('CREATE EXTENSION IF NOT EXISTS "pg_trgm";')
 
-    # 2. Creación segura de Enums en el schema inventmx
+    # 2. Creación segura de Enums en el schema public
     op.execute(f"""
         DO $$
         BEGIN
@@ -112,7 +112,10 @@ def upgrade() -> None:
     op.execute(f"""
         CREATE POLICY tenant_isolation_policy ON {SCHEMA}.users
         FOR ALL
-        USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+        USING (
+            current_setting('app.bypass_rls', true) = 'on'
+            OR tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+        )
         WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
     """)
 

@@ -44,7 +44,7 @@ class Supplier(Base):
         CheckConstraint("credit_limit_mxn >= 0", name="chk_suppliers_credit_limit_mxn"),
         Index("idx_suppliers_tenant_name", "tenant_id", "name"),
         Index("idx_suppliers_tenant_rfc", "tenant_id", "rfc"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID
@@ -52,7 +52,7 @@ class Supplier(Base):
     # Identificador del inquilino (Aislamiento Multi-tenant RLS)
     tenant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Nombre de la empresa proveedora o razón social
@@ -71,7 +71,7 @@ class Supplier(Base):
     credit_limit_mxn = Column(Numeric(14, 2), nullable=False, default=Decimal("0.00"))
     # Estado activo o inactivo
     status = Column(
-        Enum(SupplierStatus, name="supplier_status_enum", schema="inventmx"),
+        Enum(SupplierStatus, name="supplier_status_enum", schema="public"),
         nullable=False,
         default=SupplierStatus.ACTIVE,
     )

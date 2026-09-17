@@ -17,7 +17,7 @@ Future<void> showProductLabelModal(BuildContext context, Product product) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    useRootNavigator: true,
+    useRootNavigator: false,
     backgroundColor: Colors.transparent,
     builder: (_) => ProductLabelModal(product: product),
   );

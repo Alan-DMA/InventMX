@@ -24,7 +24,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
@@ -67,7 +67,7 @@ def upgrade() -> None:
     )
 
     # -------------------------------------------------------------------------
-    # 2. Creación de la Tabla de Turnos de Caja (inventmx.cash_shifts)
+    # 2. Creación de la Tabla de Turnos de Caja (public.cash_shifts)
     # -------------------------------------------------------------------------
     op.create_table(
         "cash_shifts",
@@ -149,7 +149,7 @@ def upgrade() -> None:
     )
 
     # -------------------------------------------------------------------------
-    # 3. Creación de la Tabla de Movimientos de Caja (inventmx.cash_movements)
+    # 3. Creación de la Tabla de Movimientos de Caja (public.cash_movements)
     # -------------------------------------------------------------------------
     op.create_table(
         "cash_movements",

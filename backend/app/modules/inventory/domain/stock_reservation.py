@@ -44,7 +44,7 @@ class StockReservation(Base):
     # Constraints de esquema y cantidad positiva
     __table_args__ = (
         CheckConstraint("quantity > 0", name="chk_stock_reservations_quantity_positive"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID de la reserva
@@ -58,7 +58,7 @@ class StockReservation(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el inquilino/comercio dueño del registro",
@@ -67,7 +67,7 @@ class StockReservation(Base):
     # Identificador del producto apartado
     product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.products.id", ondelete="CASCADE"),
+        ForeignKey("public.products.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el producto",
@@ -76,7 +76,7 @@ class StockReservation(Base):
     # Identificador del almacén donde se apartan las existencias
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="RESTRICT"),
+        ForeignKey("public.warehouses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el almacén de resguardo",
@@ -91,7 +91,7 @@ class StockReservation(Base):
 
     # Estado actual del ciclo de vida del apartado
     status: Mapped[ReservationStatus] = mapped_column(
-        SQLEnum(ReservationStatus, name="reservation_status_enum", schema="inventmx"),
+        SQLEnum(ReservationStatus, name="reservation_status_enum", schema="public"),
         default=ReservationStatus.PENDING,
         nullable=False,
         index=True,

@@ -42,7 +42,7 @@ class SaleStatus(str, enum.Enum):
 
 class Sale(Base):
     """
-    Modelo de Dominio para la Cabecera de Ventas POS (inventmx.sales).
+    Modelo de Dominio para la Cabecera de Ventas POS (public.sales).
     Representa el comprobante y transacción de venta en mostrador (RF-08, RF-12, RF-13).
     """
     # Nombre de la tabla en base de datos
@@ -53,7 +53,7 @@ class Sale(Base):
         CheckConstraint("subtotal_mxn >= 0", name="chk_sales_subtotal_non_negative"),
         CheckConstraint("discount_mxn >= 0", name="chk_sales_discount_non_negative"),
         CheckConstraint("total_cost_mxn >= 0", name="chk_sales_total_cost_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID de la venta
@@ -67,7 +67,7 @@ class Sale(Base):
     # Identificador del inquilino (Tenant) para aislamiento multi-tenant RLS
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID del inquilino propietario de la venta",
@@ -76,7 +76,7 @@ class Sale(Base):
     # Identificador del usuario/cajero que procesó la venta
     cashier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="RESTRICT"),
+        ForeignKey("public.users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
         doc="ID del usuario cajero responsable del cobro",
@@ -85,7 +85,7 @@ class Sale(Base):
     # Identificador del almacén de donde se descontó la mercancía
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="RESTRICT"),
+        ForeignKey("public.warehouses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
         doc="ID del almacén físico de origen del stock",
@@ -108,7 +108,7 @@ class Sale(Base):
 
     # Estado actual del ciclo de venta
     status: Mapped[SaleStatus] = mapped_column(
-        SQLEnum(SaleStatus, name="sale_status_enum", schema="inventmx", native_enum=True),
+        SQLEnum(SaleStatus, name="sale_status_enum", schema="public", native_enum=True),
         default=SaleStatus.COMPLETED,
         nullable=False,
         index=True,
@@ -252,7 +252,7 @@ class Sale(Base):
 
 class SaleItem(Base):
     """
-    Modelo de Dominio para las Partidas Individuales de Venta (inventmx.sale_items).
+    Modelo de Dominio para las Partidas Individuales de Venta (public.sale_items).
     Almacena el snapshot congelado del producto, su precio y su costo unitario histórico.
     """
     # Nombre de la tabla en base de datos
@@ -263,7 +263,7 @@ class SaleItem(Base):
         CheckConstraint("unit_price_mxn >= 0", name="chk_sale_items_price_non_negative"),
         CheckConstraint("unit_cost_mxn >= 0", name="chk_sale_items_cost_non_negative"),
         CheckConstraint("total_mxn >= 0", name="chk_sale_items_total_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único de la partida
@@ -277,7 +277,7 @@ class SaleItem(Base):
     # Identificador del inquilino (Tenant) para aislamiento multi-tenant RLS
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID del inquilino propietario",
@@ -286,7 +286,7 @@ class SaleItem(Base):
     # Identificador de la venta cabecera
     sale_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.sales.id", ondelete="CASCADE"),
+        ForeignKey("public.sales.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID de la venta a la que pertenece la partida",
@@ -295,7 +295,7 @@ class SaleItem(Base):
     # Identificador del producto físico (NULL si es combo o ítem no asociado)
     product_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.products.id", ondelete="SET NULL"),
+        ForeignKey("public.products.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="ID del producto físico vendido",
@@ -304,7 +304,7 @@ class SaleItem(Base):
     # Identificador del combo o paquete promocional (NULL si es producto normal)
     combo_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.combos.id", ondelete="SET NULL"),
+        ForeignKey("public.combos.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="ID del combo vendido",

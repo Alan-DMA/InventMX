@@ -27,7 +27,7 @@ from app.core.database.base import Base
 
 class Combo(Base):
     """
-    Modelo de Dominio para la entidad Combo / Promoción en el schema 'inventmx' (RF-03).
+    Modelo de Dominio para la entidad Combo / Promoción en el schema 'public' (RF-03).
     Permite agrupar múltiples productos individuales bajo un precio único en MXN.
     Al venderse en POS, descuenta atómicamente el stock de cada artículo componente.
     """
@@ -37,7 +37,7 @@ class Combo(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "sku", name="uq_combos_tenant_sku"),
         CheckConstraint("price_mxn >= 0", name="chk_combos_price_mxn_non_negative"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del combo
@@ -51,7 +51,7 @@ class Combo(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el inquilino/comercio dueño del combo",
@@ -143,7 +143,7 @@ class ComboItem(Base):
     __table_args__ = (
         UniqueConstraint("combo_id", "product_id", name="uq_combo_items_combo_product"),
         CheckConstraint("quantity > 0", name="chk_combo_items_quantity_positive"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del ítem de combo
@@ -157,7 +157,7 @@ class ComboItem(Base):
     # Identificador del comercio propietario (RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         doc="Clave foránea hacia el comercio dueño",
     )
@@ -165,7 +165,7 @@ class ComboItem(Base):
     # Identificador del combo padre
     combo_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.combos.id", ondelete="CASCADE"),
+        ForeignKey("public.combos.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el combo contenedor",
@@ -174,7 +174,7 @@ class ComboItem(Base):
     # Identificador del producto individual
     product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.products.id", ondelete="RESTRICT"),
+        ForeignKey("public.products.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el producto componente",

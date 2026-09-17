@@ -29,9 +29,8 @@ String getEffectiveApiBaseUrl() {
     return 'http://localhost:8000';
   }
 
-  // 3. Si se ejecuta en Android (Emulador)
+  // 3. Si se ejecuta en Android (Emulador usa 10.0.2.2 para mapear localhost anfitrión)
   if (defaultTargetPlatform == TargetPlatform.android) {
-    // 10.0.2.2 redirige al localhost del equipo anfitrión
     return 'http://10.0.2.2:8000';
   }
 

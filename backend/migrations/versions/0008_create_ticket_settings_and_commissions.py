@@ -22,12 +22,12 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
     # -------------------------------------------------------------------------
-    # 1. Creación de la Tabla de Configuración de Tickets (inventmx.ticket_settings)
+    # 1. Creación de la Tabla de Configuración de Tickets (public.ticket_settings)
     # -------------------------------------------------------------------------
     op.execute(f"""
         CREATE TABLE IF NOT EXISTS {SCHEMA}.ticket_settings (
@@ -82,7 +82,7 @@ def upgrade() -> None:
     """)
 
     # -------------------------------------------------------------------------
-    # 3. Creación de la Tabla de Comisiones de Venta (inventmx.sale_commissions)
+    # 3. Creación de la Tabla de Comisiones de Venta (public.sale_commissions)
     # -------------------------------------------------------------------------
     op.execute(f"""
         CREATE TABLE IF NOT EXISTS {SCHEMA}.sale_commissions (

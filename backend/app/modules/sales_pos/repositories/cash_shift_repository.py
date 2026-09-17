@@ -16,7 +16,7 @@ from app.modules.sales_pos.domain.cash_shift import CashShift, ShiftStatus
 
 class CashShiftRepository:
     """
-    Repositorio de persistencia asíncrona para Turnos de Caja (inventmx.cash_shifts) (RF-16, RF-17).
+    Repositorio de persistencia asíncrona para Turnos de Caja (public.cash_shifts) (RF-16, RF-17).
     Garantiza aislamiento multi-inquilino y operaciones de auditoría física.
     """
     def __init__(self, session: AsyncSession):

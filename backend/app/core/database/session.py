@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from app.core.config.settings import settings
 
-# Motor asíncrono con schema inventmx y pool de conexiones optimizado
+# Motor asíncrono con schema único universal public y pool de conexiones optimizado
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=(settings.ENVIRONMENT == "development"),
@@ -18,7 +18,7 @@ engine = create_async_engine(
     pool_recycle=3600,
     connect_args={
         "server_settings": {
-            "search_path": "inventmx,public"
+            "search_path": "public"
         }
     },
 )

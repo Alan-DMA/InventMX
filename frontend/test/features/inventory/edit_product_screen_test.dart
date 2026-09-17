@@ -401,8 +401,8 @@ void main() {
     expect(switchAfter.value, isFalse);
   });
 
-  // ── CA-08: botón Cambiar foto muestra SnackBar placeholder ────────────────
-  testWidgets('botón Cambiar foto muestra SnackBar de próximamente',
+  // ── CA-08: botón Cambiar foto muestra modal de opciones ────────────────
+  testWidgets('botón Cambiar foto muestra modal de opciones de imagen',
       (tester) async {
     final p = _baseProduct();
     await tester.pumpWidget(_buildScreen(product: p));
@@ -411,9 +411,89 @@ void main() {
     await tester.tap(find.text('Cambiar foto'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('próximamente'),
-      findsOneWidget,
-    );
+    expect(find.text('Subir imagen desde archivo'), findsWidgets);
+    expect(find.text('Ingresar URL de imagen'), findsOneWidget);
+  });
+
+  // ── CA-09: guardar con nueva categoría envía nombre de categoría escrita ─
+  testWidgets('guardar con nueva categoría envía nombre escrito en _categoryCon',
+      (tester) async {
+    final p = _baseProduct();
+    final mock = MockInventoryRepository();
+    _stubGetProducts(mock, products: [p]);
+
+    when(
+      () => mock.updateProduct(
+        productId: any(named: 'productId'),
+        name: any(named: 'name'),
+        priceMxn: any(named: 'priceMxn'),
+        costMxn: any(named: 'costMxn'),
+        category: any(named: 'category'),
+        barcode: any(named: 'barcode'),
+        minStockAlert: any(named: 'minStockAlert'),
+        imageUrl: any(named: 'imageUrl'),
+        isActive: any(named: 'isActive'),
+      ),
+    ).thenAnswer((_) async => p.copyWith(category: 'Congelados'));
+
+    when(
+      () => mock.getMovements(
+        productId: any(named: 'productId'),
+        movementType: any(named: 'movementType'),
+        dateFrom: any(named: 'dateFrom'),
+        dateTo: any(named: 'dateTo'),
+        page: any(named: 'page'),
+        pageSize: any(named: 'pageSize'),
+      ),
+    ).thenAnswer((_) async => const PaginatedMovements(
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize: 20,
+          totalPages: 1,
+        ));
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [inventoryRepositoryProvider.overrideWithValue(mock)],
+      child: MaterialApp(
+        theme: AppTheme.dark,
+        home: EditProductScreen(product: p),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Abre el dropdown de categoría
+    await tester.ensureVisible(find.byType(DropdownButtonFormField<String>));
+    await tester.tap(find.byType(DropdownButtonFormField<String>),
+        warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    // Selecciona "Nueva categoría..."
+    await tester.tap(find.text('Nueva categoría...').last);
+    await tester.pumpAndSettle();
+
+    // Escribe la nueva categoría
+    expect(find.widgetWithText(TextFormField, 'Nueva categoría'), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nueva categoría'), 'Congelados');
+    await tester.pump();
+
+    // Tap Guardar
+    await tester.tap(find.widgetWithText(TextButton, 'Guardar'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+
+    // Verifica que se invocó updateProduct con category: 'Congelados'
+    verify(() => mock.updateProduct(
+          productId: p.id,
+          name: any(named: 'name'),
+          priceMxn: any(named: 'priceMxn'),
+          costMxn: any(named: 'costMxn'),
+          category: 'Congelados',
+          barcode: any(named: 'barcode'),
+          minStockAlert: any(named: 'minStockAlert'),
+          imageUrl: any(named: 'imageUrl'),
+          isActive: any(named: 'isActive'),
+        )).called(1);
   });
 }

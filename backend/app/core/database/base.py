@@ -4,14 +4,14 @@ from sqlalchemy import DateTime, ForeignKey, MetaData
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
-# Metadata con schema por defecto 'inventmx'
+# Metadata con schema por defecto 'public'
 metadata_obj = MetaData(schema=SCHEMA)
 
 
 class Base(DeclarativeBase):
-    """Base declarativa para todos los modelos del sistema en schema inventmx."""
+    """Base declarativa para todos los modelos del sistema en schema public."""
     metadata = metadata_obj
 
 
