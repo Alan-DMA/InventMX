@@ -51,7 +51,7 @@ class AccountPayable(Base):
         Index("idx_ap_tenant_supplier", "tenant_id", "supplier_id"),
         Index("idx_ap_tenant_status", "tenant_id", "status"),
         Index("idx_ap_tenant_due_date", "tenant_id", "due_date"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID
@@ -59,19 +59,19 @@ class AccountPayable(Base):
     # Identificador del inquilino (Aislamiento RLS)
     tenant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Identificador del proveedor acreedor
     supplier_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.suppliers.id", ondelete="RESTRICT"),
+        ForeignKey("public.suppliers.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Identificador de la orden de compra que originó la deuda (opcional)
     purchase_order_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.purchase_orders.id", ondelete="SET NULL"),
+        ForeignKey("public.purchase_orders.id", ondelete="SET NULL"),
         nullable=True,
     )
     # Consecutivo único de la cuenta por pagar (ej: CXP-00001)
@@ -82,7 +82,7 @@ class AccountPayable(Base):
     amount_paid_mxn = Column(Numeric(14, 2), nullable=False, default=Decimal("0.00"))
     # Estado de la deuda (PENDING, PARTIALLY_PAID, PAID, OVERDUE, CANCELLED)
     status = Column(
-        Enum(AccountPayableStatus, name="account_payable_status_enum", schema="inventmx"),
+        Enum(AccountPayableStatus, name="account_payable_status_enum", schema="public"),
         nullable=False,
         default=AccountPayableStatus.PENDING,
     )
@@ -120,7 +120,7 @@ class SupplierPaymentLedger(Base):
         CheckConstraint("amount_paid_mxn > 0", name="chk_supplier_payment_amount_mxn"),
         Index("idx_supplier_payment_tenant_ap", "tenant_id", "account_payable_id"),
         Index("idx_supplier_payment_tenant_supplier", "tenant_id", "supplier_id"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID
@@ -128,26 +128,26 @@ class SupplierPaymentLedger(Base):
     # Identificador del inquilino (Aislamiento RLS)
     tenant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Identificador de la cuenta por pagar liquidada/abonada
     account_payable_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.accounts_payable.id", ondelete="CASCADE"),
+        ForeignKey("public.accounts_payable.id", ondelete="CASCADE"),
         nullable=False,
     )
     # Identificador del proveedor beneficiario
     supplier_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.suppliers.id", ondelete="RESTRICT"),
+        ForeignKey("public.suppliers.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Monto pagado en Pesos Mexicanos ($ MXN)
     amount_paid_mxn = Column(Numeric(14, 2), nullable=False)
     # Método de pago utilizado (CASH_MXN, SPEI, CODI, CARD_TPV, OTHER)
     payment_method = Column(
-        Enum(PaymentMethod, name="payment_method_enum", schema="inventmx"),
+        Enum(PaymentMethod, name="payment_method_enum", schema="public"),
         nullable=False,
         default=PaymentMethod.CASH_MXN,
     )
@@ -160,7 +160,7 @@ class SupplierPaymentLedger(Base):
     # Usuario que registró el egreso de dinero
     created_by_user_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="RESTRICT"),
+        ForeignKey("public.users.id", ondelete="RESTRICT"),
         nullable=False,
     )
     # Fecha y hora exacta de registro

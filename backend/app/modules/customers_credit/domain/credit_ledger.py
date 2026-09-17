@@ -51,7 +51,7 @@ class CustomerCreditLedger(Base):
         CheckConstraint("amount_mxn > 0", name="chk_credit_ledger_amount_positive"),
         CheckConstraint("previous_balance_mxn >= 0", name="chk_credit_ledger_prev_balance_non_neg"),
         CheckConstraint("resulting_balance_mxn >= 0", name="chk_credit_ledger_res_balance_non_neg"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único del asiento de crédito
@@ -65,7 +65,7 @@ class CustomerCreditLedger(Base):
     # Identificador del inquilino para aislamiento multi-tenant (RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         doc="Identificador del inquilino propietario",
     )
@@ -73,7 +73,7 @@ class CustomerCreditLedger(Base):
     # Identificador del cliente titular de la cuenta corriente
     customer_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.customers.id", ondelete="CASCADE"),
+        ForeignKey("public.customers.id", ondelete="CASCADE"),
         nullable=False,
         doc="Identificador del cliente asociado",
     )
@@ -81,7 +81,7 @@ class CustomerCreditLedger(Base):
     # Identificador de la nota de venta vinculada (opcional en caso de abono general)
     sale_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.sales.id", ondelete="SET NULL"),
+        ForeignKey("public.sales.id", ondelete="SET NULL"),
         nullable=True,
         doc="Identificador de la venta asociada al cargo o liquidación",
     )
@@ -91,7 +91,7 @@ class CustomerCreditLedger(Base):
         SQLEnum(
             LedgerEntryType,
             name="ledger_entry_type_enum",
-            schema="inventmx",
+            schema="public",
             native_enum=True,
             values_callable=lambda obj: [e.value for e in obj],
         ),
@@ -125,7 +125,7 @@ class CustomerCreditLedger(Base):
         SQLEnum(
             PaymentMethod,
             name="payment_method_enum",
-            schema="inventmx",
+            schema="public",
             native_enum=True,
             values_callable=lambda obj: [e.value for e in obj],
         ),
@@ -150,7 +150,7 @@ class CustomerCreditLedger(Base):
     # Usuario cajero o supervisor que registró la transacción
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="RESTRICT"),
+        ForeignKey("public.users.id", ondelete="RESTRICT"),
         nullable=False,
         doc="Usuario responsable de asentar el movimiento",
     )

@@ -22,7 +22,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
@@ -49,7 +49,7 @@ def upgrade() -> None:
     """)
 
     # -------------------------------------------------------------------------
-    # 2. Agregar Columnas de Pago a la Tabla de Ventas (inventmx.sales)
+    # 2. Agregar Columnas de Pago a la Tabla de Ventas (public.sales)
     # -------------------------------------------------------------------------
     op.execute(f"""
         ALTER TABLE {SCHEMA}.sales 
@@ -65,7 +65,7 @@ def upgrade() -> None:
     """)
 
     # -------------------------------------------------------------------------
-    # 3. Creación de la Tabla de Pagos de Venta (inventmx.sale_payments)
+    # 3. Creación de la Tabla de Pagos de Venta (public.sale_payments)
     # -------------------------------------------------------------------------
     op.execute(f"""
         CREATE TABLE IF NOT EXISTS {SCHEMA}.sale_payments (

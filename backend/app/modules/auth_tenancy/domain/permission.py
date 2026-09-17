@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database.base import Base, SCHEMA
 
-# Tabla de asociación muchos a muchos: roles <-> permisos en schema inventmx
+# Tabla de asociación muchos a muchos: roles <-> permisos en schema public
 role_permissions = Table(
     "role_permissions",
     Base.metadata,

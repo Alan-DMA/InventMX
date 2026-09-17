@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/dio_client.dart';
+import '../../auth/data/auth_repository.dart';
 import '../../auth/presentation/login_provider.dart';
 import '../../sales_pos/data/sales_repository.dart';
 import '../../sales_pos/domain/payment_entry.dart';
@@ -7,7 +9,9 @@ import '../domain/banxico_denomination.dart';
 import '../domain/cash_session.dart';
 
 final cashRepositoryProvider = Provider<CashRepository>(
-  (_) => CashRepositoryMock(),
+  (ref) => CashRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+  ),
 );
 
 // ---------------------------------------------------------------------------

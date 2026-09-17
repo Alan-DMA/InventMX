@@ -95,6 +95,11 @@ class ProductCreateVital(BaseModel):
         description="UUID de categoría (si se omite, se asigna 'General')",
     )
 
+    supplier_id: Optional[uuid.UUID] = Field(
+        None,
+        description="UUID del proveedor habitual asignado",
+    )
+
     warehouse_id: Optional[uuid.UUID] = Field(
         None,
         description="UUID de almacén destino (si se omite, se asigna el principal)",
@@ -108,8 +113,7 @@ class ProductCreateVital(BaseModel):
 
     image_url: Optional[str] = Field(
         None,
-        max_length=500,
-        description="Enlace URL a la fotografía del producto",
+        description="Enlace URL a la fotografía del producto o Base64 Data URI",
     )
 
     @field_validator("name")
@@ -133,8 +137,9 @@ class ProductUpdate(BaseModel):
     sku: Optional[str] = Field(None, max_length=50)
     barcode: Optional[str] = Field(None, max_length=50)
     category_id: Optional[uuid.UUID] = None
+    supplier_id: Optional[uuid.UUID] = None
     min_stock_alert: Optional[Decimal] = Field(None, ge=0)
-    image_url: Optional[str] = Field(None, max_length=500)
+    image_url: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -145,6 +150,7 @@ class ProductResponse(BaseModel):
     id: uuid.UUID = Field(..., description="UUID único del producto")
     tenant_id: uuid.UUID = Field(..., description="UUID del comercio propietario")
     category_id: Optional[uuid.UUID] = Field(None, description="UUID de la categoría asignada")
+    supplier_id: Optional[uuid.UUID] = Field(None, description="UUID del proveedor habitual asignado")
     name: str = Field(..., description="Nombre comercial del producto")
     price_mxn: Decimal = Field(..., description="Precio de venta en Pesos Mexicanos")
     cost_mxn: Decimal = Field(..., description="Costo de compra en Pesos Mexicanos")
@@ -162,6 +168,7 @@ class ProductResponse(BaseModel):
     is_low_stock: bool = Field(False, description="Determina si el producto está en nivel crítico")
     margin_percentage: Optional[Decimal] = Field(None, description="Porcentaje de margen de ganancia bruto")
     category_name: Optional[str] = Field(None, description="Nombre de la categoría asociada")
+    supplier_name: Optional[str] = Field(None, description="Nombre del proveedor habitual asociado")
     stocks: List[ProductStockResponse] = Field(default_factory=list, description="Desglose de existencias por almacén")
 
     model_config = ConfigDict(from_attributes=True)
@@ -181,6 +188,8 @@ class ProductListItem(BaseModel):
     is_low_stock: bool = False
     category_id: Optional[uuid.UUID] = None
     category_name: Optional[str] = None
+    supplier_id: Optional[uuid.UUID] = None
+    supplier_name: Optional[str] = None
     image_url: Optional[str] = None
     is_active: bool = True
 

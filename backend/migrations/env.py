@@ -1,15 +1,13 @@
-import sys
 import os
+import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, create_engine
-from sqlalchemy import pool
+from sqlalchemy import create_engine, pool, text
+
+# Asegurar que el directorio raíz del backend esté en sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from alembic import context
-
-# Agregar la ruta base del proyecto para poder importar 'app'
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from app.core.config import settings
 from app.core.database import Base
 from app.models import models  # Asegura la carga de todos los modelos en Base.metadata
@@ -24,6 +22,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -43,6 +42,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table_schema="public",
+        include_schemas=True,
     )
 
     with context.begin_transaction():
@@ -58,7 +59,7 @@ def run_migrations_online() -> None:
     """
     # Reemplazar el driver de asyncpg a psycopg2 para Alembic (que corre sincrónico)
     url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
-    
+
     # Crear el motor de base de datos directamente usando la URL de settings
     connectable = create_engine(
         url,
@@ -66,8 +67,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        connection.execute(text("SET search_path TO public;"))
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema="public",
+            include_schemas=True,
         )
 
         with context.begin_transaction():
@@ -78,4 +83,5 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
 

@@ -27,20 +27,20 @@
 ## 1. INTRODUCCIÓN Y CONTEXTO
 
 ### 1.1 Misión y Principios
-El sistema se rige en su totalidad por la misión y los principios fundamentales e inquebrantables detallados en el [Artículo I de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#articulo-i-proposito-y-filosofia), incluyendo el **Principio 1.2.9: Cero Fricción en Setup e Inventario Orgánico**.
+El sistema se rige en su totalidad por la misión y los principios fundamentales e inquebrantables detallados en el [Artículo I de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#articulo-i-proposito-y-filosofia), incluyendo el **Principio 1.2.9: Cero Fricción en Setup e Inventario Orgánico**.
 
 ### 1.2 Mercado Objetivo y Alcance
 * **Segmento:** Pequeños y medianos comercios minoristas en México (tienditas de abarrotes, misceláneas, minisuper, tiendas de conveniencia, papelerías y farmacias independientes).
 * **Dispositivo principal:** Teléfonos celulares Android (gama baja/media) mediante aplicación móvil Flutter.
 * **Dispositivo secundario:** PC/Tablet a través de Flutter Web.
-* **Alcance Fiscal:** Emisión de notas de venta y comprobantes administrativos internos orientados al control operativo del comercio. **No se requiere timbrado de facturación electrónica CFDI 4.0 ante el SAT ni conexión con PACs en esta fase** (ver [Sección 8.2 de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#82-lo-que-el-sistema-no-debe-hacer-prohibiciones-inquebrantables)).
+* **Alcance Fiscal:** Emisión de notas de venta y comprobantes administrativos internos orientados al control operativo del comercio. **No se requiere timbrado de facturación electrónica CFDI 4.0 ante el SAT ni conexión con PACs en esta fase** (ver [Sección 8.2 de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#82-lo-que-el-sistema-no-debe-hacer-prohibiciones-inquebrantables)).
 
 ---
 
 ## 2. ARQUITECTURA TÉCNICA
 
 ### 2.1 Stack Tecnológico
-El stack tecnológico y sus justificaciones cumplen con la ley de stack del [Artículo II (Sección 2.1) de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#21-stack-tecnologico-obligatorio). 
+El stack tecnológico y sus justificaciones cumplen con la ley de stack del [Artículo II (Sección 2.1) de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#21-stack-tecnologico-obligatorio). 
 
 Librerías y herramientas clave:
 * **Búsqueda Fuzzy:** PostgreSQL utilizando la extensión `pg_trgm` para autocompletado rápido.
@@ -50,10 +50,10 @@ Librerías y herramientas clave:
 * **Dictado de Voz Nativo:** Integración con Android SpeechRecognizer / Web Speech API en el cliente.
 
 ### 2.2 Arquitectura Multi-tenant
-El aislamiento de inquilinos y la seguridad de datos se implementan mediante políticas RLS y contextos dinámicos detallados en el [Artículo II (Sección 2.2) de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#22-arquitectura-multi-tenant).
+El aislamiento de inquilinos y la seguridad de datos se implementan mediante políticas RLS y contextos dinámicos detallados en el [Artículo II (Sección 2.2) de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#22-arquitectura-multi-tenant).
 
 ### 2.3 Conectividad, Sincronización y Escaneo
-La lógica de red de solo lectura local y la interacción con códigos de barras se definen bajo las directrices del [Artículo II (Secciones 2.4 y 2.5) de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#24-conectividad-y-sincronizacion).
+La lógica de red de solo lectura local y la interacción con códigos de barras se definen bajo las directrices del [Artículo II (Secciones 2.4 y 2.5) de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#24-conectividad-y-sincronizacion).
 
 ### 2.4 Motor de Catálogo de Dos Niveles (Two-Tier Engine)
 * **Tier 1 (Catálogo Semilla EAN-13 GS1 México):** Base de datos precargada offline con ~1,000-2,000 productos líderes. Al escanear el código, autocompleta nombre y categoría en < 1 ms.
@@ -63,7 +63,7 @@ La lógica de red de solo lectura local y la interacción con códigos de barras
 
 ## 3. PLANES DE SUSCRIPCIÓN (SAAS)
 
-La estructura de precios en Pesos Mexicanos (MXN), cálculos de punto de equilibrio y la máquina de estados de suscripciones (`ACTIVE` $\rightarrow$ `SOFT_LOCK` $\rightarrow$ `HARD_LOCK`) se rigen por el [Artículo VI de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#articulo-vi-modelo-comercial-saas).
+La estructura de precios en Pesos Mexicanos (MXN), cálculos de punto de equilibrio y la máquina de estados de suscripciones (`ACTIVE` $\rightarrow$ `SOFT_LOCK` $\rightarrow$ `HARD_LOCK`) se rigen por el [Artículo VI de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#articulo-vi-modelo-comercial-saas).
 
 | Plan | Tarifa Mensual | Usuarios | Almacenes | Módulos Principales |
 |------|----------------|----------|-----------|---------------------|
@@ -77,7 +77,7 @@ El acceso a los módulos y límites se valida dinámicamente en middleware media
 
 ## 4. SEPARACIÓN DE RESPONSABILIDADES FINANCIERAS
 
-El sistema opera bajo la estricta división entre cobros de SaaS y registro contable de ventas de comercios definida en el [Artículo III de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#articulo-iii-separacion-de-responsabilidades-financieras).
+El sistema opera bajo la estricta división entre cobros de SaaS y registro contable de ventas de comercios definida en el [Artículo III de la Constitución](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#articulo-iii-separacion-de-responsabilidades-financieras).
 
 ### 4.1 Panel de Administración Interno (Para Fundadores)
 Interfaz exclusiva para Alan y Eduardo para la administración del SaaS en México:
@@ -175,7 +175,10 @@ Interfaz exclusiva para Alan y Eduardo para la administración del SaaS en Méxi
 
 ## 7. ESQUEMA DE BASE DE DATOS Y APIS
 
-### 7.1 Script DDL de Migración a Pesos Mexicanos y Red Comunitaria (PostgreSQL)
+### 7.1 Arquitectura de Base de Datos y Script DDL (PostgreSQL)
+
+> **Ley Suprema de Base de Datos (Nexus v3.0):**  
+> La base de datos se denomina unívocamente **`nexus`** y TODO el modelo de datos reside de forma exclusiva en el esquema estándar universal **`public`**. Está estrictamente prohibida la creación de esquemas secundarios o alternativos (como `inventmx`, `app`, etc.). Todas las tablas multi-tenant implementan Row-Level Security (`ENABLE ROW LEVEL SECURITY;` y `FORCE ROW LEVEL SECURITY;`) vinculadas a `app.current_tenant`.
 
 ```sql
 -- 1. Adaptación de la Tabla de Productos a Pesos Mexicanos (MXN)
@@ -216,10 +219,46 @@ CREATE TABLE IF NOT EXISTS cash_session_denominations (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+ALTER TABLE cash_session_denominations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_session_denominations FORCE ROW LEVEL SECURITY;
+
 CREATE INDEX IF NOT EXISTS idx_cash_denominations_tenant_session 
   ON cash_session_denominations(tenant_id, cash_session_id);
 
--- 4. Tablas para la Red Comunitaria Crowdsourced (Tier 2 con Consenso Automático)
+-- 4. Tablas para Facturación y Suscripciones SaaS (Día 14)
+CREATE TABLE IF NOT EXISTS subscription_invoices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    invoice_number VARCHAR(50) NOT NULL UNIQUE,
+    plan_tier VARCHAR(50) NOT NULL,
+    amount_mxn NUMERIC(12,2) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    payment_method VARCHAR(50) NOT NULL,
+    payment_reference VARCHAR(100),
+    clabe_stp_assigned VARCHAR(18),
+    oxxo_reference_assigned VARCHAR(14),
+    billing_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
+    billing_period_end TIMESTAMP WITH TIME ZONE NOT NULL,
+    due_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    paid_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE subscription_invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscription_invoices FORCE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS saas_webhook_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider VARCHAR(50) NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PROCESSED',
+    processed_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 5. Tablas para la Red Comunitaria Crowdsourced (Tier 2 con Consenso Automático)
 CREATE TABLE IF NOT EXISTS community_catalog_submissions (
     barcode VARCHAR(50) NOT NULL,
     normalized_name VARCHAR(255) NOT NULL,
@@ -242,48 +281,26 @@ CREATE INDEX IF NOT EXISTS idx_community_verified_barcode ON community_verified_
 
 ### 7.2 Endpoints Core de API en FastAPI
 
-#### `POST /api/v1/sales/checkout` — Checkout en Punto de Venta (MXN)
-```json
-{
-  "client_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "items": [
-    {
-      "product_id": "d1234567-89ab-cdef-0123-456789abcdef",
-      "quantity": 2,
-      "unit_price_mxn": 35.50
-    },
-    {
-      "product_id": "e2345678-89ab-cdef-0123-456789abcdef",
-      "quantity": 1,
-      "unit_price_mxn": 18.00
-    }
-  ],
-  "payments": [
-    { "method": "CASH_MXN", "amount_paid": 100.00 },
-    { "method": "SPEI", "amount_paid": 0.00, "reference_code": null }
-  ],
-  "total_mxn": 89.00,
-  "change_given_mxn": 11.00
-}
-```
+#### A. Módulo de Ventas / TPV (`/api/v1/sales/*`)
+- **`POST /api/v1/sales/checkout`**: Cobro transaccional multi-método (Efectivo, SPEI, Tarjeta). Actualiza inventario y genera comprobante con folio `NV-YYYY-XXXXXX`.
 
-#### `POST /api/v1/cash/close-session` — Arqueo con Cono Banxico
-```json
-{
-  "cash_session_id": "7b9e1022-3c4d-4e5f-a6b7-8c9d0e1f2a3b",
-  "physical_counts": {
-    "currency": "MXN",
-    "bills": { "1000": 1, "500": 3, "200": 4, "100": 8, "50": 10, "20": 15 },
-    "coins": { "20": 2, "10": 10, "5": 20, "2": 25, "1": 30, "0.50": 20 },
-    "total_physical_cash": 4500.00
-  },
-  "digital_payments_summary": {
-    "spei_total": 850.00,
-    "tpv_card_total": 1200.00,
-    "codi_total": 0.00
-  }
-}
-```
+#### B. Módulo de Caja y Tesorería (`/api/v1/cash/*`)
+- **`POST /api/v1/cash/open-session`**: Apertura de turno con fondo inicial en MXN y desglose opcional de monedas/billetes.
+- **`POST /api/v1/cash/close-session`**: Arqueo ciego con las 12 denominaciones Banxico (`bills_1000`..`bills_20`, `coins_20`..`coins_050`), cálculo de sobrante/faltante y corte de turno.
+- **`GET /api/v1/cash/active-session`**: Consulta del turno actualmente abierto para el cajero.
+- **`GET /api/v1/cash/sessions/{id}/report`**: Generación de Corte Z con ventas en efectivo, cobros digitales y balance final.
+
+#### C. Módulo de Suscripciones y Facturación SaaS (`/api/v1/saas/*`, `/api/v1/subscription`, `/api/v1/billing/*`, `/api/v1/webhooks/*`)
+- **`GET /api/v1/saas/plans`**: Catálogo de planes disponibles (Emprendedor $199, Comercio $399, Corporativo $699 MXN/mes).
+- **`GET /api/v1/subscription`**: Estado de suscripción del tenant (`ACTIVE`, `SOFT_LOCK`, `HARD_LOCK`), días restantes y capacidad.
+- **`POST /api/v1/subscription/change-plan`**: Upgrade o Downgrade de plan con validación previa de límites de sucursales y usuarios.
+- **`GET /api/v1/billing/invoices`**: Historial de facturas SaaS del comercio.
+- **`GET /api/v1/billing/invoices/{id}/payment-methods`**: Generación de CLABE interbancaria SPEI (18 dígitos) y código de referencia OXXO Pay (14 dígitos).
+- **`POST /api/v1/webhooks/spei/payment-confirmation`**: Conciliación automática de transferencias STP / SPEI con reactivación en tiempo real.
+- **`POST /api/v1/webhooks/oxxo/payment-confirmation`**: Confirmación automática de abonos en tiendas OXXO.
+
+#### D. Módulo de Analíticas y Comisiones (`/api/v1/analytics/*`)
+- **`GET /api/v1/analytics/commissions`**: Tablero y ranking de comisiones por vendedor, cálculo dinámico sobre ventas y desglose diario.
 
 ---
 
@@ -366,4 +383,5 @@ gantt
 
 ## 11. CONVENCIONES DE CÓDIGO
 
-Todas las convenciones de bases de datos, APIs y nomenclatura se rigen bajo lo establecido en el [Artículo VIII de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus/Constitucion%20Nexus%20v1-0.md#articulo-viii-convenciones-de-codigo-y-prohibiciones).
+Todas las convenciones de bases de datos, APIs y nomenclatura se rigen bajo lo establecido en el [Artículo VIII de la Constitución de Nexus](file:///d:/aland/Documents/Proyectos/Nexus%20MX/Constitucion%20Nexus%20v1-0.md#articulo-viii-convenciones-de-codigo-y-prohibiciones).
+

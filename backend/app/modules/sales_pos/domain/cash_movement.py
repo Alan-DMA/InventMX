@@ -46,7 +46,7 @@ class CashMovement(Base):
     # Constraints de tabla y esquema
     __table_args__ = (
         CheckConstraint("amount_mxn > 0", name="chk_cash_movements_amount_positive"),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único universal del movimiento de caja
@@ -60,7 +60,7 @@ class CashMovement(Base):
     # Identificador del inquilino / comercio para aislamiento multi-inquilino (RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         doc="Identificador del inquilino propietario",
     )
@@ -68,7 +68,7 @@ class CashMovement(Base):
     # Identificador del turno de caja al que pertenece el movimiento
     shift_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.cash_shifts.id", ondelete="CASCADE"),
+        ForeignKey("public.cash_shifts.id", ondelete="CASCADE"),
         nullable=False,
         doc="Identificador del turno de caja activo",
     )
@@ -78,7 +78,7 @@ class CashMovement(Base):
         SQLEnum(
             CashMovementType,
             name="cash_movement_type_enum",
-            schema="inventmx",
+            schema="public",
             native_enum=True,
             values_callable=lambda obj: [e.value for e in obj],
         ),
@@ -110,7 +110,7 @@ class CashMovement(Base):
     # Identificador del supervisor que autorizó el movimiento (opcional)
     authorized_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="SET NULL"),
+        ForeignKey("public.users.id", ondelete="SET NULL"),
         nullable=True,
         doc="Supervisor o encargado que autorizó el retiro o entrada",
     )
@@ -118,7 +118,7 @@ class CashMovement(Base):
     # Identificador del usuario cajero que registró el movimiento
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="RESTRICT"),
+        ForeignKey("public.users.id", ondelete="RESTRICT"),
         nullable=False,
         doc="Usuario cajero que efectuó el registro del movimiento",
     )

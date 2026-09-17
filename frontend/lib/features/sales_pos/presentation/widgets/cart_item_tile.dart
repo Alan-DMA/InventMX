@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../../core/theme/app_colors.dart';
+import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../domain/cart_item.dart';
 import '../cart_provider.dart';
 
@@ -119,13 +120,13 @@ class _Thumbnail extends StatelessWidget {
         border: Border.all(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
-      child: imageUrl != null && imageUrl!.isNotEmpty
-          ? Image.network(
-              imageUrl!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _placeholder(),
-            )
-          : _placeholder(),
+      child: ProductImageWidget(
+        imageUrl: imageUrl,
+        width: 52,
+        height: 52,
+        fit: BoxFit.cover,
+        placeholder: _placeholder(),
+      ),
     );
   }
 

@@ -282,6 +282,29 @@ graph TD
 
 ---
 
+## ARTÍCULO IX: GOBERNANZA DE AGENTES DE IA Y SINCRONIZACIÓN TÉCNICA (ALAN & EDUARDO)
+
+### 9.1 Principio de Esquema Único Universal (`public`)
+1. Toda tabla, secuencia, índice y función de PostgreSQL reside exclusivamente en la base de datos **`nexus`** y en el esquema estándar **`public`**.
+2. Queda terminantemente prohibido crear esquemas adicionales (`inventmx`, `app`, `core`, etc.) o alterar el `search_path`.
+3. Toda tabla transaccional debe tener habilitado y forzado Row-Level Security (`ENABLE ROW LEVEL SECURITY;` y `FORCE ROW LEVEL SECURITY;`).
+
+### 9.2 OpenAPI y Contrato Formal como Fuente Única de Verdad
+1. Antes de codificar cualquier endpoint o cliente Dio, los agentes deben consultar la especificación formal en `docs/api/` (`openapi.yaml`).
+2. Queda prohibido inventar rutas ad-hoc. Nomenclatura obligatoria en `kebab-case` con prefijo canónico `/api/v1`.
+3. Identificadores expuestos en URLs deben ser UUID v4.
+
+### 9.3 Trazabilidad y Simetría Alan (Backend) ⟷ Eduardo (Frontend)
+1. Los módulos deben reflejar estructura espejo idéntica (`cash_treasury`, `saas_billing` / `saas_admin`, `sales_pos`, `inventory`, `analytics_reports` / `analytics`, etc.).
+2. Todo DTO, enum y respuesta JSON debe sincronizarse entre FastAPI y Flutter.
+3. Los Mocks son transitorios para desacoplamiento inicial; una vez implementado el backend, los providers deben inyectar implementaciones reales sobre `DioClient`.
+
+### 9.4 Calidad, Documentación y Cero Regresiones
+1. Todo código debe documentarse línea por línea o bloque por bloque explicando el *por qué* y la regla de negocio.
+2. Todo cambio debe verificarse con `pytest tests` (backend) y `flutter test` (frontend). Tolerancia cero a fallos.
+
+---
+
 ## ANEXO A: GLOSARIO DE TÉRMINOS (MÉXICO)
 
 - **Tenant:** Comercio minorista registrado en el SaaS (tiendita de abarrotes, miscelánea, etc.).

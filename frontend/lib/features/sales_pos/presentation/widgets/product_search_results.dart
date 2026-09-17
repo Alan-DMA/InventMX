@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../../core/theme/app_colors.dart';
+import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../../inventory/domain/product.dart';
 import '../../../inventory/presentation/inventory_provider.dart';
 import '../cart_provider.dart';
@@ -116,16 +117,14 @@ class _ResultRow extends StatelessWidget {
                 color: AppColors.surfaceVariant,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: product.imageUrl != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        product.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _icon(),
-                      ),
-                    )
-                  : _icon(),
+              child: ProductImageWidget(
+                imageUrl: product.imageUrl,
+                width: 38,
+                height: 38,
+                borderRadius: BorderRadius.circular(8),
+                fit: BoxFit.cover,
+                placeholder: _icon(),
+              ),
             ),
             const SizedBox(width: 12),
 

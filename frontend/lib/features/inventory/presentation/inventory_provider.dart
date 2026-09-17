@@ -207,6 +207,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
     double? costMxn,
     int? minStockAlert,
     String? imageUrl,
+    String? supplierId,
   }) async {
     final product = await _repo.createProduct(
       name: name,
@@ -217,6 +218,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
       costMxn: costMxn,
       minStockAlert: minStockAlert,
       imageUrl: imageUrl,
+      supplierId: supplierId,
     );
     // Inserta al inicio para que sea inmediatamente visible en UI
     state = state.copyWith(products: [product, ...state.products]);
@@ -274,6 +276,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
     int? minStockAlert,
     String? imageUrl,
     bool? isActive,
+    String? supplierId,
   }) async {
     final updated = await _repo.updateProduct(
       productId: productId,
@@ -285,6 +288,7 @@ class InventoryNotifier extends Notifier<InventoryState> {
       minStockAlert: minStockAlert,
       imageUrl: imageUrl,
       isActive: isActive,
+      supplierId: supplierId,
     );
     // Reemplaza el producto en la lista local sin recargar todo el inventario
     state = state.copyWith(
@@ -292,6 +296,17 @@ class InventoryNotifier extends Notifier<InventoryState> {
           state.products.map((p) => p.id == productId ? updated : p).toList(),
     );
     return updated;
+  }
+
+  /// Sube una imagen de producto al servidor y retorna su URL
+  Future<String> uploadImage({
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    return _repo.uploadProductImage(
+      fileBytes: fileBytes,
+      fileName: fileName,
+    );
   }
 
   /// Actualiza available_stock de un producto en la lista en memoria
@@ -375,4 +390,40 @@ final availableCategoriesProvider = Provider<List<String>>((ref) {
     return dynamicCats;
   }
   return ref.watch(inventoryProvider).availableCategories;
+});
+
+/// Modelo ligero para selección de proveedores
+class SupplierOption {
+  const SupplierOption({
+    required this.id,
+    required this.name,
+  });
+
+  final String id;
+  final String name;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SupplierOption && other.id == id);
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+/// Proveedor de lista de proveedores del comercio
+final suppliersProvider = FutureProvider<List<SupplierOption>>((ref) async {
+  final repo = ref.watch(inventoryRepositoryProvider);
+  try {
+    final list = await repo.getSuppliers();
+    return list
+        .where((s) => s['id'] != null && s['name'] != null)
+        .map((s) => SupplierOption(
+              id: s['id'].toString(),
+              name: s['name'].toString(),
+            ))
+        .toList();
+  } catch (_) {
+    return const [];
+  }
 });

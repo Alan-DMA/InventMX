@@ -83,6 +83,7 @@ abstract class InventoryRepository {
     double? costMxn,
     int? minStockAlert,
     String? imageUrl,
+    String? supplierId,
   });
 
   /// PUT /api/v1/inventory/products/{id}
@@ -96,6 +97,16 @@ abstract class InventoryRepository {
     int? minStockAlert,
     String? imageUrl,
     bool? isActive,
+    String? supplierId,
+  });
+
+  /// GET /api/v1/suppliers
+  Future<List<Map<String, dynamic>>> getSuppliers();
+
+  /// POST /api/v1/inventory/upload-image
+  Future<String> uploadProductImage({
+    required List<int> fileBytes,
+    required String fileName,
   });
 
   /// POST /api/v1/inventory/adjust-stock
@@ -161,7 +172,6 @@ class InventoryRepositoryImpl implements InventoryRepository {
   Future<String?> _resolveCategoryId(String? categoryName) async {
     if (categoryName == null ||
         categoryName.trim().isEmpty ||
-        categoryName.trim().toLowerCase() == 'general' ||
         categoryName.trim().toLowerCase() == 'todos') {
       return null;
     }
@@ -299,16 +309,23 @@ class InventoryRepositoryImpl implements InventoryRepository {
     double? costMxn,
     int? minStockAlert,
     String? imageUrl,
+    String? supplierId,
   }) async {
     try {
       final categoryId = await _resolveCategoryId(category);
       final payload = <String, dynamic>{
         'name': name.trim(),
         'price_mxn': priceMxn,
+        'price_usd': priceMxn,
         'initial_stock': stock,
-        if (costMxn != null) 'cost_mxn': costMxn,
+        'stock_inicial': stock,
+        if (costMxn != null) ...{
+          'cost_mxn': costMxn,
+          'cost_usd': costMxn,
+        },
         if (barcode != null && barcode.trim().isNotEmpty) 'barcode': barcode.trim(),
         if (categoryId != null) 'category_id': categoryId,
+        if (supplierId != null && supplierId.isNotEmpty) 'supplier_id': supplierId,
         if (minStockAlert != null) 'min_stock_alert': minStockAlert,
         if (imageUrl != null && imageUrl.trim().isNotEmpty) 'image_url': imageUrl.trim(),
       };
@@ -342,18 +359,28 @@ class InventoryRepositoryImpl implements InventoryRepository {
     int? minStockAlert,
     String? imageUrl,
     bool? isActive,
+    String? supplierId,
   }) async {
     try {
       final payload = <String, dynamic>{};
       if (name != null) payload['name'] = name.trim();
-      if (priceMxn != null) payload['price_mxn'] = priceMxn;
-      if (costMxn != null) payload['cost_mxn'] = costMxn;
+      if (priceMxn != null) {
+        payload['price_mxn'] = priceMxn;
+        payload['price_usd'] = priceMxn;
+      }
+      if (costMxn != null) {
+        payload['cost_mxn'] = costMxn;
+        payload['cost_usd'] = costMxn;
+      }
       if (barcode != null) {
         payload['barcode'] = barcode.trim().isEmpty ? null : barcode.trim();
       }
       if (category != null) {
         final catId = await _resolveCategoryId(category);
         payload['category_id'] = catId;
+      }
+      if (supplierId != null) {
+        payload['supplier_id'] = supplierId.isEmpty ? null : supplierId;
       }
       if (minStockAlert != null) payload['min_stock_alert'] = minStockAlert;
       if (imageUrl != null) payload['image_url'] = imageUrl;
@@ -374,6 +401,32 @@ class InventoryRepositoryImpl implements InventoryRepository {
     } catch (e) {
       if (e is InventoryException) rethrow;
       throw InventoryException('Error al actualizar producto: $e');
+    }
+  }
+
+  @override
+  Future<String> uploadProductImage({
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'file': MultipartFile.fromBytes(fileBytes, filename: fileName),
+      });
+      final response = await client.post(
+        '/api/v1/inventory/upload-image',
+        data: formData,
+      );
+      final data = response.data;
+      if (data is Map && data['url'] != null) {
+        return data['url'].toString();
+      }
+      throw const InventoryException('Respuesta inválida al subir la imagen.');
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al subir imagen: $e');
     }
   }
 
@@ -412,8 +465,10 @@ class InventoryRepositoryImpl implements InventoryRepository {
         'product_id': productId,
         'warehouse_id': targetWarehouseId,
         'quantity': signedQuantity,
+        'quantity_change': signedQuantity,
         'movement_type': backendMovementType,
         'notes': reason.trim(),
+        'reason': reason.trim(),
       };
 
       await client.post(
@@ -475,6 +530,7 @@ class InventoryRepositoryImpl implements InventoryRepository {
 
       if (movementType != null && movementType.isNotEmpty) {
         queryParams['movement_type'] = movementType;
+        queryParams['type'] = movementType;
       }
 
       final response = await client.get(
@@ -519,6 +575,26 @@ class InventoryRepositoryImpl implements InventoryRepository {
     } catch (e) {
       if (e is InventoryException) rethrow;
       throw InventoryException('Error al consultar movimientos en Kardex: $e');
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getSuppliers() async {
+    try {
+      final response = await client.get('/api/v1/suppliers');
+      final dynamic data = response.data;
+      if (data is List) {
+        return data
+            .whereType<Map<dynamic, dynamic>>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return [];
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is InventoryException) rethrow;
+      throw InventoryException('Error al consultar proveedores: $e');
     }
   }
 
@@ -638,6 +714,7 @@ class InventoryRepositoryMock implements InventoryRepository {
     double? costMxn,
     int? minStockAlert,
     String? imageUrl,
+    String? supplierId,
   }) async {
     await Future.delayed(_fakeDelay);
 
@@ -657,6 +734,8 @@ class InventoryRepositoryMock implements InventoryRepository {
       availableStock: stock,
       minStockAlert: minStockAlert,
       imageUrl: imageUrl,
+      supplierId: supplierId,
+      supplierName: supplierId != null ? 'Proveedor Demo' : null,
       isActive: true,
       isOnCatalog: false,
       createdAt: DateTime.now(),
@@ -674,6 +753,7 @@ class InventoryRepositoryMock implements InventoryRepository {
     int? minStockAlert,
     String? imageUrl,
     bool? isActive,
+    String? supplierId,
   }) async {
     await Future.delayed(_fakeDelay);
     final original = mockProducts.firstWhere(
@@ -689,7 +769,17 @@ class InventoryRepositoryMock implements InventoryRepository {
       minStockAlert: minStockAlert ?? original.minStockAlert,
       imageUrl: imageUrl ?? original.imageUrl,
       isActive: isActive ?? original.isActive,
+      supplierId: supplierId ?? original.supplierId,
     );
+  }
+
+  @override
+  Future<String> uploadProductImage({
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    await Future.delayed(_fakeDelay);
+    return '/uploads/images/mock_$fileName';
   }
 
   @override
@@ -758,6 +848,17 @@ class InventoryRepositoryMock implements InventoryRepository {
       pageSize: pageSize,
       totalPages: totalPages,
     );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getSuppliers() async {
+    await Future.delayed(_fakeDelay);
+    return [
+      {'id': 'supp-1', 'name': 'Coca-Cola FEMSA México'},
+      {'id': 'supp-2', 'name': 'Grupo Bimbo S.A.B.'},
+      {'id': 'supp-3', 'name': 'Sabritas / PepsiCo Alimentos'},
+      {'id': 'supp-4', 'name': 'Lala Operaciones México'},
+    ];
   }
 
   List<InventoryMovement> _generateMockMovements(String productId) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../../../../../core/theme/app_colors.dart';
 import '../../domain/product.dart';
 
@@ -54,16 +55,13 @@ class ProductListTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: product.imageUrl != null
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                product.imageUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _placeholderIcon(),
-              ),
-            )
-          : _placeholderIcon(),
+      child: ProductImageWidget(
+        imageUrl: product.imageUrl,
+        width: 52,
+        height: 52,
+        borderRadius: BorderRadius.circular(10),
+        placeholder: _placeholderIcon(),
+      ),
     );
   }
 

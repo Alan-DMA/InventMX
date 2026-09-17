@@ -1,6 +1,9 @@
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../domain/product.dart';
 import 'inventory_provider.dart';
@@ -47,8 +50,10 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
   // ── Estado local ─────────────────────────────────────────────────────────
   bool _isActive = true;
   bool _isSaving = false;
+  bool _isUploadingImage = false;
   String? _errorMessage;
   String? _selectedCategory; // valor seleccionado en el dropdown
+  String? _selectedSupplierId; // valor seleccionado para proveedor
   bool _isAddingCategory =
       false; // true → muestra textfield libre en lugar del dropdown
 
@@ -85,6 +90,7 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
 
     _isActive = p.isActive;
     _selectedCategory = p.category;
+    _selectedSupplierId = p.supplierId;
 
     // Refresca el botón Guardar al cambiar cualquier campo
     for (final c in [_nameCon, _priceCon]) {
@@ -118,6 +124,174 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
     super.dispose();
   }
 
+  // ── Subida de imágenes ───────────────────────────────────────────────────
+
+  Future<void> _pickAndUploadImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) return;
+
+      if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('La imagen seleccionada supera el límite de 5 MB'),
+              backgroundColor: AppColors.error,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _isUploadingImage = true;
+      });
+
+      String finalImageUrl;
+      try {
+        // 1. Intentar subir al servidor para obtener URL estática ligera (/uploads/images/...)
+        final uploadedUrl = await ref.read(inventoryProvider.notifier).uploadImage(
+              fileBytes: bytes,
+              fileName: file.name,
+            );
+        finalImageUrl = uploadedUrl;
+      } catch (_) {
+        // 2. Fallback a binario Base64 Data URI si la carga falla o sin conexión
+        final ext = (file.extension ?? 'jpg').toLowerCase();
+        final mimeType = (ext == 'png')
+            ? 'image/png'
+            : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
+        final base64String = base64Encode(bytes);
+        finalImageUrl = 'data:$mimeType;base64,$base64String';
+      }
+
+      setState(() {
+        _imageUrlCon.text = finalImageUrl;
+        _isUploadingImage = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ Imagen cargada correctamente'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isUploadingImage = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar imagen: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showImageOptionsModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.upload_file_rounded,
+                      color: AppColors.emerald),
+                  title: const Text('Subir imagen desde archivo'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _pickAndUploadImage();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.link_rounded,
+                      color: AppColors.onSurface),
+                  title: const Text('Ingresar URL de imagen'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _showImageUrlDialog();
+                  },
+                ),
+                if (_imageUrlCon.text.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline_rounded,
+                        color: AppColors.error),
+                    title: const Text('Quitar imagen',
+                        style: TextStyle(color: AppColors.error)),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      setState(() {
+                        _imageUrlCon.clear();
+                      });
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showImageUrlDialog() {
+    final urlController = TextEditingController(text: _imageUrlCon.text);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('URL de la Imagen'),
+          content: TextField(
+            controller: urlController,
+            decoration: const InputDecoration(
+              hintText: 'https://ejemplo.com/foto.jpg',
+              labelText: 'Enlace web',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  _imageUrlCon.text = urlController.text.trim();
+                });
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Aceptar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // ── Guardar ──────────────────────────────────────────────────────────────
 
   Future<void> _save() async {
@@ -138,25 +312,32 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
       final imageUrl =
           _imageUrlCon.text.trim().isEmpty ? null : _imageUrlCon.text.trim();
 
+      final categoryName = _isAddingCategory
+          ? (_categoryCon.text.trim().isNotEmpty
+              ? _categoryCon.text.trim()
+              : 'General')
+          : ((_selectedCategory == null || _selectedCategory!.trim().isEmpty)
+              ? 'General'
+              : _selectedCategory!.trim());
+
       await ref.read(inventoryProvider.notifier).updateProduct(
             productId: widget.product.id,
             name: _nameCon.text.trim(),
             priceMxn: price,
             costMxn: cost,
-            category:
-                (_selectedCategory == null || _selectedCategory!.trim().isEmpty)
-                    ? 'General'
-                    : _selectedCategory!.trim(),
+            category: categoryName,
             barcode: _barcodeCon.text.trim().isEmpty
                 ? null
                 : _barcodeCon.text.trim(),
             minStockAlert: minStock,
             imageUrl: imageUrl,
             isActive: _isActive,
+            supplierId: _selectedSupplierId,
           );
 
       // Invalida el detalle para que se recargue con datos frescos
       ref.invalidate(productDetailProvider(widget.product.id));
+      ref.invalidate(categoriesProvider);
 
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
@@ -170,8 +351,7 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
     } catch (e) {
       setState(() {
         _isSaving = false;
-        _errorMessage =
-            'No se pudo guardar. Verifica tu conexión e intenta de nuevo.';
+        _errorMessage = 'No se pudo guardar. $e';
       });
     }
   }
@@ -260,15 +440,11 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
               // ── Banner foto ─────────────────────────────────────────
               _PhotoBanner(
                 imageUrl: _imageUrlCon.text.isEmpty ? null : _imageUrlCon.text,
-                onChangeTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                          'Captura de cámara/galería — disponible próximamente'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
+                isUploading: _isUploadingImage,
+                onChangeTap: _showImageOptionsModal,
+                onPickImage: _pickAndUploadImage,
+                onUrlTap: _showImageUrlDialog,
+                onRemoveImage: () => setState(() => _imageUrlCon.clear()),
               ),
 
               // ── Error banner ────────────────────────────────────────
@@ -478,6 +654,67 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                 ),
               ),
 
+              // ── Sección: Imagen del producto ─────────────────────────
+              const _SectionHeader(label: 'IMAGEN DEL PRODUCTO'),
+              _FormPad(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: _imageUrlCon,
+                      textInputAction: TextInputAction.done,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        labelText: 'URL o ruta de imagen',
+                        hintText: 'https://... o sube una imagen',
+                        prefixIcon: const Icon(
+                          Icons.image_outlined,
+                          size: 18,
+                          color: AppColors.onSurfaceMuted,
+                        ),
+                        suffixIcon: _imageUrlCon.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 18),
+                                tooltip: 'Quitar imagen',
+                                onPressed: () =>
+                                    setState(() => _imageUrlCon.clear()),
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            AppColors.emerald.withValues(alpha: 0.15),
+                        foregroundColor: AppColors.emerald,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        side: const BorderSide(color: AppColors.emerald),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: _isUploadingImage ? null : _pickAndUploadImage,
+                      icon: _isUploadingImage
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.emerald,
+                              ),
+                            )
+                          : const Icon(Icons.upload_file_rounded, size: 18),
+                      label: const Text(
+                        'Subir imagen desde archivo',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
               // ── Sección: Clasificación ──────────────────────────────
               const _SectionHeader(label: 'CLASIFICACIÓN'),
               _FormPad(
@@ -591,6 +828,56 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                           }
                         },
                       ),
+                    const SizedBox(height: 12),
+                    // Proveedor predeterminado
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final suppliersAsync = ref.watch(suppliersProvider);
+                        final suppliers = suppliersAsync.valueOrNull ?? [];
+
+                        return DropdownButtonFormField<String?>(
+                          initialValue: suppliers.any((s) => s.id == _selectedSupplierId)
+                              ? _selectedSupplierId
+                              : null,
+                          decoration: const InputDecoration(
+                            labelText: 'Proveedor predeterminado',
+                            prefixIcon: Icon(
+                              Icons.local_shipping_outlined,
+                              size: 18,
+                              color: AppColors.onSurfaceMuted,
+                            ),
+                          ),
+                          dropdownColor: AppColors.surface,
+                          iconEnabledColor: AppColors.onSurfaceMuted,
+                          style: const TextStyle(
+                            color: AppColors.onSurface,
+                            fontSize: 14,
+                          ),
+                          hint: const Text(
+                            'Sin proveedor asignado',
+                            style: TextStyle(
+                              color: AppColors.onSurfaceMuted,
+                              fontSize: 14,
+                            ),
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('Sin asignar'),
+                            ),
+                            ...suppliers.map(
+                              (s) => DropdownMenuItem<String?>(
+                                value: s.id,
+                                child: Text(s.name),
+                              ),
+                            ),
+                          ],
+                          onChanged: (val) {
+                            setState(() => _selectedSupplierId = val);
+                          },
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -653,64 +940,144 @@ class _PhotoBanner extends StatelessWidget {
   const _PhotoBanner({
     required this.imageUrl,
     required this.onChangeTap,
+    this.onPickImage,
+    this.onUrlTap,
+    this.onRemoveImage,
+    this.isUploading = false,
   });
 
   final String? imageUrl;
   final VoidCallback onChangeTap;
+  final VoidCallback? onPickImage;
+  final VoidCallback? onUrlTap;
+  final VoidCallback? onRemoveImage;
+  final bool isUploading;
 
   @override
   Widget build(BuildContext context) {
+    final hasImage = imageUrl != null && imageUrl!.trim().isNotEmpty;
+
     return Stack(
       children: [
-        // Imagen o placeholder
-        Container(
-          height: 180,
-          width: double.infinity,
+        // Banner principal interactivo (todo el banner es clickable)
+        Material(
           color: AppColors.surfaceVariant,
-          child: imageUrl != null && imageUrl!.isNotEmpty
-              ? Image.network(
-                  imageUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _placeholder(),
-                )
-              : _placeholder(),
+          child: InkWell(
+            onTap: isUploading ? null : (onPickImage ?? onChangeTap),
+            child: SizedBox(
+              height: 180,
+              width: double.infinity,
+              child: isUploading
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: AppColors.emerald,
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            'Cargando imagen...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.onSurfaceMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : hasImage
+                      ? ProductImageWidget(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: 180,
+                          placeholder: _placeholder(),
+                        )
+                      : _placeholder(),
+            ),
+          ),
         ),
 
-        // Botón "Cambiar foto" sobre el banner
+        // Botones de acción sobre el banner
         Positioned(
           bottom: 12,
           right: 12,
-          child: GestureDetector(
-            onTap: onChangeTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.darkSlate.withValues(alpha: 0.85),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: AppColors.border,
-                ),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.photo_camera_outlined,
-                    size: 14,
-                    color: AppColors.onSurface,
-                  ),
-                  SizedBox(width: 6),
-                  Text(
-                    'Cambiar foto',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.onSurface,
+          child: Wrap(
+            spacing: 8,
+            children: [
+              // Botón "Cambiar foto" (mantiene compatibilidad con tests y opciones)
+              GestureDetector(
+                onTap: isUploading ? null : onChangeTap,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkSlate.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: AppColors.border,
                     ),
                   ),
-                ],
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.photo_camera_outlined,
+                        size: 14,
+                        color: AppColors.onSurface,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Cambiar foto',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+
+              // Botón "Quitar" si ya tiene imagen
+              if (hasImage && onRemoveImage != null)
+                GestureDetector(
+                  onTap: isUploading ? null : onRemoveImage,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkSlate.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: AppColors.error.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.delete_outline_rounded,
+                          size: 14,
+                          color: AppColors.error,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'Quitar',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ],
@@ -722,19 +1089,76 @@ class _PhotoBanner extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          Icons.photo_camera_outlined,
-          size: 36,
-          color: AppColors.onSurfaceMuted.withValues(alpha: 0.35),
+          Icons.add_photo_alternate_outlined,
+          size: 40,
+          color: AppColors.onSurfaceMuted.withValues(alpha: 0.5),
         ),
         const SizedBox(height: 8),
-        Text(
-          'VISTA PREVIA DEL PRODUCTO',
+        const Text(
+          'Haz clic aquí para seleccionar o subir una imagen',
           style: TextStyle(
-            fontSize: 10,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
-            color: AppColors.onSurfaceMuted.withValues(alpha: 0.4),
-            letterSpacing: 1.0,
+            color: AppColors.onSurface,
           ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'El binario se almacenará directamente en la base de datos',
+          style: TextStyle(
+            fontSize: 11,
+            color: AppColors.onSurfaceMuted.withValues(alpha: 0.6),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.emerald.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.emerald.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.file_upload_outlined, size: 14, color: AppColors.emerald),
+                  SizedBox(width: 4),
+                  Text(
+                    'Subir archivo',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.emerald),
+                  ),
+                ],
+              ),
+            ),
+            if (onUrlTap != null) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onUrlTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.link_rounded, size: 14, color: AppColors.onSurfaceMuted),
+                      SizedBox(width: 4),
+                      Text(
+                        'URL web',
+                        style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ],
     );

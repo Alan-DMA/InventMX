@@ -24,7 +24,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:

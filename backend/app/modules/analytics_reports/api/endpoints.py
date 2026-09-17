@@ -2,6 +2,7 @@
 from datetime import datetime
 # Importación de tipado estático
 from typing import Optional
+import uuid
 
 # Importación de FastAPI y componentes de ruteo
 from fastapi import APIRouter, Depends, Query, status
@@ -107,3 +108,64 @@ async def get_working_capital(
     """Retorna el balance de liquidez neta (Efectivo en caja + Cuentas por cobrar - Cuentas por pagar) (RF-21)."""
     service = FinancialAnalyticsService(db)
     return await service.get_working_capital(current_user=current_user)
+
+
+@router.get(
+    "/commissions",
+    status_code=status.HTTP_200_OK,
+    summary="Reporte de Comisiones de Vendedores (Canonical OpenAPI /analytics/commissions)",
+    description="Calcula y retorna las comisiones devengadas por vendedores/cajeros en el periodo especificado.",
+)
+async def get_analytics_commissions(
+    cashier_id: Optional[uuid.UUID] = Query(None, description="Filtrar por cajero específico"),
+    user_id: Optional[uuid.UUID] = Query(None, description="Filtrar por usuario específico"),
+    cashier_name: Optional[str] = Query(None, description="Filtrar por nombre de cajero"),
+    period_month: Optional[str] = Query(None, description="Mes en formato YYYY-MM"),
+    start_date: Optional[datetime] = Query(None, description="Fecha de inicio"),
+    end_date: Optional[datetime] = Query(None, description="Fecha de fin"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Endpoint formal para consulta de comisiones en el módulo de analítica.
+    Regla Constitucional: Artículo VIII (8.2), OpenAPI docs/api/analytics.yaml.
+    """
+    from app.modules.sales_pos.services.sales_service import SalesService
+    sales_service = SalesService(db)
+
+    target_id = cashier_id or user_id
+    summary = await sales_service.get_commissions_summary(
+        current_user=current_user,
+        user_id=target_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    # Construir respuesta híbrida que satisface tanto la OpenAPI spec como el repositorio de Flutter
+    ranking = [
+        {
+            "cashier_name": s.user_name,
+            "commission_mxn": float(s.total_commission_amount_mxn),
+            "is_current_user": str(s.user_id) == str(current_user.id),
+        }
+        for s in summary.summaries_by_user
+    ]
+
+    return {
+        "period": period_month or datetime.now().strftime("%Y-%m"),
+        "total_commissions_mxn": summary.total_commissions_mxn,
+        "total_sales_count": summary.total_sales_count,
+        "cashiers": [
+            {
+                "cashier_id": str(s.user_id),
+                "cashier_name": s.user_name,
+                "total_sales_mxn": s.total_sales_amount_mxn,
+                "earned_commission_mxn": s.total_commission_amount_mxn,
+                "sales_count": s.total_sales_count,
+            }
+            for s in summary.summaries_by_user
+        ],
+        "ranking": ranking,
+        "summaries_by_user": summary.summaries_by_user,
+    }
+

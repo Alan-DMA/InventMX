@@ -31,13 +31,14 @@ class ProductRepository:
     async def get_by_id(self, product_id: uuid.UUID) -> Optional[Product]:
         """
         Obtiene un producto por su UUID, cargando de forma anticipada (eager-loading)
-        su categoría y desglose de existencias por almacén.
+        su categoría, proveedor y desglose de existencias por almacén.
         """
         stmt = (
             select(Product)
             .where(Product.id == product_id)
             .options(
                 selectinload(Product.category),
+                selectinload(Product.supplier),
                 selectinload(Product.stocks).selectinload(ProductStock.warehouse),
             )
             .execution_options(populate_existing=True)
@@ -54,6 +55,7 @@ class ProductRepository:
             .where(Product.tenant_id == tenant_id, Product.sku == sku)
             .options(
                 selectinload(Product.category),
+                selectinload(Product.supplier),
                 selectinload(Product.stocks).selectinload(ProductStock.warehouse),
             )
             .execution_options(populate_existing=True)
@@ -70,6 +72,7 @@ class ProductRepository:
             .where(Product.tenant_id == tenant_id, Product.barcode == barcode)
             .options(
                 selectinload(Product.category),
+                selectinload(Product.supplier),
                 selectinload(Product.stocks).selectinload(ProductStock.warehouse),
             )
             .execution_options(populate_existing=True)
@@ -114,6 +117,7 @@ class ProductRepository:
             .where(Product.tenant_id == tenant_id)
             .options(
                 selectinload(Product.category),
+                selectinload(Product.supplier),
                 selectinload(Product.stocks).selectinload(ProductStock.warehouse),
             )
             .order_by(Product.name.asc())
@@ -157,6 +161,7 @@ class ProductRepository:
         cost_usd_import: Optional[Decimal] = None,
         barcode: Optional[str] = None,
         category_id: Optional[uuid.UUID] = None,
+        supplier_id: Optional[uuid.UUID] = None,
         min_stock_alert: Decimal = Decimal("5.00"),
         image_url: Optional[str] = None,
         is_active: bool = True,
@@ -172,6 +177,7 @@ class ProductRepository:
             id=product_id,
             tenant_id=tenant_id,
             category_id=category_id,
+            supplier_id=supplier_id,
             name=name,
             price_mxn=price_mxn,
             cost_mxn=cost_mxn,
@@ -209,6 +215,7 @@ class ProductRepository:
         sku: Optional[str] = None,
         barcode: Optional[str] = None,
         category_id: Optional[uuid.UUID] = None,
+        supplier_id: Optional[uuid.UUID] = None,
         min_stock_alert: Optional[Decimal] = None,
         image_url: Optional[str] = None,
         is_active: Optional[bool] = None,
@@ -230,6 +237,8 @@ class ProductRepository:
             product.barcode = barcode
         if category_id is not None:
             product.category_id = category_id
+        if supplier_id is not None:
+            product.supplier_id = supplier_id
         if min_stock_alert is not None:
             product.min_stock_alert = min_stock_alert
         if image_url is not None:

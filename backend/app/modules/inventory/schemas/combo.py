@@ -77,8 +77,7 @@ class ComboCreate(BaseModel):
     # URL de imagen
     image_url: Optional[str] = Field(
         None,
-        max_length=500,
-        description="Enlace a la fotografía del combo",
+        description="Enlace a la fotografía del combo o Base64 Data URI",
     )
     # Lista de artículos componentes (mínimo 2 artículos)
     items: List[ComboItemCreate] = Field(
@@ -106,7 +105,7 @@ class ComboUpdate(BaseModel):
     price_mxn: Optional[Decimal] = Field(None, ge=0)
     sku: Optional[str] = Field(None, max_length=50)
     barcode: Optional[str] = Field(None, max_length=50)
-    image_url: Optional[str] = Field(None, max_length=500)
+    image_url: Optional[str] = None
     is_active: Optional[bool] = None
     items: Optional[List[ComboItemCreate]] = Field(None, min_length=2)
 

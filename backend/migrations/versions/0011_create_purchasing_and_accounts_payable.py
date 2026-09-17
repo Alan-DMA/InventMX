@@ -24,7 +24,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
@@ -97,7 +97,7 @@ def upgrade() -> None:
     )
 
     # -------------------------------------------------------------------------
-    # 2. Creación de Tabla inventmx.suppliers (Proveedores)
+    # 2. Creación de Tabla public.suppliers (Proveedores)
     # -------------------------------------------------------------------------
     op.create_table(
         "suppliers",
@@ -122,7 +122,7 @@ def upgrade() -> None:
     op.create_index("idx_suppliers_tenant_rfc", "suppliers", ["tenant_id", "rfc"], schema=SCHEMA)
 
     # -------------------------------------------------------------------------
-    # 3. Creación de Tabla inventmx.purchase_orders (Órdenes de Compra)
+    # 3. Creación de Tabla public.purchase_orders (Órdenes de Compra)
     # -------------------------------------------------------------------------
     op.create_table(
         "purchase_orders",
@@ -153,7 +153,7 @@ def upgrade() -> None:
     op.create_index("idx_purchase_orders_tenant_created_at", "purchase_orders", ["tenant_id", "created_at"], schema=SCHEMA)
 
     # -------------------------------------------------------------------------
-    # 4. Creación de Tabla inventmx.purchase_order_items (Ítems de la Orden)
+    # 4. Creación de Tabla public.purchase_order_items (Ítems de la Orden)
     # -------------------------------------------------------------------------
     op.create_table(
         "purchase_order_items",
@@ -178,7 +178,7 @@ def upgrade() -> None:
     op.create_index("idx_po_items_tenant_product", "purchase_order_items", ["tenant_id", "product_id"], schema=SCHEMA)
 
     # -------------------------------------------------------------------------
-    # 5. Creación de Tabla inventmx.accounts_payable (Cuentas por Pagar CxP)
+    # 5. Creación de Tabla public.accounts_payable (Cuentas por Pagar CxP)
     # -------------------------------------------------------------------------
     op.create_table(
         "accounts_payable",
@@ -205,7 +205,7 @@ def upgrade() -> None:
     op.create_index("idx_ap_tenant_due_date", "accounts_payable", ["tenant_id", "due_date"], schema=SCHEMA)
 
     # -------------------------------------------------------------------------
-    # 6. Creación de Tabla inventmx.supplier_payment_ledger (Abonos a Proveedores)
+    # 6. Creación de Tabla public.supplier_payment_ledger (Abonos a Proveedores)
     # -------------------------------------------------------------------------
     payment_method_enum = postgresql.ENUM(
         "CASH_MXN",

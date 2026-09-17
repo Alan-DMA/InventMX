@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
+import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
+import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_screen.dart';
 
 Widget _buildApp() {
   return ProviderScope(
     overrides: [
       currentUserNameProvider.overrideWith((ref) => 'Ana García'),
+      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
     ],
     child: MaterialApp(
       theme: AppTheme.dark,

@@ -144,7 +144,8 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
     final name = _nameController.text.trim();
     final priceMxn = double.parse(_priceController.text.replaceAll(',', '.'));
     final stockText = _stockController.text.trim();
-    final stock = int.tryParse(stockText) ?? 0;
+    final stock = int.tryParse(stockText) ??
+        (double.tryParse(stockText.replaceAll(',', '.'))?.round() ?? 0);
 
     setState(() {
       _isSaving = true;
@@ -194,55 +195,60 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHandle(),
-            _buildHeader(),
-            const SizedBox(height: 16),
-            if (widget.initialBarcode != null && widget.initialBarcode!.trim().isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceVariant,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.qr_code_2_rounded, size: 16, color: AppColors.skyBlue),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Código de Barras: ${widget.initialBarcode}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.onSurface,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHandle(),
+              _buildHeader(),
               const SizedBox(height: 16),
-            ],
-            _buildNameField(),
-            const SizedBox(height: 16),
-            _buildPriceField(),
-            const SizedBox(height: 16),
-            _buildStockField(),
-            const SizedBox(height: 8),
-            if (_errorMessage != null) ...[
+              if (widget.initialBarcode != null && widget.initialBarcode!.trim().isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.qr_code_2_rounded, size: 16, color: AppColors.skyBlue),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Código de Barras: ${widget.initialBarcode}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.onSurface,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              _buildNameField(),
+              const SizedBox(height: 16),
+              _buildPriceField(),
+              const SizedBox(height: 16),
+              _buildStockField(),
               const SizedBox(height: 8),
-              _buildErrorBanner(),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 8),
+                _buildErrorBanner(),
+              ],
+              const SizedBox(height: 24),
+              _buildSubmitButton(),
             ],
-            const SizedBox(height: 24),
-            _buildSubmitButton(),
-          ],
+          ),
         ),
       ),
     );

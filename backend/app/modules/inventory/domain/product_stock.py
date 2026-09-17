@@ -21,7 +21,7 @@ from app.core.database.base import Base
 
 class ProductStock(Base):
     """
-    Modelo de Dominio para la entidad ProductStock en el schema 'inventmx'.
+    Modelo de Dominio para la entidad ProductStock en el schema 'public'.
     Controla las existencias físicas y el stock reservado por producto y almacén (Campo Vital 3).
     """
     # Nombre de la tabla física en PostgreSQL
@@ -34,7 +34,7 @@ class ProductStock(Base):
             "warehouse_id",
             name="uq_product_stocks_tenant_prod_wh",
         ),
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del registro de stock
@@ -48,7 +48,7 @@ class ProductStock(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el inquilino/comercio dueño del stock",
@@ -57,7 +57,7 @@ class ProductStock(Base):
     # Identificador del producto
     product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.products.id", ondelete="CASCADE"),
+        ForeignKey("public.products.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el producto",
@@ -66,7 +66,7 @@ class ProductStock(Base):
     # Identificador del almacén o sucursal donde reside la mercancía
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="RESTRICT"),
+        ForeignKey("public.warehouses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el almacén correspondiente",

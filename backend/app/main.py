@@ -1,28 +1,39 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
 import asyncio
 import logging
+import os
+from contextlib import asynccontextmanager
 
-from app.api.v1.auth import router as auth_router
-from app.api.v1.inventory import router as inventory_router
-from app.api.v1.sales import router as sales_router
-from app.core.config import settings
+from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.core.config.settings import settings
+from app.core.database.session import get_db
+from app.core.exceptions.handlers import register_exception_handlers
+from app.core.middleware.subscription import SubscriptionLockMiddleware
 from app.core.tasks import release_expired_reservations_loop
+from app.modules.analytics_reports.api.endpoints import router as analytics_router
+from app.modules.auth_tenancy.api.endpoints import router as auth_router
+from app.modules.cash_treasury.api.endpoints import router as cash_treasury_router
+from app.modules.community_catalog.api.endpoints import router as community_b2b_router
+from app.modules.core_admin.api.endpoints import router as admin_router
+from app.modules.customers_credit.api.endpoints import router as customers_router
+from app.modules.inventory.api.endpoints import router as inventory_router
+from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
+from app.modules.saas_billing.api.endpoints import router as saas_billing_router
+from app.modules.sales_pos.api.endpoints import router as sales_router
+from app.modules.whatsapp_catalog.api.endpoints import router as whatsapp_catalog_router
 
-# Logger del módulo principal
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestiona el ciclo de vida de la aplicación: inicio y apagado ordenado."""
-    # Startup: iniciar la tarea periódica de liberación de stock expirado (TTL 15 min)
     cleanup_task = asyncio.create_task(release_expired_reservations_loop())
     logger.info("Servicio de limpieza de stock reservado iniciado.")
     yield
-    # Shutdown: cancelar la tarea limpiamente al apagar el servidor
     cleanup_task.cancel()
     try:
         await cleanup_task
@@ -37,9 +48,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# --- C-01: CORS con orígenes controlados por configuración ---
-# En producción se usan settings.ALLOWED_ORIGINS estrictos.
-# En desarrollo se permiten explícitamente localhost, 127.0.0.1 y la IP local, además de regex.
+# 1. Registrar manejadores de excepciones globales
+register_exception_handlers(app)
+
+# 2. Registrar middleware de suscripciones SaaS (bloqueo por morosidad)
+app.add_middleware(SubscriptionLockMiddleware)
+
+# 3. CORS con orígenes controlados y soporte PNA
 _dev_origins = [
     "http://localhost:8088",
     "http://127.0.0.1:8088",
@@ -53,28 +68,28 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS if settings.ENVIRONMENT == "production" else _dev_origins,
     allow_origin_regex=None if settings.ENVIRONMENT == "production" else r"^https?://.*",
-    allow_credentials=True,                   # Necesario para cookies / auth headers
-    allow_methods=["*"],                       # GET, POST, PUT, DELETE, PATCH, OPTIONS
-    allow_headers=["*"],                       # Authorization, Content-Type, etc.
-    allow_private_network=True,                # Soporte nativo para Chrome Private Network Access (PNA)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_private_network=True,
 )
 
-# --- B-07: Handler global de errores 500 ---
-# Evita que los stack traces del servidor se expongan en la respuesta HTTP.
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Captura cualquier excepción no manejada y devuelve un 500 seguro."""
-    logger.exception(f"Error no manejado en {request.method} {request.url}: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Error interno del servidor. Por favor intente más tarde."},
-    )
+# 4. Servir archivos estáticos subidos
+os.makedirs(os.path.join(settings.UPLOAD_DIR, "images"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
-
-# --- Registrar Routers ---
-app.include_router(auth_router,      prefix="/api/v1/auth",      tags=["auth"])
-app.include_router(inventory_router, prefix="/api/v1/inventory",  tags=["inventory"])
-app.include_router(sales_router,     prefix="/api/v1/sales",      tags=["sales"])
+# 5. Inclusión de los routers de la API versión 1
+app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(customers_router, prefix=settings.API_V1_STR)
+app.include_router(inventory_router, prefix=settings.API_V1_STR)
+app.include_router(purchasing_router, prefix=settings.API_V1_STR)
+app.include_router(sales_router, prefix=settings.API_V1_STR)
+app.include_router(cash_treasury_router, prefix=settings.API_V1_STR)
+app.include_router(saas_billing_router, prefix=settings.API_V1_STR)
+app.include_router(whatsapp_catalog_router, prefix=settings.API_V1_STR)
+app.include_router(community_b2b_router, prefix=settings.API_V1_STR)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
+app.include_router(admin_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["health"])
@@ -87,3 +102,4 @@ def read_root():
         "environment": settings.ENVIRONMENT,
         "message": "Bienvenido al Sistema de Gestión Comercial Nexus",
     }
+

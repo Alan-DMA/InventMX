@@ -22,7 +22,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre del esquema de base de datos
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
@@ -54,7 +54,7 @@ def upgrade() -> None:
     """)
 
     # -------------------------------------------------------------------------
-    # 2. Creación de la Tabla de Ventas (inventmx.sales)
+    # 2. Creación de la Tabla de Ventas (public.sales)
     # -------------------------------------------------------------------------
     op.execute(f"""
         CREATE TABLE IF NOT EXISTS {SCHEMA}.sales (
@@ -78,27 +78,29 @@ def upgrade() -> None:
             CONSTRAINT chk_sales_discount_non_negative CHECK (discount_mxn >= 0),
             CONSTRAINT chk_sales_total_cost_non_negative CHECK (total_cost_mxn >= 0)
         );
+    """)
 
-        -- Habilitar y forzar Row Level Security (RLS)
-        ALTER TABLE {SCHEMA}.sales ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE {SCHEMA}.sales FORCE ROW LEVEL SECURITY;
+    # Habilitar y forzar Row Level Security (RLS)
+    op.execute(f"ALTER TABLE {SCHEMA}.sales ENABLE ROW LEVEL SECURITY;")
+    op.execute(f"ALTER TABLE {SCHEMA}.sales FORCE ROW LEVEL SECURITY;")
 
-        -- Política de aislamiento de inquilinos para sales
-        DROP POLICY IF EXISTS sales_tenant_isolation_policy ON {SCHEMA}.sales;
+    # Política de aislamiento de inquilinos para sales
+    op.execute(f"DROP POLICY IF EXISTS sales_tenant_isolation_policy ON {SCHEMA}.sales;")
+    op.execute(f"""
         CREATE POLICY sales_tenant_isolation_policy ON {SCHEMA}.sales
             FOR ALL
             USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
             WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
-
-        -- Índices de auditoría y búsqueda rápida
-        CREATE INDEX IF NOT EXISTS idx_sales_tenant_created ON {SCHEMA}.sales (tenant_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_sales_tenant_folio ON {SCHEMA}.sales (tenant_id, folio);
-        CREATE INDEX IF NOT EXISTS idx_sales_tenant_cashier ON {SCHEMA}.sales (tenant_id, cashier_id);
-        CREATE INDEX IF NOT EXISTS idx_sales_tenant_status ON {SCHEMA}.sales (tenant_id, status);
     """)
 
+    # Índices de auditoría y búsqueda rápida
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sales_tenant_created ON {SCHEMA}.sales (tenant_id, created_at DESC);")
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sales_tenant_folio ON {SCHEMA}.sales (tenant_id, folio);")
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sales_tenant_cashier ON {SCHEMA}.sales (tenant_id, cashier_id);")
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sales_tenant_status ON {SCHEMA}.sales (tenant_id, status);")
+
     # -------------------------------------------------------------------------
-    # 3. Creación de la Tabla de Partidas de Venta (inventmx.sale_items)
+    # 3. Creación de la Tabla de Partidas de Venta (public.sale_items)
     # -------------------------------------------------------------------------
     op.execute(f"""
         CREATE TABLE IF NOT EXISTS {SCHEMA}.sale_items (
@@ -122,31 +124,31 @@ def upgrade() -> None:
             CONSTRAINT chk_sale_items_cost_non_negative CHECK (unit_cost_mxn >= 0),
             CONSTRAINT chk_sale_items_total_non_negative CHECK (total_mxn >= 0)
         );
+    """)
 
-        -- Habilitar y forzar Row Level Security (RLS)
-        ALTER TABLE {SCHEMA}.sale_items ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE {SCHEMA}.sale_items FORCE ROW LEVEL SECURITY;
+    # Habilitar y forzar Row Level Security (RLS)
+    op.execute(f"ALTER TABLE {SCHEMA}.sale_items ENABLE ROW LEVEL SECURITY;")
+    op.execute(f"ALTER TABLE {SCHEMA}.sale_items FORCE ROW LEVEL SECURITY;")
 
-        -- Política de aislamiento de inquilinos para sale_items
-        DROP POLICY IF EXISTS sale_items_tenant_isolation_policy ON {SCHEMA}.sale_items;
+    # Política de aislamiento de inquilinos para sale_items
+    op.execute(f"DROP POLICY IF EXISTS sale_items_tenant_isolation_policy ON {SCHEMA}.sale_items;")
+    op.execute(f"""
         CREATE POLICY sale_items_tenant_isolation_policy ON {SCHEMA}.sale_items
             FOR ALL
             USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
             WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
-
-        -- Índices de optimización de consultas
-        CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_sale ON {SCHEMA}.sale_items (tenant_id, sale_id);
-        CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_product ON {SCHEMA}.sale_items (tenant_id, product_id);
-        CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_combo ON {SCHEMA}.sale_items (tenant_id, combo_id);
     """)
+
+    # Índices de optimización de consultas
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_sale ON {SCHEMA}.sale_items (tenant_id, sale_id);")
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_product ON {SCHEMA}.sale_items (tenant_id, product_id);")
+    op.execute(f"CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_combo ON {SCHEMA}.sale_items (tenant_id, combo_id);")
 
 
 def downgrade() -> None:
     # -------------------------------------------------------------------------
     # Reversión de tablas de ventas
     # -------------------------------------------------------------------------
-    op.execute(f"""
-        DROP TABLE IF EXISTS {SCHEMA}.sale_items CASCADE;
-        DROP TABLE IF EXISTS {SCHEMA}.sales CASCADE;
-        DROP TYPE IF EXISTS {SCHEMA}.sale_status_enum;
-    """)
+    op.execute(f"DROP TABLE IF EXISTS {SCHEMA}.sale_items CASCADE;")
+    op.execute(f"DROP TABLE IF EXISTS {SCHEMA}.sales CASCADE;")
+    op.execute(f"DROP TYPE IF EXISTS {SCHEMA}.sale_status_enum;")

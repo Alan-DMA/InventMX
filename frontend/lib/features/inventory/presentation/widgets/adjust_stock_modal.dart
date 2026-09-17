@@ -52,7 +52,7 @@ Future<bool> showAdjustStockModal(BuildContext context, Product product) {
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    useRootNavigator: true,
+    useRootNavigator: false,
     backgroundColor: Colors.transparent,
     builder: (_) => AdjustStockModal(product: product),
   ).then((v) => v ?? false);
@@ -107,12 +107,17 @@ class _AdjustStockModalState extends ConsumerState<AdjustStockModal> {
             movementType: _type.apiCode,
             quantity: _quantity,
             reason: _reasonCtrl.text.trim(),
+            warehouseId: widget.product.warehouseId,
           );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() {
         _isSaving = false;
-        _error = 'No se pudo aplicar el ajuste.';
+        final cleanMsg = e
+            .toString()
+            .replaceAll('Exception: ', '')
+            .replaceAll('InventoryException: ', '');
+        _error = cleanMsg.isNotEmpty ? cleanMsg : 'No se pudo aplicar el ajuste.';
       });
     }
   }

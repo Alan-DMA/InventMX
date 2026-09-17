@@ -51,7 +51,7 @@ class InventoryMovement(Base):
     __tablename__ = "inventory_movements"
     # Argumentos de tabla y esquema
     __table_args__ = (
-        {"schema": "inventmx"},
+        {"schema": "public"},
     )
 
     # Identificador único UUID del asiento en el Kardex
@@ -65,7 +65,7 @@ class InventoryMovement(Base):
     # Identificador del inquilino (Tenant) para aislamiento multi-tenant RLS
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID del inquilino propietario del movimiento",
@@ -74,7 +74,7 @@ class InventoryMovement(Base):
     # Identificador del producto afectado
     product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.products.id", ondelete="CASCADE"),
+        ForeignKey("public.products.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID del producto físico afectado",
@@ -83,7 +83,7 @@ class InventoryMovement(Base):
     # Identificador del almacén o sucursal donde ocurrió la alteración
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="RESTRICT"),
+        ForeignKey("public.warehouses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
         doc="ID del almacén físico donde se registró la alteración",
@@ -92,7 +92,7 @@ class InventoryMovement(Base):
     # Identificador opcional del almacén de origen en caso de traslados
     from_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="SET NULL"),
+        ForeignKey("public.warehouses.id", ondelete="SET NULL"),
         nullable=True,
         doc="ID del almacén origen en traslados internos",
     )
@@ -100,7 +100,7 @@ class InventoryMovement(Base):
     # Identificador opcional del almacén de destino en caso de traslados
     to_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.warehouses.id", ondelete="SET NULL"),
+        ForeignKey("public.warehouses.id", ondelete="SET NULL"),
         nullable=True,
         doc="ID del almacén destino en traslados internos",
     )
@@ -108,7 +108,7 @@ class InventoryMovement(Base):
     # Identificador del usuario que ejecutó o autorizó el movimiento
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.users.id", ondelete="SET NULL"),
+        ForeignKey("public.users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="ID del usuario responsable de la transacción",
@@ -116,7 +116,7 @@ class InventoryMovement(Base):
 
     # Tipo de movimiento catalogado
     movement_type: Mapped[MovementType] = mapped_column(
-        SQLEnum(MovementType, name="movement_type_enum", schema="inventmx", native_enum=True),
+        SQLEnum(MovementType, name="movement_type_enum", schema="public", native_enum=True),
         nullable=False,
         index=True,
         doc="Naturaleza contable del movimiento físico",

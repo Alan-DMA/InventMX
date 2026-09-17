@@ -16,7 +16,7 @@ Future<void> showKardexBottomSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    useRootNavigator: true,
+    useRootNavigator: false,
     backgroundColor: Colors.transparent,
     builder: (_) => KardexBottomSheet(
       productId: productId,
@@ -124,13 +124,22 @@ class _KardexBottomSheetState extends ConsumerState<KardexBottomSheet> {
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.55,
-      minChildSize: 0.35,
-      maxChildSize: 0.92,
-      snap: true,
-      snapSizes: const [0.55, 0.92],
-      builder: (_, __) => _buildContent(context, screenHeight),
+    return PopScope(
+      canPop: !_filtersVisible,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_filtersVisible && mounted) {
+          setState(() => _filtersVisible = false);
+        }
+      },
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        snap: true,
+        snapSizes: const [0.55, 0.92],
+        builder: (_, __) => _buildContent(context, screenHeight),
+      ),
     );
   }
 
@@ -250,6 +259,16 @@ class _KardexBottomSheetState extends ConsumerState<KardexBottomSheet> {
                   : AppColors.onSurfaceMuted,
             ),
             tooltip: 'Filtros',
+          ),
+          // Botón cerrar modal
+          IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 22,
+              color: AppColors.onSurfaceMuted,
+            ),
+            tooltip: 'Cerrar',
           ),
         ],
       ),
@@ -529,33 +548,35 @@ class _KardexBottomSheetState extends ConsumerState<KardexBottomSheet> {
   // ── Empty state ───────────────────────────────────────────────────────────
 
   Widget _buildEmptyState(bool hasFilters) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              hasFilters
-                  ? Icons.filter_list_off_rounded
-                  : Icons.history_rounded,
-              size: 48,
-              color: AppColors.onSurfaceMuted,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              hasFilters
-                  ? 'Sin movimientos en\neste período'
-                  : 'Aún no hay movimientos\nregistrados',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                hasFilters
+                    ? Icons.filter_list_off_rounded
+                    : Icons.history_rounded,
+                size: 48,
                 color: AppColors.onSurfaceMuted,
-                height: 1.4,
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                hasFilters
+                    ? 'Sin movimientos en\neste período'
+                    : 'Aún no hay movimientos\nregistrados',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.onSurfaceMuted,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -564,36 +585,38 @@ class _KardexBottomSheetState extends ConsumerState<KardexBottomSheet> {
   // ── Error state ───────────────────────────────────────────────────────────
 
   Widget _buildErrorState(String error) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.cloud_off_rounded,
-              size: 48,
-              color: AppColors.onSurfaceMuted,
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'No se pudo cargar\nel historial',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: AppColors.onSurface,
-                height: 1.4,
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_rounded,
+                size: 48,
+                color: AppColors.onSurfaceMuted,
               ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () =>
-                  ref.read(kardexProvider(widget.productId).notifier).retry(),
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('Reintentar'),
-            ),
-          ],
+              const SizedBox(height: 12),
+              const Text(
+                'No se pudo cargar\nel historial',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.onSurface,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () =>
+                    ref.read(kardexProvider(widget.productId).notifier).retry(),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
         ),
       ),
     );

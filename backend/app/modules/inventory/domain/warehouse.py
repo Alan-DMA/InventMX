@@ -15,13 +15,13 @@ from app.core.database.base import Base
 
 class Warehouse(Base):
     """
-    Modelo de Dominio para la entidad Almacén / Sucursal en el schema 'inventmx'.
+    Modelo de Dominio para la entidad Almacén / Sucursal en el schema 'public'.
     Representa una ubicación física de resguardo y control de existencias de inventario.
     """
     # Nombre de la tabla física en PostgreSQL
     __tablename__ = "warehouses"
     # Esquema específico de inventario
-    __table_args__ = {"schema": "inventmx"}
+    __table_args__ = {"schema": "public"}
 
     # Identificador único UUID del almacén
     id: Mapped[uuid.UUID] = mapped_column(
@@ -34,7 +34,7 @@ class Warehouse(Base):
     # Identificador del comercio propietario (Aislamiento Multi-tenant RLS)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("inventmx.tenants.id", ondelete="CASCADE"),
+        ForeignKey("public.tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Clave foránea hacia el inquilino/comercio dueño del almacén",

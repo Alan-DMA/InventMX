@@ -19,7 +19,7 @@ from app.modules.sales_pos.domain.cash_movement import (
 
 class CashMovementRepository:
     """
-    Repositorio de persistencia asíncrona para Movimientos Manuales de Efectivo (inventmx.cash_movements) (RF-16).
+    Repositorio de persistencia asíncrona para Movimientos Manuales de Efectivo (public.cash_movements) (RF-16).
     Gestiona el registro de aportaciones (CASH_IN) y retiros/gastos (CASH_OUT) de caja chica.
     """
     def __init__(self, session: AsyncSession):

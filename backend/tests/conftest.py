@@ -24,7 +24,7 @@ async def test_engine():
         poolclass=pool.NullPool,
         connect_args={
             "server_settings": {
-                "search_path": "inventmx,public"
+                "search_path": "public"
             }
         },
     )

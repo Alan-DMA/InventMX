@@ -22,7 +22,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Nombre constante del esquema PostgreSQL donde residen las tablas
-SCHEMA = "inventmx"
+SCHEMA = "public"
 
 
 def upgrade() -> None:
