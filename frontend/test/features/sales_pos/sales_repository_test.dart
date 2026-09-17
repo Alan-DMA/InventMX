@@ -31,9 +31,12 @@ void main() {
     repository = SalesRepositoryImpl(client: mockClient);
   });
 
+  group('SalePaymentKind', () {
     test('un método → ese método; dos → mixto', () {
-      const cash = PaymentEntry(id: 'a', method: PaymentMethodMxn.cashMxn, amountMxn: 50);
-      const card = PaymentEntry(id: 'b', method: PaymentMethodMxn.cardTpv, amountMxn: 50);
+      const cash = PaymentEntry(
+          id: 'a', method: PaymentMethodMxn.cashMxn, amountMxn: 50);
+      const card = PaymentEntry(
+          id: 'b', method: PaymentMethodMxn.cardTpv, amountMxn: 50);
       expect(SalePaymentKind.fromPayments([cash]), SalePaymentKind.cash);
       expect(SalePaymentKind.fromPayments([card]), SalePaymentKind.card);
       expect(SalePaymentKind.fromPayments([cash, card]), SalePaymentKind.mixed);
@@ -42,7 +45,9 @@ void main() {
   });
 
   group('getSales', () {
-    test('la semilla cubre 7 días relativos al reloj, de más reciente a más antigua', () async {
+    test(
+        'la semilla cubre 7 días relativos al reloj, de más reciente a más antigua',
+        () async {
       final page = await repo.getSales(pageSize: 100);
       expect(page.items, isNotEmpty);
       for (var i = 1; i < page.items.length; i++) {
@@ -55,12 +60,14 @@ void main() {
       // Nada en el futuro ni más viejo que una semana.
       expect(page.items.first.completedAt.isBefore(_now), isTrue);
       expect(
-        page.items.last.completedAt.isAfter(_now.subtract(const Duration(days: 7))),
+        page.items.last.completedAt
+            .isAfter(_now.subtract(const Duration(days: 7))),
         isTrue,
       );
     });
 
-    test('pagina de 20 en 20 y el total es del recorte, no de la página', () async {
+    test('pagina de 20 en 20 y el total es del recorte, no de la página',
+        () async {
       final p1 = await repo.getSales(page: 1, pageSize: 20);
       final p2 = await repo.getSales(page: 2, pageSize: 20);
       expect(p1.items.length, 20);
@@ -79,13 +86,15 @@ void main() {
         query: const SalesQuery(paymentKind: SalePaymentKind.cash),
         pageSize: 100,
       );
-      expect(cash.items.every((s) => s.paymentKind == SalePaymentKind.cash), isTrue);
+      expect(cash.items.every((s) => s.paymentKind == SalePaymentKind.cash),
+          isTrue);
       expect(cash.total, lessThan(all.total));
       final expectedSum = cash.items.fold<double>(0, (a, s) => a + s.totalMxn);
       expect(cash.totalAmountMxn, closeTo(expectedSum, 0.001));
     });
 
-    test('filtra por cajero y por rango de fechas (inclusivo por día)', () async {
+    test('filtra por cajero y por rango de fechas (inclusivo por día)',
+        () async {
       final cashiers = await repo.getCashiers();
       expect(cashiers, contains('María Hernández'));
 
@@ -93,7 +102,8 @@ void main() {
         query: const SalesQuery(cashierName: 'María Hernández'),
         pageSize: 100,
       );
-      expect(byCashier.items.every((s) => s.cashierName == 'María Hernández'), isTrue);
+      expect(byCashier.items.every((s) => s.cashierName == 'María Hernández'),
+          isTrue);
 
       final today = DateTime(_now.year, _now.month, _now.day);
       final onlyToday = await repo.getSales(
@@ -110,13 +120,19 @@ void main() {
       );
     });
 
-    test('una venta cobrada en la sesión aparece primero y se resuelve por id', () async {
+    test('una venta cobrada en la sesión aparece primero y se resuelve por id',
+        () async {
       final result = await repo.checkout(
         items: const [
-          CartItem(id: 'c1', name: 'Coca-Cola 600 ml', unitPriceMxn: 18, quantity: 2),
+          CartItem(
+              id: 'c1',
+              name: 'Coca-Cola 600 ml',
+              unitPriceMxn: 18,
+              quantity: 2),
         ],
         payments: const [
-          PaymentEntry(id: 'p1', method: PaymentMethodMxn.cashMxn, amountMxn: 50),
+          PaymentEntry(
+              id: 'p1', method: PaymentMethodMxn.cashMxn, amountMxn: 50),
         ],
         cashierName: 'Eduardo',
       );
@@ -142,11 +158,20 @@ void main() {
   group('refundSale', () {
     Future<CheckoutResult> checkoutTwoLines() => repo.checkout(
           items: const [
-            CartItem(id: 'ci-1', name: 'Coca-Cola 600 ml', unitPriceMxn: 18, quantity: 3),
-            CartItem(id: 'ci-2', name: 'Sabritas 45 g', unitPriceMxn: 17, quantity: 2),
+            CartItem(
+                id: 'ci-1',
+                name: 'Coca-Cola 600 ml',
+                unitPriceMxn: 18,
+                quantity: 3),
+            CartItem(
+                id: 'ci-2',
+                name: 'Sabritas 45 g',
+                unitPriceMxn: 17,
+                quantity: 2),
           ],
           payments: const [
-            PaymentEntry(id: 'p1', method: PaymentMethodMxn.cashMxn, amountMxn: 100),
+            PaymentEntry(
+                id: 'p1', method: PaymentMethodMxn.cashMxn, amountMxn: 100),
           ],
           cashierName: 'Eduardo',
         );
@@ -185,10 +210,12 @@ void main() {
 
     test('no se puede reembolsar dos veces', () async {
       final sale = await checkoutTwoLines();
-      await repo.refundSale(saleId: sale.saleId, reason: 'x', refundToStock: true);
+      await repo.refundSale(
+          saleId: sale.saleId, reason: 'x', refundToStock: true);
 
       expect(
-        () => repo.refundSale(saleId: sale.saleId, reason: 'y', refundToStock: true),
+        () => repo.refundSale(
+            saleId: sale.saleId, reason: 'y', refundToStock: true),
         throwsA(isA<SaleAlreadyRefundedException>()),
       );
     });
@@ -208,7 +235,8 @@ void main() {
 
     test('venta desconocida lanza SaleNotFoundException', () {
       expect(
-        () => repo.refundSale(saleId: 'no-existe', reason: 'x', refundToStock: true),
+        () => repo.refundSale(
+            saleId: 'no-existe', reason: 'x', refundToStock: true),
         throwsA(isA<SaleNotFoundException>()),
       );
     });
@@ -319,10 +347,12 @@ void main() {
 
       final itemsPayload = captured['items'] as List;
       expect(itemsPayload.length, equals(2));
-      expect(itemsPayload[0]['product_id'], equals('a1111111-b222-c333-d444-e55555555555'));
+      expect(itemsPayload[0]['product_id'],
+          equals('a1111111-b222-c333-d444-e55555555555'));
       expect(itemsPayload[0]['quantity'], equals(2));
       expect(itemsPayload[0]['unit_price_usd'], equals(18.5));
-      expect(itemsPayload[1].containsKey('product_id'), isFalse); // on-the-fly no envía product_id
+      expect(itemsPayload[1].containsKey('product_id'),
+          isFalse); // on-the-fly no envía product_id
 
       final paymentsPayload = captured['payments'] as List;
       expect(paymentsPayload.length, equals(1));
@@ -391,7 +421,9 @@ void main() {
       expect(paymentsPayload[1]['reference_number'], equals('SPEI-998877'));
     });
 
-    test('lanza SalesException con mensaje del backend cuando hay stock insuficiente', () async {
+    test(
+        'lanza SalesException con mensaje del backend cuando hay stock insuficiente',
+        () async {
       final dioError = DioException(
         requestOptions: RequestOptions(path: '/api/v1/sales/checkout'),
         response: Response(
@@ -399,7 +431,8 @@ void main() {
           data: {
             'detail': {
               'code': 'INSUFFICIENT_STOCK',
-              'message': "Stock insuficiente para el producto 'Coca Cola 600ml'. Solicitado: 5, Disponible: 1.",
+              'message':
+                  "Stock insuficiente para el producto 'Coca Cola 600ml'. Solicitado: 5, Disponible: 1.",
             },
           },
           requestOptions: RequestOptions(path: '/api/v1/sales/checkout'),
