@@ -20,6 +20,20 @@ class AccountsPayableResult {
 // Contrato — alineado con docs/api/purchases.yaml
 // ---------------------------------------------------------------------------
 
+/// 422 de `DELETE /suppliers/{id}`: no se puede dar de baja un proveedor con
+/// órdenes activas. El mensaje ya viene listo para mostrarse.
+class SupplierHasActiveOrdersException implements Exception {
+  const SupplierHasActiveOrdersException(this.activeOrders);
+  final int activeOrders;
+
+  String get message =>
+      'Este proveedor tiene $activeOrders ${activeOrders == 1 ? 'orden activa' : 'órdenes activas'}. '
+      'Recíbelas o cancélalas antes de darlo de baja.';
+
+  @override
+  String toString() => message;
+}
+
 abstract class PurchasesRepository {
   /// GET /suppliers
   Future<List<Supplier>> listSuppliers({String? search});
@@ -33,6 +47,21 @@ abstract class PurchasesRepository {
     String? rfc,
     String? notes,
   });
+
+  /// PUT /suppliers/{id} — U-07 (C-01). Solo cambian los campos enviados.
+  Future<Supplier> updateSupplier({
+    required String id,
+    String? name,
+    String? contactName,
+    String? phone,
+    String? email,
+    String? rfc,
+  });
+
+  /// DELETE /suppliers/{id} — desactivación (soft delete). El backend responde
+  /// 422 si el proveedor tiene órdenes activas (SENT / PARTIAL_RECEIVED);
+  /// aquí se lanza [SupplierHasActiveOrdersException].
+  Future<void> deactivateSupplier(String id);
 
   /// GET /purchase-orders
   /// Retorna únicamente órdenes SENT/PARTIAL_RECEIVED/RECEIVED — DRAFT y
@@ -145,6 +174,46 @@ class PurchasesRepositoryMock implements PurchasesRepository {
     );
     _suppliers.insert(0, supplier);
     return supplier;
+  }
+
+  @override
+  Future<Supplier> updateSupplier({
+    required String id,
+    String? name,
+    String? contactName,
+    String? phone,
+    String? email,
+    String? rfc,
+  }) async {
+    await Future.delayed(_fakeDelay);
+    final index = _suppliers.indexWhere((s) => s.id == id);
+    if (index < 0) throw Exception('Proveedor no encontrado: $id');
+    final current = _suppliers[index];
+    final updated = Supplier(
+      id: current.id,
+      name: name ?? current.name,
+      contactName: contactName ?? current.contactName,
+      phone: phone ?? current.phone,
+      email: email ?? current.email,
+      rfc: rfc ?? current.rfc,
+      balanceDueMxn: current.balanceDueMxn,
+      createdAt: current.createdAt,
+    );
+    _suppliers[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deactivateSupplier(String id) async {
+    await Future.delayed(_fakeDelay);
+    final active = _orders
+        .where((o) =>
+            o.supplierId == id &&
+            (o.status == PurchaseOrderStatus.sent ||
+                o.status == PurchaseOrderStatus.partialReceived))
+        .length;
+    if (active > 0) throw SupplierHasActiveOrdersException(active);
+    _suppliers.removeWhere((s) => s.id == id);
   }
 
   // ── Órdenes de compra ────────────────────────────────────────────────────

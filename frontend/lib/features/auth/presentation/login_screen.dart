@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/form_focus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import 'login_provider.dart';
@@ -29,7 +30,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      focusFirstInvalidField(_formKey);
+      return;
+    }
 
     await ref.read(loginProvider.notifier).login(
           email: _emailController.text.trim(),

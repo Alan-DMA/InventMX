@@ -1,11 +1,12 @@
 import 'dart:io';
-import 'dart:math' as math show max, Random;
+import 'dart:math' as math show max;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/barcode_painter.dart';
 import '../../domain/product.dart';
 
 // ---------------------------------------------------------------------------
@@ -20,46 +21,6 @@ Future<void> showProductLabelModal(BuildContext context, Product product) {
     backgroundColor: Colors.transparent,
     builder: (_) => ProductLabelModal(product: product),
   );
-}
-
-// ---------------------------------------------------------------------------
-// CustomPainter — Barcode Code128 simplificado
-// ---------------------------------------------------------------------------
-
-class _BarcodePainter extends CustomPainter {
-  const _BarcodePainter({required this.code, required this.color});
-
-  final String code;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    final rng = math.Random(
-      code.codeUnits.fold<int>(0, (a, b) => a + b),
-    );
-
-    const barCount = 60;
-    final totalWidth = size.width;
-    double x = 0;
-
-    for (int i = 0; i < barCount; i++) {
-      final isBar = i.isEven;
-      final widthFactor = (rng.nextInt(4) + 1).toDouble();
-      final barW = (totalWidth / barCount) * widthFactor * 0.6;
-
-      if (isBar) {
-        canvas.drawRect(
-            Rect.fromLTWH(x, 0, barW.clamp(1, barW), size.height), paint);
-      }
-      x += barW;
-      if (x >= totalWidth) break;
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BarcodePainter old) =>
-      old.code != code || old.color != color;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +201,7 @@ class _ProductLabelModalState extends State<ProductLabelModal> {
                 SizedBox(
                   height: 50,
                   child: CustomPaint(
-                    painter: _BarcodePainter(
+                    painter: BarcodePainter(
                       code: barcode,
                       color: const Color(0xFF111827),
                     ),

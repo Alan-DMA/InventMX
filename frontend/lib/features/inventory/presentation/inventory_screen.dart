@@ -189,22 +189,16 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           ),
           onPressed: () => context.push(AppRoutes.import),
         ),
-        // Acceso a Configuraciones / Perfil — placeholder hasta tarea RBAC
+        // Mi cuenta: suscripción, panel de fundadores, cerrar sesión (14.2)
         IconButton(
-          tooltip: 'Perfil y configuración',
+          key: const Key('accountButton'),
+          tooltip: 'Mi cuenta',
           icon: const Icon(
             Icons.account_circle_outlined,
             color: AppColors.onSurface,
             size: 26,
           ),
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Configuraciones disponibles próximamente'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          },
+          onPressed: () => context.push(AppRoutes.account),
         ),
         const SizedBox(width: 4),
       ],

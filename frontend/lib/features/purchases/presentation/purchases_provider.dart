@@ -317,6 +317,38 @@ class SuppliersNotifier extends Notifier<SuppliersState> {
     return supplier;
   }
 
+  /// U-07 — edita en sitio; la lista conserva el orden.
+  Future<Supplier> updateSupplier({
+    required String id,
+    String? name,
+    String? contactName,
+    String? phone,
+    String? email,
+    String? rfc,
+  }) async {
+    final updated = await _repo.updateSupplier(
+      id: id,
+      name: name,
+      contactName: contactName,
+      phone: phone,
+      email: email,
+      rfc: rfc,
+    );
+    state = state.copyWith(
+      suppliers: [for (final s in state.suppliers) s.id == id ? updated : s],
+    );
+    return updated;
+  }
+
+  /// U-07 — baja lógica; propaga [SupplierHasActiveOrdersException] tal cual
+  /// para que la UI muestre el motivo.
+  Future<void> deactivateSupplier(String id) async {
+    await _repo.deactivateSupplier(id);
+    state = state.copyWith(
+      suppliers: state.suppliers.where((s) => s.id != id).toList(),
+    );
+  }
+
   void cancelDebounce() => _debounce?.cancel();
 }
 

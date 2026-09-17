@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../purchases/presentation/widgets/phone_launcher.dart';
+import '../../../../core/utils/form_focus.dart';
 import '../../../../core/constants/catalog_config.dart';
 import '../../data/whatsapp_message_formatter.dart';
 import '../../domain/public_catalog.dart';
@@ -171,7 +172,11 @@ class _OrderSheetState extends ConsumerState<OrderSheet> {
   /// o `null` si no pasa — el error ya quedó en pantalla.
   Future<WhatsAppOrderBuild?> _validate(OrderCart cart) async {
     setState(() => _submitted = true);
-    if (!(_formKey.currentState?.validate() ?? false)) return null;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      // El error se muestra donde está el campo, no donde está el botón.
+      focusFirstInvalidField(_formKey);
+      return null;
+    }
     setState(() {
       _sending = true;
       _sendError = null;
@@ -210,7 +215,10 @@ class _OrderSheetState extends ConsumerState<OrderSheet> {
   Future<void> _send() async {
     final cart = ref.read(orderCartProvider);
     setState(() => _submitted = true);
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      focusFirstInvalidField(_formKey);
+      return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     setState(() {
       _sending = true;
@@ -301,6 +309,22 @@ class _OrderSheetState extends ConsumerState<OrderSheet> {
 
   // ── UI ────────────────────────────────────────────────────────────────────
 
+  /// U-09 (WC-02) — nota por renglón ("bien frío", "sin cebolla"). Va en el
+  /// mensaje de WhatsApp junto al producto; el backend ya la acepta.
+  Future<void> _editNote(CartLine line) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _NoteDialog(
+        productName: line.product.name,
+        initial: line.notes ?? '',
+      ),
+    );
+    if (result == null || !mounted) return;
+    ref
+        .read(orderCartProvider.notifier)
+        .setNotes(line.product.id, result.trim().isEmpty ? null : result.trim());
+  }
+
   @override
   Widget build(BuildContext context) {
     final cart = ref.watch(orderCartProvider);
@@ -363,6 +387,7 @@ class _OrderSheetState extends ConsumerState<OrderSheet> {
                       line: line,
                       onAdd: () => notifier.add(line.product),
                       onRemove: () => notifier.remove(line.product.id),
+                      onEditNote: () => _editNote(line),
                     ),
                   if (shortfall > 0) ...[
                     const SizedBox(height: 8),
@@ -593,11 +618,13 @@ class _OrderLine extends StatelessWidget {
     required this.line,
     required this.onAdd,
     required this.onRemove,
+    required this.onEditNote,
   });
 
   final CartLine line;
   final VoidCallback onAdd;
   final VoidCallback onRemove;
+  final VoidCallback onEditNote;
 
   @override
   Widget build(BuildContext context) {
@@ -627,6 +654,44 @@ class _OrderLine extends StatelessWidget {
                     fontSize: 12.5,
                     color: CatalogColors.inkMuted,
                     fontFeatures: CatalogTheme.tabular,
+                  ),
+                ),
+                // Nota por renglón (U-09): un toque para escribirla o cambiarla.
+                InkWell(
+                  key: ValueKey('orderLineNote-${line.product.id}'),
+                  onTap: onEditNote,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          (line.notes?.isNotEmpty ?? false)
+                              ? Icons.sticky_note_2_outlined
+                              : Icons.add_comment_outlined,
+                          size: 14,
+                          color: CatalogColors.accent,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            (line.notes?.isNotEmpty ?? false)
+                                ? line.notes!
+                                : 'Agregar nota',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: CatalogColors.accent,
+                              fontStyle: (line.notes?.isNotEmpty ?? false)
+                                  ? FontStyle.italic
+                                  : FontStyle.normal,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1018,6 +1083,77 @@ class _EmptyOrder extends StatelessWidget {
           FilledButton(onPressed: onBrowse, child: const Text('Ver productos')),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nota por renglón (U-09)
+// ---------------------------------------------------------------------------
+
+class _NoteDialog extends StatefulWidget {
+  const _NoteDialog({required this.productName, required this.initial});
+
+  final String productName;
+  final String initial;
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  late final _ctrl = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: CatalogColors.ground,
+      title: Text(
+        widget.productName,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: CatalogColors.ink),
+      ),
+      content: TextField(
+        key: const Key('orderNoteField'),
+        controller: _ctrl,
+        autofocus: true,
+        maxLength: 80,
+        textCapitalization: TextCapitalization.sentences,
+        onSubmitted: (v) => Navigator.of(context).pop(v),
+        style: const TextStyle(color: CatalogColors.ink),
+        decoration: const InputDecoration(
+          labelText: 'Nota para la tienda',
+          hintText: 'Ej. bien frío, sin cebolla',
+        ),
+      ),
+      actions: [
+        if (widget.initial.isNotEmpty)
+          TextButton(
+            key: const Key('orderNoteClear'),
+            onPressed: () => Navigator.of(context).pop(''),
+            child: const Text('Quitar nota'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          key: const Key('orderNoteSave'),
+          style: FilledButton.styleFrom(
+            backgroundColor: CatalogColors.accent,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.of(context).pop(_ctrl.text),
+          child: const Text('Guardar'),
+        ),
+      ],
     );
   }
 }

@@ -37,10 +37,18 @@ abstract class WhatsappCatalogRepository {
   /// `GET /catalog-settings` (tenant de la sesión).
   Future<CatalogSettings> getSettings();
 
-  /// `PUT /catalog-settings` — solo los campos que 13.2.3 edita.
+  /// `PUT /catalog-settings` — campos parciales (U-08 / WC-01 completa
+  /// las reglas de la tienda: pedido mínimo, envío, entrega/recoger,
+  /// horario y bienvenida). Un `String` vacío borra el campo.
   Future<CatalogSettings> updateSettings({
     bool? isCatalogEnabled,
     String? whatsappNumber,
+    String? welcomeMessage,
+    double? minOrderAmountMxn,
+    double? deliveryFeeMxn,
+    bool? deliveryEnabled,
+    bool? pickupEnabled,
+    String? businessHours,
   });
 }
 
@@ -184,11 +192,25 @@ class WhatsappCatalogRepositoryMock implements WhatsappCatalogRepository {
   Future<CatalogSettings> updateSettings({
     bool? isCatalogEnabled,
     String? whatsappNumber,
+    String? welcomeMessage,
+    double? minOrderAmountMxn,
+    double? deliveryFeeMxn,
+    bool? deliveryEnabled,
+    bool? pickupEnabled,
+    String? businessHours,
   }) async {
     await Future<void>.delayed(latency);
+    String? Function()? text(String? v) =>
+        v == null ? null : () => v.trim().isEmpty ? null : v.trim();
     _settings = _settings.copyWith(
       isCatalogEnabled: isCatalogEnabled,
-      whatsappNumber: whatsappNumber == null ? null : () => whatsappNumber,
+      whatsappNumber: text(whatsappNumber),
+      welcomeMessage: text(welcomeMessage),
+      minOrderAmountMxn: minOrderAmountMxn,
+      deliveryFeeMxn: deliveryFeeMxn,
+      deliveryEnabled: deliveryEnabled,
+      pickupEnabled: pickupEnabled,
+      businessHours: text(businessHours),
     );
     return _settings;
   }

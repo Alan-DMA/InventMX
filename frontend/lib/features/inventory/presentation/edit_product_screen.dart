@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/barcode_scan_sheet.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -343,15 +344,15 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                                 AppColors.onSurfaceMuted.withValues(alpha: 0.6),
                           ),
                           tooltip: 'Escanear código',
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Escáner de código de barras — disponible próximamente',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
+                          onPressed: () async {
+                            // U-03: la cámara rellena el campo; el usuario
+                            // sigue pudiendo corregirlo a mano.
+                            final code = await showBarcodeScanSheet(
+                              context,
+                              hint: 'Apunta al código de barras del producto',
                             );
+                            if (code == null || !mounted) return;
+                            setState(() => _barcodeCon.text = code);
                           },
                         ),
                       ),

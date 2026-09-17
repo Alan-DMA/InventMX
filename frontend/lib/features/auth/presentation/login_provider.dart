@@ -69,6 +69,10 @@ class LoginNotifier extends Notifier<LoginState> {
       final repo = ref.read(authRepositoryProvider);
       final token = await repo.login(email: email, password: password);
 
+      // Se persiste para que al reabrir la app la identidad siga siendo la
+      // misma: la sesión se restauraba, el correo no.
+      await ref.read(secureStorageProvider).saveUserEmail(email);
+
       // Actualiza el sessionProvider → GoRouter redirige a /dashboard
       ref.read(sessionProvider.notifier).state = true;
       ref.read(currentUserNameProvider.notifier).state = email;

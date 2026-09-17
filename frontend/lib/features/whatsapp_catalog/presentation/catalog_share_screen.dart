@@ -16,7 +16,9 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../purchases/presentation/widgets/phone_launcher.dart';
 import '../domain/catalog_settings.dart';
+import 'catalog_theme.dart' show mxn;
 import 'whatsapp_catalog_provider.dart';
+import 'widgets/catalog_rules_sheet.dart';
 
 /// Panel de difusión del tendero — Tarea 13.2.3 (RF-27).
 ///
@@ -104,6 +106,33 @@ class _CatalogShareScreenState extends ConsumerState<CatalogShareScreen> {
     }
   }
 
+  /// U-08 — reglas de la tienda (pedido mínimo, envío, entrega, horario,
+  /// bienvenida). La vitrina ya las respetaba; faltaba poder editarlas.
+  Future<void> _editRules(CatalogSettings settings) async {
+    final rules = await showCatalogRulesSheet(context, settings);
+    if (rules == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(catalogSettingsProvider.notifier).updateRules(
+            minOrderAmountMxn: rules.minOrderAmountMxn,
+            deliveryFeeMxn: rules.deliveryFeeMxn,
+            deliveryEnabled: rules.deliveryEnabled,
+            pickupEnabled: rules.pickupEnabled,
+            businessHours: rules.businessHours,
+            welcomeMessage: rules.welcomeMessage,
+          );
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Reglas guardadas. Tu catálogo ya las muestra.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('No se pudieron guardar las reglas. Inténtalo de nuevo.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
   Future<void> _toggle(bool enabled) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -144,6 +173,8 @@ class _CatalogShareScreenState extends ConsumerState<CatalogShareScreen> {
                 onToggle: _toggle,
                 onEditNumber: () => _editNumber(data),
               ),
+              const SizedBox(height: 16),
+              _RulesCard(settings: data, onEdit: () => _editRules(data)),
               const SizedBox(height: 16),
               _LinkCard(
                 url: url,
@@ -283,6 +314,90 @@ class _StatusCard extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Reglas de la tienda de un vistazo (U-08). Cada línea dice lo que el
+/// cliente verá; "Editar" abre la hoja con todos los campos.
+class _RulesCard extends StatelessWidget {
+  const _RulesCard({required this.settings, required this.onEdit});
+
+  final CatalogSettings settings;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = settings;
+    final delivery = switch ((s.pickupEnabled, s.deliveryEnabled)) {
+      (true, true) => 'Recoger en tienda o a domicilio',
+      (true, false) => 'Solo recoger en tienda',
+      (false, true) => 'Solo a domicilio',
+      (false, false) => 'Sin forma de entrega activa',
+    };
+    final rows = <(IconData, String)>[
+      (Icons.storefront_outlined, delivery),
+      if (s.deliveryEnabled)
+        (Icons.local_shipping_outlined,
+            s.deliveryFeeMxn > 0 ? 'Envío ${mxn(s.deliveryFeeMxn)}' : 'Envío gratis'),
+      (Icons.shopping_bag_outlined,
+          s.minOrderAmountMxn > 0 ? 'Pedido mínimo ${mxn(s.minOrderAmountMxn)}' : 'Sin pedido mínimo'),
+      (Icons.schedule_outlined,
+          (s.businessHours?.isNotEmpty ?? false) ? s.businessHours! : 'Horario sin definir'),
+      (Icons.waving_hand_outlined,
+          (s.welcomeMessage?.isNotEmpty ?? false) ? s.welcomeMessage! : 'Sin mensaje de bienvenida'),
+    ];
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Reglas de tu tienda',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.onSurface),
+                ),
+              ),
+              TextButton.icon(
+                key: const Key('catalogRulesEdit'),
+                onPressed: onEdit,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.emerald,
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Editar'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          for (final (icon, text) in rows)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, size: 16, color: AppColors.onSurfaceMuted),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      text,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.onSurface,
+                        height: 1.35,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

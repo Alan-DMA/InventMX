@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/purchase_order.dart';
 import '../domain/supplier.dart';
+import '../data/purchases_repository.dart' show SupplierHasActiveOrdersException;
 import 'purchases_provider.dart';
+import 'widgets/add_supplier_modal.dart';
 import 'widgets/phone_launcher.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -39,7 +41,69 @@ Future<void> showSupplierDetailModal(BuildContext context, Supplier supplier) {
 class SupplierDetailModal extends ConsumerWidget {
   const SupplierDetailModal({super.key, required this.supplier});
 
+  /// Instantánea con la que se abrió; el `build` prefiere la versión viva del
+  /// provider para reflejar una edición sin cerrar la hoja (U-07).
   final Supplier supplier;
+
+  // ── U-07: editar y dar de baja ────────────────────────────────────────────
+
+  Future<void> _edit(BuildContext context, Supplier current) async {
+    await showAddSupplierModal(context, initial: current);
+  }
+
+  Future<void> _deactivate(
+    BuildContext context,
+    WidgetRef ref,
+    Supplier current,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('¿Dar de baja a ${current.name}?',
+            style: const TextStyle(color: AppColors.onSurface, fontSize: 17)),
+        content: const Text(
+          'Dejará de aparecer en tu directorio. Las compras y cuentas por '
+          'pagar anteriores se conservan.',
+          style: TextStyle(color: AppColors.onSurfaceMuted, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            key: const Key('confirmDeactivateSupplier'),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Dar de baja'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await ref.read(suppliersProvider.notifier).deactivateSupplier(current.id);
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text('${current.name} dado de baja.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    } on SupplierHasActiveOrdersException catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(e.message),
+        behavior: SnackBarBehavior.floating,
+      ));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('No se pudo dar de baja al proveedor. Intenta de nuevo.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
 
   List<PurchaseOrderItem> _catalogFor(WidgetRef ref) {
     final orders = ref
@@ -69,6 +133,12 @@ class SupplierDetailModal extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final catalog = _catalogFor(ref);
+    final supplier = ref
+            .watch(suppliersProvider)
+            .suppliers
+            .where((s) => s.id == this.supplier.id)
+            .firstOrNull ??
+        this.supplier;
     final phone = supplier.phone;
     final mq = MediaQuery.of(context);
     final bottomInset = max(mq.viewInsets.bottom, mq.padding.bottom);
@@ -193,6 +263,41 @@ class SupplierDetailModal extends ConsumerWidget {
                       ],
                     ),
                   )),
+
+            // ── U-07: acciones sobre el proveedor ──────────────────────────
+            const SizedBox(height: 20),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('editSupplierButton'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.onSurface,
+                      side: const BorderSide(color: AppColors.border),
+                      minimumSize: const Size(0, 44),
+                    ),
+                    onPressed: () => _edit(context, supplier),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: const Text('Editar'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextButton.icon(
+                    key: const Key('deactivateSupplierButton'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      minimumSize: const Size(0, 44),
+                    ),
+                    onPressed: () => _deactivate(context, ref, supplier),
+                    icon: const Icon(Icons.person_off_outlined, size: 18),
+                    label: const Text('Dar de baja'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),

@@ -15,6 +15,7 @@ class SecureStorage {
 
   static const _keyAccessToken = 'nexus_access_token';
   static const _keyRefreshToken = 'nexus_refresh_token';
+  static const _keyUserEmail = 'nexus_user_email';
   static const _webAuthBoxName = 'web_secure_auth_store';
 
   Future<Box<dynamic>> _getWebBox() async {
@@ -75,6 +76,34 @@ class SecureStorage {
     // Fallback para Flutter Web o entornos HTTP LAN
     final box = await _getWebBox();
     final dynamic val = box.get(_keyRefreshToken);
+    return val?.toString();
+  }
+
+  // ---------- Correo de la sesión ----------
+
+  /// Se guarda junto a los tokens porque al reabrir la app la sesión se
+  /// restaura pero el correo no viajaba: la identidad caía en un valor por
+  /// defecto y "Mi cuenta" mostraba a otra persona.
+  Future<void> saveUserEmail(String email) async {
+    try {
+      if (!kIsWeb) {
+        await _storage.write(key: _keyUserEmail, value: email);
+        return;
+      }
+    } catch (_) {}
+    final box = await _getWebBox();
+    await box.put(_keyUserEmail, email);
+  }
+
+  Future<String?> readUserEmail() async {
+    try {
+      if (!kIsWeb) {
+        final val = await _storage.read(key: _keyUserEmail);
+        if (val != null && val.isNotEmpty) return val;
+      }
+    } catch (_) {}
+    final box = await _getWebBox();
+    final dynamic val = box.get(_keyUserEmail);
     return val?.toString();
   }
 

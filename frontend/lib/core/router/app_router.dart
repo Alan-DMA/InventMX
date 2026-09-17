@@ -7,6 +7,8 @@ import '../../features/onboarding/presentation/onboarding_wizard_screen.dart';
 import '../../features/onboarding/presentation/onboarding_provider.dart';
 import '../../features/onboarding/presentation/pages/step4_success_page.dart';
 import '../../features/dashboard/presentation/dashboard_shell.dart';
+import '../../features/dashboard/presentation/home_dashboard_screen.dart';
+import '../../features/dashboard/presentation/notifications_screen.dart';
 import '../../features/inventory/presentation/inventory_screen.dart';
 import '../../features/inventory/presentation/product_detail_screen.dart';
 import '../../features/inventory/presentation/edit_product_screen.dart';
@@ -15,12 +17,29 @@ import '../../features/inventory/presentation/gondola_scan_screen.dart';
 import '../../features/inventory/presentation/inventory_provider.dart';
 import '../../features/cash_treasury/presentation/cash_session_screen.dart';
 import '../../features/sales_pos/presentation/checkout_screen.dart';
+import '../../features/sales_pos/presentation/sales_kardex_screen.dart';
+import '../../features/sales_pos/presentation/sale_receipt_screen.dart';
 import '../../features/purchases/presentation/purchases_hub_screen.dart';
 import '../../features/purchases/presentation/purchase_create_screen.dart';
 import '../../features/dictation_diagnostic/presentation/dictation_diagnostic_screen.dart';
 import '../../features/whatsapp_catalog/presentation/catalog_share_screen.dart';
 import '../../features/whatsapp_catalog/presentation/order_ticket_screen.dart';
 import '../../features/whatsapp_catalog/presentation/public_catalog_screen.dart';
+import '../../features/account/presentation/account_screen.dart';
+import '../../features/account/presentation/personal_data_screen.dart';
+import '../../features/account/presentation/password_screen.dart';
+import '../../features/account/presentation/operating_warehouse_screen.dart';
+import '../../features/management/presentation/preferences_screen.dart';
+import '../../features/management/presentation/warehouses_screen.dart';
+import '../../features/management/presentation/categories_screen.dart';
+import '../../features/management/presentation/members_screen.dart';
+import '../../features/management/presentation/permissions_screen.dart';
+import '../../features/saas_admin/domain/subscription.dart';
+import '../../features/saas_admin/presentation/founder_admin_dashboard_screen.dart';
+import '../../features/saas_admin/presentation/hard_lock_screen.dart';
+import '../../features/saas_admin/presentation/saas_provider.dart';
+import '../../features/saas_admin/presentation/subscription_checkout_screen.dart';
+import '../../features/analytics/presentation/analytics_dashboard_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Rutas nombradas
@@ -39,6 +58,8 @@ abstract final class AppRoutes {
   static const dashboard = '/dashboard';
 
   // Branches del ShellRoute
+  static const home = '/dashboard/home';
+  static const notifications = '/dashboard/home/notifications';
   static const inventory = '/dashboard/inventory';
   static const sales = '/dashboard/sales';
   static const cash = '/dashboard/cash';
@@ -65,6 +86,32 @@ abstract final class AppRoutes {
   // Vitrina pública del catálogo — sin sesión (Tarea 13.2.1, RF-23)
   static const publicCatalog = '/tienda/:slug';
 
+  // Cuenta: página índice a la que lleva el avatar, y sus sub-páginas.
+  static const account = '/cuenta';
+  static const accountData = '/cuenta/datos';
+  static const accountPassword = '/cuenta/contrasena';
+  static const accountWarehouse = '/cuenta/almacen';
+
+  // Administración del propio comercio. Scope de un solo tenant — distinto
+  // del panel de fundadores (`/admin`), que opera la plataforma.
+  static const manageMembers = '/negocio/usuarios';
+  static const managePermissions = '/negocio/usuarios/permisos';
+  static const preferences = '/negocio/preferencias';
+  static const warehouses = '/negocio/preferencias/almacenes';
+  static const categories = '/negocio/preferencias/categorias';
+
+  // Kardex de ventas (Fase 2). Fuera del shell: se entra desde Reportes,
+  // el POS y el Dashboard, y el detalle cubre la barra de navegación.
+  static const salesHistory = '/ventas/historial';
+  static const saleDetail = '/ventas/historial/:id';
+  static String saleDetailPath(String id) => '/ventas/historial/$id';
+
+  // Suscripción SaaS (Tarea 14.2). Fuera del shell: se alcanzan también
+  // desde el bloqueo total por morosidad.
+  static const subscription = '/subscription';
+  static const founderAdmin = '/admin';
+  static const locked = '/locked';
+
   static String publicCatalogPath(String slug) => '/tienda/$slug';
 
   // Ticket de un pedido registrado — enlace que va en el chat (13.2.2)
@@ -82,10 +129,12 @@ abstract final class AppRoutes {
 // Router
 // ---------------------------------------------------------------------------
 
-/// GoRouter con triple redirect reactivo:
+/// GoRouter con redirect reactivo:
 ///   1. Sin sesión              → /login
 ///   2. Con sesión, sin onb.    → /onboarding
-///   3. Con sesión + onb. done  → /dashboard/inventory
+///   3. Con sesión + onb. done  → /dashboard/home
+///   4. HARD_LOCK (Tarea 14.2)  → /locked (solo deja pasar /subscription)
+///   5. /admin sin `saas.manage` → /dashboard/home
 ///
 /// Usa StatefulShellRoute para que cada branch mantenga su propio
 /// stack de navegación y la NavigationBar persista entre tabs.
@@ -98,6 +147,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     redirect: (BuildContext context, GoRouterState routerState) {
       final hasSession = ref.read(sessionProvider);
       final onboardingDone = ref.read(onboardingCompleteProvider);
+      final subscriptionStatus = ref.read(subscriptionStatusProvider);
+      final isFounder = ref.read(isFounderProvider);
       final location = routerState.matchedLocation;
 
       // ── Diagnóstico interno: exento del flujo de auth/onboarding ──────
@@ -126,7 +177,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (location == AppRoutes.login ||
           location == AppRoutes.onboarding ||
           location == AppRoutes.onboardingSuccess) {
-        return AppRoutes.inventory;
+        return AppRoutes.home;
+      }
+
+      // ── Bloqueo total por morosidad (Constitución Art. VI §6.3) ───────
+      // Solo la pantalla de bloqueo y "Mi suscripción" siguen accesibles;
+      // al volver a ACTIVE el redirect se libera solo (refreshListenable).
+      final isHardLocked = subscriptionStatus == SubscriptionStatus.hardLock;
+      if (isHardLocked) {
+        final allowed =
+            location == AppRoutes.locked || location == AppRoutes.subscription;
+        return allowed ? null : AppRoutes.locked;
+      }
+      if (location == AppRoutes.locked) {
+        return AppRoutes.home;
+      }
+
+      // ── Panel de fundadores: solo con `saas.manage` (D7) ──────────────
+      if (location == AppRoutes.founderAdmin && !isFounder) {
+        return AppRoutes.home;
       }
 
       return null;
@@ -158,6 +227,93 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const DictationDiagnosticScreen(),
       ),
 
+      // ── Mi cuenta: índice y sub-páginas de lo mío ────────────────────
+      GoRoute(
+        path: AppRoutes.account,
+        name: 'account',
+        builder: (_, __) => const AccountScreen(),
+        routes: [
+          GoRoute(
+            path: 'datos',
+            name: 'account-data',
+            builder: (_, __) => const PersonalDataScreen(),
+          ),
+          GoRoute(
+            path: 'contrasena',
+            name: 'account-password',
+            builder: (_, __) => const PasswordScreen(),
+          ),
+          GoRoute(
+            path: 'almacen',
+            name: 'account-warehouse',
+            builder: (_, __) => const OperatingWarehouseScreen(),
+          ),
+        ],
+      ),
+
+      // ── Kardex de ventas y consulta de ticket (Fase 2) ───────────────
+      GoRoute(
+        path: AppRoutes.salesHistory,
+        name: 'sales-history',
+        builder: (_, __) => const SalesKardexScreen(),
+        routes: [
+          GoRoute(
+            path: ':id',
+            name: 'sale-detail',
+            builder: (_, state) =>
+                SaleLookupScreen(saleId: state.pathParameters['id']!),
+          ),
+        ],
+      ),
+
+      // ── Administración del comercio ──────────────────────────────────
+      GoRoute(
+        path: AppRoutes.manageMembers,
+        name: 'manage-members',
+        builder: (_, __) => const MembersScreen(),
+        routes: [
+          GoRoute(
+            path: 'permisos',
+            name: 'manage-permissions',
+            builder: (_, __) => const PermissionsScreen(),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: AppRoutes.preferences,
+        name: 'preferences',
+        builder: (_, __) => const PreferencesScreen(),
+        routes: [
+          GoRoute(
+            path: 'almacenes',
+            name: 'warehouses',
+            builder: (_, __) => const WarehousesScreen(),
+          ),
+          GoRoute(
+            path: 'categorias',
+            name: 'categories',
+            builder: (_, __) => const CategoriesScreen(),
+          ),
+        ],
+      ),
+
+      // ── Suscripción SaaS, panel de fundadores y bloqueo — Tarea 14.2 ──
+      GoRoute(
+        path: AppRoutes.subscription,
+        name: 'subscription',
+        builder: (_, __) => const SubscriptionCheckoutScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.founderAdmin,
+        name: 'founder-admin',
+        builder: (_, __) => const FounderAdminDashboardScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.locked,
+        name: 'locked',
+        builder: (_, __) => const HardLockScreen(),
+      ),
+
       // ── Vitrina pública del catálogo — Tarea 13.2.1 ───────────────────
       GoRoute(
         path: AppRoutes.publicCatalog,
@@ -182,7 +338,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           navigationShell: navigationShell,
         ),
         branches: [
-          // Branch 0 — Inventario
+          // Branch 0 — Inicio: Centro de mando (SR-02 / N-08)
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.home,
+                name: 'home',
+                builder: (_, __) => const HomeDashboardScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'notifications',
+                    name: 'notifications',
+                    builder: (_, __) => const NotificationsScreen(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Branch 1 — Inventario
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -262,7 +436,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
 
-          // Branch 1 — Ventas (Tarea 6.2)
+          // Branch 2 — Ventas (Tarea 6.2)
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -273,7 +447,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
 
-          // Branch 2 — Caja (placeholder D9)
+          // Branch 3 — Caja (Tarea 9.2)
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -284,13 +458,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
 
-          // Branch 3 — Reportes (placeholder D15)
+          // Branch 4 — Reportes: dashboard analítico (Tarea 15.2.3)
           StatefulShellBranch(
             routes: [
               GoRoute(
                 path: AppRoutes.reports,
                 name: 'reports',
-                builder: (_, __) => const ReportsPlaceholder(),
+                builder: (_, __) => const AnalyticsDashboardScreen(),
               ),
             ],
           ),
@@ -306,13 +480,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Listenable compuesto — notifica al router cuando CUALQUIERA de los dos
-// StateProviders cambia (sesión u onboarding).
+// Listenable compuesto — notifica al router cuando CUALQUIERA de los
+// providers que gobiernan el redirect cambia (sesión, onboarding, estado de
+// suscripción o perfil de fundador).
 // ---------------------------------------------------------------------------
 
 class _CompositeRefreshListenable extends ChangeNotifier {
   _CompositeRefreshListenable(Ref ref) {
     ref.listen(sessionProvider, (_, __) => notifyListeners());
     ref.listen(onboardingCompleteProvider, (_, __) => notifyListeners());
+    ref.listen(subscriptionStatusProvider, (_, __) => notifyListeners());
+    ref.listen(isFounderProvider, (_, __) => notifyListeners());
   }
 }

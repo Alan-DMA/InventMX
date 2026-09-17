@@ -4,16 +4,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../sales_pos/data/community_catalog_repository.dart';
 import '../data/import_repository.dart';
+import '../data/two_tier_lookup.dart';
 import 'inventory_provider.dart';
 import 'widgets/scan_result_card.dart';
 
 /// Pantalla de escaneo continuo de góndola (Modo Ráfaga).
 ///
-/// Flujo por cada código detectado:
-///   1. Cámara detecta EAN → lookup en catálogo semilla (mock)
-///   2. Si encontrado  → ScanResultCard con nombre/categoría autocompletados
-///   3. Si no encontrado → ScanResultCard con nombre editable
+/// Flujo por cada código detectado (motor de dos niveles, Const. Art. VII 7.5):
+///   1. Cámara detecta EAN → Tier 1: catálogo semilla precargado
+///   2. Si no está → Tier 2: red comunitaria (consenso ≥ 3 comercios, 15.2)
+///   3. Encontrado en cualquiera → ScanResultCard autocompletada con el origen
+///      visible; no encontrado → ScanResultCard con nombre editable
 ///   4. Al confirmar → createProduct() en InventoryNotifier → vibración + reset
 ///
 /// La cámara permanece activa entre escaneos; el usuario nunca sale
@@ -84,22 +87,17 @@ class _GondolaScanScreenState extends ConsumerState<GondolaScanScreen> {
       _lookupResult = null;
     });
 
-    try {
-      final result =
-          await ref.read(importRepositoryProvider).lookupEan(barcode);
-      if (!mounted) return;
-      setState(() {
-        _lookupResult = result;
-        _isLookingUp = false;
-        _cardVisible = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isLookingUp = false;
-        _cardVisible = true;
-      });
-    }
+    final result = await lookupEanTwoTier(
+      seed: ref.read(importRepositoryProvider),
+      community: ref.read(communityCatalogRepositoryProvider),
+      barcode: barcode,
+    );
+    if (!mounted) return;
+    setState(() {
+      _lookupResult = result;
+      _isLookingUp = false;
+      _cardVisible = true;
+    });
   }
 
   Future<void> _onConfirm(String name, double priceMxn, int stock) async {
@@ -251,6 +249,9 @@ class _GondolaScanScreenState extends ConsumerState<GondolaScanScreen> {
                               barcode: _currentBarcode!,
                               suggestedName: _lookupResult?.name,
                               suggestedCategory: _lookupResult?.category,
+                              source: _lookupResult?.source,
+                              communityMatches:
+                                  _lookupResult?.confidenceScore?.toInt(),
                               onConfirm: _onConfirm,
                               onDismiss: _dismissCard,
                             ),

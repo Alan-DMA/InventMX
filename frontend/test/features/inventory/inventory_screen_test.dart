@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/router/app_router.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
+import 'package:nexus_app/features/account/presentation/account_provider.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
@@ -60,14 +62,18 @@ PaginatedProducts _makePage(List<Product> items) => PaginatedProducts(
       totalPages: 1,
     );
 
-/// Construye la app completa con GoRouter autenticado y onboarding completo,
-/// apuntando a la ruta /dashboard/inventory.
+/// Construye la app completa con GoRouter autenticado y onboarding completo.
+/// Arranca en /dashboard/home; usa [_pumpInventory] para llegar a Inventario.
 Widget _buildApp(MockInventoryRepository mock) {
   return ProviderScope(
     overrides: [
       sessionProvider.overrideWith((ref) => true),
       onboardingCompleteProvider.overrideWith((ref) => true),
       inventoryRepositoryProvider.overrideWithValue(mock),
+      // El Dashboard (Fase 3), pantalla de entrada, lee el almacén operativo
+      // en el saludo — sin esto golpearía Hive real, no inicializado aquí.
+      operatingWarehouseStoreProvider
+          .overrideWithValue(OperatingWarehouseStoreMemory()),
     ],
     child: Consumer(
       builder: (_, ref, __) => MaterialApp.router(
@@ -76,6 +82,16 @@ Widget _buildApp(MockInventoryRepository mock) {
       ),
     ),
   );
+}
+
+/// La app abre en Inicio (Centro de mando, N-08): para probar Inventario hay
+/// que entrar por su pestaña.
+Future<void> _pumpInventory(
+    WidgetTester tester, MockInventoryRepository mock) async {
+  await tester.pumpWidget(_buildApp(mock));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Inventario'));
+  await tester.pumpAndSettle();
 }
 
 void _stubProducts(MockInventoryRepository mock, List<Product> items) {
@@ -118,8 +134,7 @@ void main() {
       _makeProduct(id: 'p2', name: 'Pepsi 2L', priceMxn: 32.0),
     ]);
 
-    await tester.pumpWidget(_buildApp(mock));
-    await tester.pumpAndSettle();
+    await _pumpInventory(tester, mock);
 
     expect(find.text('Coca-Cola 600ml'), findsOneWidget);
     expect(find.text('Pepsi 2L'), findsOneWidget);
@@ -135,8 +150,7 @@ void main() {
       _makeProduct(id: 'p1', name: 'Agua Ciel', availableStock: 0),
     ]);
 
-    await tester.pumpWidget(_buildApp(mock));
-    await tester.pumpAndSettle();
+    await _pumpInventory(tester, mock);
 
     expect(find.text('Sin stock'), findsOneWidget);
   });
@@ -153,8 +167,7 @@ void main() {
       ),
     ]);
 
-    await tester.pumpWidget(_buildApp(mock));
-    await tester.pumpAndSettle();
+    await _pumpInventory(tester, mock);
 
     // Stock bajo muestra la cantidad (no "Sin stock")
     expect(find.text('3 pzs'), findsOneWidget);
@@ -167,22 +180,21 @@ void main() {
       (tester) async {
     _stubEmpty(mock);
 
-    await tester.pumpWidget(_buildApp(mock));
-    await tester.pumpAndSettle();
+    await _pumpInventory(tester, mock);
 
     expect(find.text('Aún no tienes productos'), findsOneWidget);
     expect(find.text('Agregar tu primer producto'), findsOneWidget);
   });
 
   // ── CA-08: NavigationBar con 4 tabs ──────────────────────────────────────
-  testWidgets('CA-08: NavigationBar tiene 4 tabs', (tester) async {
+  testWidgets('CA-08: NavigationBar tiene 5 tabs', (tester) async {
     _stubProducts(mock, [_makeProduct()]);
 
-    await tester.pumpWidget(_buildApp(mock));
-    await tester.pumpAndSettle();
+    await _pumpInventory(tester, mock);
 
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.byType(NavigationDestination), findsNWidgets(4));
+    expect(find.byType(NavigationDestination), findsNWidgets(5));
+    expect(find.text('Inicio'), findsOneWidget);
     // "Inventario" aparece en AppBar title y en NavigationDestination label
     expect(find.text('Inventario'), findsWidgets);
     expect(find.text('Ventas'), findsOneWidget);
@@ -195,8 +207,7 @@ void main() {
       (tester) async {
     _stubProducts(mock, [_makeProduct()]);
 
-    await tester.pumpWidget(_buildApp(mock));
-    await tester.pumpAndSettle();
+    await _pumpInventory(tester, mock);
 
     await tester.tap(find.text('Ventas'));
     await tester.pumpAndSettle();

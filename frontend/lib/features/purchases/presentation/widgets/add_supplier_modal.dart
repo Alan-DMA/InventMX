@@ -2,18 +2,21 @@ import 'dart:math' show max;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../domain/supplier.dart';
 import '../purchases_provider.dart';
 
 /// Abre el modal de alta de proveedor — mismo botón "+" del hub que crea
 /// órdenes de compra, ahora en el tab Proveedores (ajuste de QA de Eduardo).
 /// Retorna el nombre del proveedor creado si fue exitoso, null si se canceló.
-Future<String?> showAddSupplierModal(BuildContext context) {
+/// Con [initial] abre en modo edición (U-07 / C-01): mismos campos, título
+/// "Editar proveedor" y `PUT /suppliers/{id}` al guardar.
+Future<String?> showAddSupplierModal(BuildContext context, {Supplier? initial}) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     useRootNavigator: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => const AddSupplierModal(),
+    builder: (_) => AddSupplierModal(initial: initial),
   );
 }
 
@@ -22,7 +25,12 @@ Future<String?> showAddSupplierModal(BuildContext context) {
 /// ya que el teléfono es central al directorio (llamada/WhatsApp, 11.2.2).
 /// RFC queda como dato opcional de fondo para las cuentas por pagar.
 class AddSupplierModal extends ConsumerStatefulWidget {
-  const AddSupplierModal({super.key});
+  const AddSupplierModal({super.key, this.initial});
+
+  /// Proveedor a editar; null = alta.
+  final Supplier? initial;
+
+  bool get isEditing => initial != null;
 
   @override
   ConsumerState<AddSupplierModal> createState() => _AddSupplierModalState();
@@ -66,10 +74,28 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initial;
+    if (initial != null) {
+      _nameController.text = initial.name;
+      _rfcController.text = initial.rfc ?? '';
+      // El teléfono se guarda con lada: se separa para el selector.
+      final phone = initial.phone ?? '';
+      final code = _kCountryCodes
+          .map((c) => c.dialCode)
+          .where((d) => phone.startsWith(d))
+          .fold<String?>(null, (best, d) => best == null || d.length > best.length ? d : best);
+      if (code != null) {
+        _countryCode = code;
+        _phoneController.text = phone.substring(code.length);
+      } else {
+        _phoneController.text = phone;
+      }
+    }
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _nameFocus.requestFocus());
     _nameController.addListener(_validateForm);
     _phoneController.addListener(_validateForm);
+    _validateForm();
   }
 
   @override
@@ -99,13 +125,19 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
     });
 
     try {
-      await ref.read(suppliersProvider.notifier).createSupplier(
-            name: name,
-            phone: '$_countryCode${_phoneController.text.trim()}',
-            rfc: _rfcController.text.trim().isEmpty
-                ? null
-                : _rfcController.text.trim(),
-          );
+      final phone = '$_countryCode${_phoneController.text.trim()}';
+      final rfc = _rfcController.text.trim().isEmpty ? null : _rfcController.text.trim();
+      final notifier = ref.read(suppliersProvider.notifier);
+      if (widget.isEditing) {
+        await notifier.updateSupplier(
+          id: widget.initial!.id,
+          name: name,
+          phone: phone,
+          rfc: rfc,
+        );
+      } else {
+        await notifier.createSupplier(name: name, phone: phone, rfc: rfc);
+      }
       if (mounted) Navigator.of(context).pop(name);
     } catch (e) {
       setState(() {
@@ -164,10 +196,10 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
   Widget _buildHeader() {
     return Row(
       children: [
-        const Expanded(
+        Expanded(
           child: Text(
-            'Nuevo proveedor',
-            style: TextStyle(
+            widget.isEditing ? 'Editar proveedor' : 'Nuevo proveedor',
+            style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: AppColors.onSurface),
@@ -316,7 +348,7 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
               child: CircularProgressIndicator(
                   strokeWidth: 2.5, color: AppColors.darkSlate),
             )
-          : const Text('Agregar proveedor'),
+          : Text(widget.isEditing ? 'Guardar cambios' : 'Agregar proveedor'),
     );
   }
 

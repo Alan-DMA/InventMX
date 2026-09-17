@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../saas_admin/presentation/subscription_lock_banner.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import 'purchases_provider.dart';
@@ -30,6 +31,9 @@ class _PurchasesHubScreenState extends ConsumerState<PurchasesHubScreen>
   }
 
   Future<void> _openCreateScreen(BuildContext context) async {
+    // Solo lectura por morosidad (Tarea 14.2.3, D5).
+    if (!await requireWriteAccess(context, ref)) return;
+    if (!context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final created = await context.push<bool>(AppRoutes.purchaseCreate);
     if (created == true && mounted) {
@@ -120,7 +124,7 @@ class _PurchasesHubScreenState extends ConsumerState<PurchasesHubScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label),
+          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
           if (count > 0) ...[
             const SizedBox(width: 6),
             Container(

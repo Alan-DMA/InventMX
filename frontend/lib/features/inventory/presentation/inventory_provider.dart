@@ -181,6 +181,18 @@ class InventoryNotifier extends Notifier<InventoryState> {
     _load(resetList: true);
   }
 
+  /// Fuerza el filtro de stock bajo a un valor concreto (a diferencia de
+  /// [toggleLowStock]). Lo usa el Dashboard al entrar desde "Ver todo" en
+  /// alertas: no puede alternar a ciegas sin saber en qué quedó el filtro.
+  void setLowStock(bool value) {
+    if (state.showLowStock == value) return;
+    state = state.copyWith(
+      showLowStock: value,
+      currentPage: 1,
+    );
+    _load(resetList: true);
+  }
+
   /// Carga la siguiente página para scroll infinito
   Future<void> loadMore() async {
     if (state.isLoadingMore || !state.hasMorePages) return;

@@ -96,6 +96,9 @@ claude.md
 # Diffs de goldens fallidos (flutter test genera esta carpeta al comparar imágenes)
 **/test/**/failures/
 
+# Capturas de QA visual de /impeccable (artefactos locales de cada corrida, no fuente)
+.impeccable/review/
+
 # Local environment & working copy
 Include/
 Scripts/

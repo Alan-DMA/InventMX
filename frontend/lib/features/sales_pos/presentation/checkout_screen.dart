@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/barcode_scan_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/router/app_router.dart' show AppRoutes;
+import '../../saas_admin/presentation/subscription_lock_banner.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../analytics/presentation/employee_performance_screen.dart';
 import '../domain/cart_item.dart';
@@ -67,6 +71,21 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     setState(() => _showResults = q.trim().isNotEmpty);
   }
 
+  /// U-01 — cámara en el buscador: el código leído entra como texto y sigue
+  /// el mismo camino que un lector físico (coincidencia local o sugerencia
+  /// del motor de dos niveles).
+  Future<void> _scanBarcode() async {
+    final code = await showBarcodeScanSheet(
+      context,
+      hint: 'Apunta al código del producto que vas a cobrar',
+    );
+    if (code == null || !mounted) return;
+    _searchController.text = code;
+    _searchController.selection = TextSelection.collapsed(offset: code.length);
+    _searchFocus.requestFocus();
+    setState(() => _showResults = true);
+  }
+
   void _clearSearch() {
     _searchController.clear();
     ref.read(cartProvider.notifier).clearSearch();
@@ -77,6 +96,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Future<void> _onCobrar() async {
     final cart = ref.read(cartProvider);
     if (cart.isEmpty) return;
+
+    // Solo lectura por morosidad (Tarea 14.2.3, D5): no abrir un cobro que
+    // el backend va a rechazar con 403 TENANT_SOFT_LOCK.
+    if (!await requireWriteAccess(context, ref)) return;
+    if (!mounted) return;
 
     // Tarea 7.2 — Modal de cobro con métodos de pago mixtos.
     final payments = await showPaymentModal(context, totalMxn: cart.totalMxn);
@@ -173,6 +197,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 controller: _searchController,
                 focusNode: _searchFocus,
                 onClear: _clearSearch,
+                onScan: _scanBarcode,
               ),
             ),
 
@@ -243,6 +268,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ),
           ),
         ),
+        // Historial de ventas — Fase 2. Un cajero busca "la de hace cinco
+        // minutos" sin salir del POS.
+        IconButton(
+          key: const Key('salesHistoryButton'),
+          tooltip: 'Historial de ventas',
+          icon: const Icon(
+            Icons.history_rounded,
+            size: 22,
+            color: AppColors.onSurfaceMuted,
+          ),
+          onPressed: () => context.push(AppRoutes.salesHistory),
+        ),
         // Botón "Mis comisiones" — Tarea 8.2.3
         IconButton(
           tooltip: 'Mis comisiones',
@@ -285,11 +322,13 @@ class _SearchBar extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.onClear,
+    required this.onScan,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onClear;
+  final VoidCallback onScan;
 
   @override
   Widget build(BuildContext context) {
@@ -346,18 +385,11 @@ class _SearchBar extends StatelessWidget {
                 );
               }
               return IconButton(
+                key: const Key('posScanButton'),
                 icon: const Icon(Icons.photo_camera_outlined,
                     size: 20, color: AppColors.onSurfaceMuted),
                 tooltip: 'Escanear código',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content:
-                          Text('Escáner en POS — disponible en Tarea 12.2'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
+                onPressed: onScan,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(
                   minWidth: 40,

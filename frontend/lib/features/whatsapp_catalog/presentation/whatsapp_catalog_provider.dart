@@ -142,7 +142,7 @@ class OrderCartNotifier extends Notifier<OrderCart> {
   void setNotes(String productId, String? notes) {
     final current = state.lines[productId];
     if (current == null) return;
-    _put(productId, current.copyWith(notes: notes));
+    _put(productId, current.copyWith(notes: () => notes));
   }
 
   void clear() => state = const OrderCart();
@@ -174,10 +174,37 @@ class CatalogSettingsNotifier extends AsyncNotifier<CatalogSettings> {
   Future<void> setWhatsappNumber(String number) =>
       _update(whatsappNumber: number.trim());
 
+  /// U-08 — reglas de la tienda que la vitrina ya respeta.
+  Future<void> updateRules({
+    required double minOrderAmountMxn,
+    required double deliveryFeeMxn,
+    required bool deliveryEnabled,
+    required bool pickupEnabled,
+    required String businessHours,
+    required String welcomeMessage,
+  }) =>
+      _update(
+        minOrderAmountMxn: minOrderAmountMxn,
+        deliveryFeeMxn: deliveryFeeMxn,
+        deliveryEnabled: deliveryEnabled,
+        pickupEnabled: pickupEnabled,
+        businessHours: businessHours,
+        welcomeMessage: welcomeMessage,
+      );
+
   /// Guarda y, si falla, regresa al valor anterior y propaga el error para
   /// que la pantalla lo diga — el switch nunca queda en un estado que el
   /// servidor no tiene.
-  Future<void> _update({bool? isCatalogEnabled, String? whatsappNumber}) async {
+  Future<void> _update({
+    bool? isCatalogEnabled,
+    String? whatsappNumber,
+    String? welcomeMessage,
+    double? minOrderAmountMxn,
+    double? deliveryFeeMxn,
+    bool? deliveryEnabled,
+    bool? pickupEnabled,
+    String? businessHours,
+  }) async {
     final previous = state.value;
     state = const AsyncLoading<CatalogSettings>().copyWithPrevious(state);
     try {
@@ -185,6 +212,12 @@ class CatalogSettingsNotifier extends AsyncNotifier<CatalogSettings> {
           await ref.read(whatsappCatalogRepositoryProvider).updateSettings(
                 isCatalogEnabled: isCatalogEnabled,
                 whatsappNumber: whatsappNumber,
+                welcomeMessage: welcomeMessage,
+                minOrderAmountMxn: minOrderAmountMxn,
+                deliveryFeeMxn: deliveryFeeMxn,
+                deliveryEnabled: deliveryEnabled,
+                pickupEnabled: pickupEnabled,
+                businessHours: businessHours,
               );
       state = AsyncData(updated);
     } catch (_) {

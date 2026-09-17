@@ -319,6 +319,44 @@ class ImportRepositoryMock implements ImportRepository {
       category: 'Botanas y Snacks',
       source: 'SEED_CATALOG',
     ),
+    // Ampliación D15 (QA de Eduardo): 5 productos más del Top de abarrotes
+    // México, mismos códigos que `CommunityCatalogRepositoryMock.seed` para
+    // que POS y Góndola coincidan.
+    '7501030424564': EanLookupResult(
+      barcode: '7501030424564',
+      name: 'Pan Blanco Bimbo Grande 680g',
+      category: 'Panadería',
+      source: 'SEED_CATALOG',
+      suggestedPriceMxn: 47.0,
+    ),
+    '7501020512113': EanLookupResult(
+      barcode: '7501020512113',
+      name: 'Leche Lala Entera 1L Tetra Pak',
+      category: 'Lácteos',
+      source: 'SEED_CATALOG',
+      suggestedPriceMxn: 28.5,
+    ),
+    '7501005101010': EanLookupResult(
+      barcode: '7501005101010',
+      name: 'Harina de Maíz Nixtamalizado Maseca 1kg',
+      category: 'Abarrotes',
+      source: 'SEED_CATALOG',
+      suggestedPriceMxn: 21.0,
+    ),
+    '7501031322401': EanLookupResult(
+      barcode: '7501031322401',
+      name: 'Peñafiel Mineral con Gas 600ml',
+      category: 'Bebidas',
+      source: 'SEED_CATALOG',
+      suggestedPriceMxn: 16.0,
+    ),
+    '7501011115668': EanLookupResult(
+      barcode: '7501011115668',
+      name: 'Sabritas Sal 45g',
+      category: 'Botanas y Snacks',
+      source: 'SEED_CATALOG',
+      suggestedPriceMxn: 20.0,
+    ),
   };
 
   @override

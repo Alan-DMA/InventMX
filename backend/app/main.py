@@ -8,6 +8,7 @@ import logging
 from app.api.v1.auth import router as auth_router
 from app.api.v1.inventory import router as inventory_router
 from app.api.v1.sales import router as sales_router
+from app.api.v1.saas import router as saas_router
 from app.core.config import settings
 from app.core.tasks import release_expired_reservations_loop
 
@@ -75,6 +76,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 app.include_router(auth_router,      prefix="/api/v1/auth",      tags=["auth"])
 app.include_router(inventory_router, prefix="/api/v1/inventory",  tags=["inventory"])
 app.include_router(sales_router,     prefix="/api/v1/sales",      tags=["sales"])
+app.include_router(saas_router,      prefix="/api/v1/saas",       tags=["saas"])       # Tarea 14.2
 
 
 @app.get("/", tags=["health"])

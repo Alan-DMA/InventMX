@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../saas_admin/presentation/subscription_lock_banner.dart';
 
 /// Shell de navegación principal — sustituye al _DashboardPlaceholder.
 ///
@@ -8,10 +9,11 @@ import '../../../../core/theme/app_colors.dart';
 /// lo que garantiza que la barra persiste entre tabs sin reconstruirse.
 ///
 /// Tabs:
-///   0 — Inventario  (/dashboard/inventory)   ← activo en esta subtarea
-///   1 — Ventas      (/dashboard/sales)        ← CheckoutScreen D6
-///   2 — Caja        (/dashboard/cash)         ← placeholder D9
-///   3 — Reportes    (/dashboard/reports)      ← placeholder D15
+///   0 — Inicio      (/dashboard/home)         ← Centro de mando, N-08
+///   1 — Inventario  (/dashboard/inventory)
+///   2 — Ventas      (/dashboard/sales)        ← CheckoutScreen D6
+///   3 — Caja        (/dashboard/cash)         ← Tarea 9.2
+///   4 — Reportes    (/dashboard/reports)      ← Tarea 15.2.3
 class DashboardShell extends StatelessWidget {
   const DashboardShell({
     super.key,
@@ -22,6 +24,11 @@ class DashboardShell extends StatelessWidget {
   final StatefulNavigationShell navigationShell;
 
   static const _tabs = [
+    _TabItem(
+      icon: Icons.home_outlined,
+      activeIcon: Icons.home_rounded,
+      label: 'Inicio',
+    ),
     _TabItem(
       icon: Icons.inventory_2_outlined,
       activeIcon: Icons.inventory_2_rounded,
@@ -48,7 +55,13 @@ class DashboardShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
-      body: navigationShell,
+      body: Column(
+        children: [
+          // Solo lectura por morosidad — visible en todas las pestañas (14.2.3)
+          const SubscriptionLockBanner(),
+          Expanded(child: navigationShell),
+        ],
+      ),
       bottomNavigationBar: _buildNavigationBar(),
     );
   }

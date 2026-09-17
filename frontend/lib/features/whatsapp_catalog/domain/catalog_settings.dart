@@ -35,9 +35,17 @@ class CatalogSettings extends Equatable {
   bool get hasWhatsappNumber =>
       whatsappNumber != null && whatsappNumber!.trim().isNotEmpty;
 
+  /// Los `String?` opcionales usan el patrón `Function()` para distinguir
+  /// "no cambiar" (null) de "borrar" (`() => null`).
   CatalogSettings copyWith({
     bool? isCatalogEnabled,
     String? Function()? whatsappNumber,
+    String? Function()? welcomeMessage,
+    double? minOrderAmountMxn,
+    double? deliveryFeeMxn,
+    bool? deliveryEnabled,
+    bool? pickupEnabled,
+    String? Function()? businessHours,
   }) =>
       CatalogSettings(
         slug: slug,
@@ -45,12 +53,14 @@ class CatalogSettings extends Equatable {
         isCatalogEnabled: isCatalogEnabled ?? this.isCatalogEnabled,
         whatsappNumber:
             whatsappNumber == null ? this.whatsappNumber : whatsappNumber(),
-        welcomeMessage: welcomeMessage,
-        minOrderAmountMxn: minOrderAmountMxn,
-        deliveryFeeMxn: deliveryFeeMxn,
-        deliveryEnabled: deliveryEnabled,
-        pickupEnabled: pickupEnabled,
-        businessHours: businessHours,
+        welcomeMessage:
+            welcomeMessage == null ? this.welcomeMessage : welcomeMessage(),
+        minOrderAmountMxn: minOrderAmountMxn ?? this.minOrderAmountMxn,
+        deliveryFeeMxn: deliveryFeeMxn ?? this.deliveryFeeMxn,
+        deliveryEnabled: deliveryEnabled ?? this.deliveryEnabled,
+        pickupEnabled: pickupEnabled ?? this.pickupEnabled,
+        businessHours:
+            businessHours == null ? this.businessHours : businessHours(),
       );
 
   @override

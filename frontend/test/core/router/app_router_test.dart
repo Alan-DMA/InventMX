@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/router/app_router.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
+import 'package:nexus_app/features/account/presentation/account_provider.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/auth/presentation/login_screen.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
@@ -28,6 +30,10 @@ void main() {
         sessionProvider.overrideWith((ref) => hasSession),
         onboardingCompleteProvider.overrideWith((ref) => onboardingDone),
         inventoryRepositoryProvider.overrideWithValue(InventoryRepositoryMock()),
+        // El Dashboard (Fase 3) lee el almacén operativo en el saludo — sin
+        // esto golpearía Hive real, que no está inicializado en este test.
+        operatingWarehouseStoreProvider
+            .overrideWithValue(OperatingWarehouseStoreMemory()),
       ],
       child: Consumer(
         builder: (_, ref, __) {

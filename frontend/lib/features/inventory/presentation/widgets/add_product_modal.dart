@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../../../core/theme/app_colors.dart';
+import '../../../purchases/presentation/widgets/dictation_modal.dart';
 import '../inventory_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -197,52 +198,61 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
       padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
       child: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHandle(),
-            _buildHeader(),
-            const SizedBox(height: 16),
-            if (widget.initialBarcode != null && widget.initialBarcode!.trim().isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceVariant,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.qr_code_2_rounded, size: 16, color: AppColors.skyBlue),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Código de Barras: ${widget.initialBarcode}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.onSurface,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+        // Scroll interno: con teclado abierto y el chip del código de barras
+        // (alta desde el POS, 15.2.1) el contenido supera la altura visible
+        // en pantallas de 800 dp y desbordaba ~80 px por abajo.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHandle(),
+              _buildHeader(),
               const SizedBox(height: 16),
-            ],
-            _buildNameField(),
-            const SizedBox(height: 16),
-            _buildPriceField(),
-            const SizedBox(height: 16),
-            _buildStockField(),
-            const SizedBox(height: 8),
-            if (_errorMessage != null) ...[
+              if (widget.initialBarcode != null &&
+                  widget.initialBarcode!.trim().isNotEmpty) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: AppColors.skyBlue.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.qr_code_2_rounded,
+                          size: 16, color: AppColors.skyBlue),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Código de Barras: ${widget.initialBarcode}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              _buildNameField(),
+              const SizedBox(height: 16),
+              _buildPriceField(),
+              const SizedBox(height: 16),
+              _buildStockField(),
               const SizedBox(height: 8),
-              _buildErrorBanner(),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 8),
+                _buildErrorBanner(),
+              ],
+              const SizedBox(height: 24),
+              _buildSubmitButton(),
             ],
-            const SizedBox(height: 24),
-            _buildSubmitButton(),
-          ],
+          ),
         ),
       ),
     );
@@ -264,7 +274,44 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
     );
   }
 
-  // ── Header con título y botón cerrar ────────────────────────────────────
+  // ── Dictado de voz (U-06 / V-01, SR-09) ───────────────────────────────────
+
+  /// Reutiliza el modal de dictado de Compras: mismo flujo con revisión del
+  /// transcript antes de interpretar. El alta rápida es de UN producto: se
+  /// toma el primero y, si dictó varios, se avisa sin inventar nada.
+  Future<void> _dictate() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final items = await showDictationModal(context);
+    if (!mounted || items == null || items.isEmpty) return;
+
+    final first = items.first;
+    setState(() {
+      if (first.name != null && first.name!.trim().isNotEmpty) {
+        _nameController.text = first.name!.trim();
+      }
+      if (first.priceMxn != null && first.priceMxn! > 0) {
+        _priceController.text = first.priceMxn!.toStringAsFixed(2);
+      }
+      if (first.quantity != null && first.quantity! > 0) {
+        _stockController.text = first.quantity.toString();
+      }
+    });
+    _validateForm();
+
+    if (items.length > 1) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Se tomó "${first.name ?? first.transcript}". El alta rápida es de un '
+            'producto; los otros ${items.length - 1} regístralos por separado.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // ── Header con título, dictado y botón cerrar ───────────────────────────
 
   Widget _buildHeader() {
     return Row(
@@ -278,6 +325,18 @@ class _AddProductModalState extends ConsumerState<AddProductModal> {
               color: AppColors.onSurface,
             ),
           ),
+        ),
+        IconButton(
+          key: const Key('addProductDictateButton'),
+          onPressed: _isSaving ? null : _dictate,
+          icon: const Icon(
+            Icons.mic_none_rounded,
+            size: 22,
+            color: AppColors.skyBlue,
+          ),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          tooltip: 'Dictar nombre, precio y cantidad',
         ),
         IconButton(
           onPressed: () => Navigator.of(context).pop(),

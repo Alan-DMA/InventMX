@@ -13,6 +13,8 @@ class ScanResultCard extends StatefulWidget {
     required this.barcode,
     this.suggestedName,
     this.suggestedCategory,
+    this.source,
+    this.communityMatches,
     required this.onConfirm,
     required this.onDismiss,
   });
@@ -25,6 +27,14 @@ class ScanResultCard extends StatefulWidget {
 
   /// Categoría sugerida del catálogo (puede ser null).
   final String? suggestedCategory;
+
+  /// Origen de la sugerencia: `SEED_CATALOG` (Tier 1) o `COMMUNITY_VERIFIED`
+  /// (Tier 2, Tarea 15.2). Null ⇒ se asume catálogo semilla si hay nombre.
+  final String? source;
+
+  /// Comercios independientes que coinciden (solo Tier 2, mínimo 3). Se
+  /// muestra como conteo, nunca como calificación (Const. Art. VII 7.5).
+  final int? communityMatches;
 
   /// Callback con (name, priceMxn, stock) cuando el usuario confirma.
   final void Function(String name, double priceMxn, int stock) onConfirm;
@@ -45,6 +55,22 @@ class _ScanResultCardState extends State<ScanResultCard> {
   late final FocusNode _priceFocus;
 
   bool get _isFromCatalog => widget.suggestedName != null;
+  bool get _isFromCommunity =>
+      _isFromCatalog && widget.source == 'COMMUNITY_VERIFIED';
+
+  /// Esmeralda = semilla oficial; skyBlue = comunidad y también "no
+  /// registrado" (informativo). El texto es el que distingue los dos últimos.
+  Color get _accent =>
+      _isFromCatalog && !_isFromCommunity ? AppColors.emerald : AppColors.skyBlue;
+
+  String get _headerLabel {
+    if (!_isFromCatalog) return 'Código no registrado';
+    if (!_isFromCommunity) return 'Producto encontrado en catálogo';
+    final n = widget.communityMatches ?? 0;
+    return n >= 3
+        ? 'Verificado por la comunidad Nexus · $n comercios coinciden'
+        : 'Verificado por la comunidad Nexus';
+  }
 
   bool get _isValid {
     final name = _nameCon.text.trim();
@@ -100,9 +126,7 @@ class _ScanResultCardState extends State<ScanResultCard> {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: _isFromCatalog
-              ? AppColors.emerald.withValues(alpha: 0.5)
-              : AppColors.skyBlue.withValues(alpha: 0.5),
+          color: _accent.withValues(alpha: 0.5),
           width: 1.5,
         ),
         boxShadow: [
@@ -121,20 +145,20 @@ class _ScanResultCardState extends State<ScanResultCard> {
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
             decoration: BoxDecoration(
-              color: (_isFromCatalog ? AppColors.emerald : AppColors.skyBlue)
-                  .withValues(alpha: 0.08),
+              color: _accent.withValues(alpha: 0.08),
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(15)),
             ),
             child: Row(
               children: [
                 Icon(
-                  _isFromCatalog
-                      ? Icons.verified_rounded
-                      : Icons.qr_code_rounded,
+                  _isFromCommunity
+                      ? Icons.groups_rounded
+                      : (_isFromCatalog
+                          ? Icons.verified_rounded
+                          : Icons.qr_code_rounded),
                   size: 16,
-                  color:
-                      _isFromCatalog ? AppColors.emerald : AppColors.skyBlue,
+                  color: _accent,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -142,17 +166,15 @@ class _ScanResultCardState extends State<ScanResultCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _isFromCatalog
-                            ? 'Producto encontrado en catálogo'
-                            : 'Código no registrado',
+                        _headerLabel,
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: _isFromCatalog
-                              ? AppColors.emerald
-                              : AppColors.skyBlue,
+                          color: _accent,
                           letterSpacing: 0.3,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       Text(
                         widget.barcode,

@@ -36,10 +36,12 @@ class CartLine extends Equatable {
 
   double get subtotalMxn => product.priceMxn * quantity;
 
-  CartLine copyWith({int? quantity, String? notes}) => CartLine(
+  /// `notes` usa el patrón `Function()` para poder **borrar** la nota
+  /// (`() => null`) y no solo cambiarla (U-09).
+  CartLine copyWith({int? quantity, String? Function()? notes}) => CartLine(
         product: product,
         quantity: quantity ?? this.quantity,
-        notes: notes ?? this.notes,
+        notes: notes == null ? this.notes : notes(),
       );
 
   @override

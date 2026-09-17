@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/widgets/order_sheet.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/features/purchases/presentation/widgets/phone_launcher.dart';
 import 'package:nexus_app/features/whatsapp_catalog/data/whatsapp_catalog_repository.dart';
@@ -128,8 +129,16 @@ class _FakeRepo implements WhatsappCatalogRepository {
   Future<CatalogSettings> getSettings() => throw UnimplementedError();
 
   @override
-  Future<CatalogSettings> updateSettings(
-          {bool? isCatalogEnabled, String? whatsappNumber}) =>
+  Future<CatalogSettings> updateSettings({
+    bool? isCatalogEnabled,
+    String? whatsappNumber,
+    String? welcomeMessage,
+    double? minOrderAmountMxn,
+    double? deliveryFeeMxn,
+    bool? deliveryEnabled,
+    bool? pickupEnabled,
+    String? businessHours,
+  }) =>
       throw UnimplementedError();
 }
 
@@ -324,6 +333,67 @@ void main() {
       await tester.tap(find.byKey(const Key('orderBar')));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('error de validación: el foco sube al primer campo inválido (nombre)',
+        (tester) async {
+      await _pump(tester);
+      await _settle(tester);
+      await _tapAdd(tester, 'coca');
+      await _tapAdd(tester, 'coca');
+      await _tapAdd(tester, 'coca'); // $54 ≥ mínimo $50: el envío queda habilitado
+      await _settle(tester);
+      await openSheet(tester);
+
+      // A domicilio sin nombre ni dirección: dos errores, el nombre va primero
+      await tester.tap(find.byKey(const Key('delivery-delivery')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('orderSend')));
+      await tester.tap(find.byKey(const Key('orderSend')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Escribe tu nombre para que la tienda sepa de quién es.'),
+          findsOneWidget);
+      final nameField = tester.widget<EditableText>(find.descendant(
+        of: find.byKey(const Key('orderName')),
+        matching: find.byType(EditableText),
+      ));
+      expect(nameField.focusNode.hasFocus, isTrue);
+      final addressField = tester.widget<EditableText>(find.descendant(
+        of: find.byKey(const Key('orderAddress')),
+        matching: find.byType(EditableText),
+      ));
+      expect(addressField.focusNode.hasFocus, isFalse);
+    });
+
+    testWidgets('nota por renglón (U-09): se agrega, se ve en la línea y se quita',
+        (tester) async {
+      await _pump(tester);
+      await _settle(tester);
+      await _tapAdd(tester, 'coca');
+      await _settle(tester);
+      await openSheet(tester);
+
+      expect(find.text('Agregar nota'), findsOneWidget);
+      await tester.tap(find.text('Agregar nota'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('orderNoteField')), 'bien fría');
+      await tester.tap(find.byKey(const Key('orderNoteSave')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('bien fría'), findsOneWidget);
+      expect(find.text('Agregar nota'), findsNothing);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(OrderSheet)),
+      );
+      expect(container.read(orderCartProvider).lines.values.single.notes, 'bien fría');
+
+      await tester.tap(find.text('bien fría'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('orderNoteClear')));
+      await tester.pumpAndSettle();
+      expect(find.text('Agregar nota'), findsOneWidget);
+      expect(container.read(orderCartProvider).lines.values.single.notes, isNull);
+    });
 
     testWidgets('exige nombre y avisa el pedido mínimo', (tester) async {
       await _pump(tester);

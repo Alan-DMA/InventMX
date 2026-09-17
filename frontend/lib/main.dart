@@ -30,6 +30,7 @@ Future<void> main() async {
   // forma el primer redirect ya tiene el estado correcto.
   final storage = SecureStorage();
   final hasSession = await storage.hasSession();
+  final sessionEmail = await storage.readUserEmail();
 
   final onboardingRepo = OnboardingRepositoryHive();
   final onboardingData = await onboardingRepo.load();
@@ -61,6 +62,7 @@ Future<void> main() async {
       // en su primera ejecución, sin parpadeo ni pantalla incorrecta.
       overrides: [
         sessionProvider.overrideWith((ref) => hasSession),
+        currentUserNameProvider.overrideWith((ref) => sessionEmail),
         onboardingCompleteProvider.overrideWith((ref) => onboardingDone),
       ],
       child: const NexusApp(),

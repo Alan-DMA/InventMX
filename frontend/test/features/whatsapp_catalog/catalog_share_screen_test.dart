@@ -28,12 +28,28 @@ class _FakeRepo implements WhatsappCatalogRepository {
   Future<CatalogSettings> getSettings() async => settings;
 
   @override
-  Future<CatalogSettings> updateSettings(
-      {bool? isCatalogEnabled, String? whatsappNumber}) async {
+  Future<CatalogSettings> updateSettings({
+    bool? isCatalogEnabled,
+    String? whatsappNumber,
+    String? welcomeMessage,
+    double? minOrderAmountMxn,
+    double? deliveryFeeMxn,
+    bool? deliveryEnabled,
+    bool? pickupEnabled,
+    String? businessHours,
+  }) async {
     if (failUpdate) throw StateError('sin red');
+    String? Function()? text(String? v) =>
+        v == null ? null : () => v.trim().isEmpty ? null : v.trim();
     settings = settings.copyWith(
       isCatalogEnabled: isCatalogEnabled,
-      whatsappNumber: whatsappNumber == null ? null : () => whatsappNumber,
+      whatsappNumber: text(whatsappNumber),
+      welcomeMessage: text(welcomeMessage),
+      minOrderAmountMxn: minOrderAmountMxn,
+      deliveryFeeMxn: deliveryFeeMxn,
+      deliveryEnabled: deliveryEnabled,
+      pickupEnabled: pickupEnabled,
+      businessHours: text(businessHours),
     );
     return settings;
   }
@@ -210,6 +226,83 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('vitrina'), findsOneWidget);
+    });
+  });
+
+  // ── U-08 (WC-01): reglas de la tienda ─────────────────────────────────────
+  group('Reglas de la tienda (U-08)', () {
+    testWidgets('la tarjeta resume las reglas actuales', (tester) async {
+      await _pump(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reglas de tu tienda'), findsOneWidget);
+      expect(find.byKey(const Key('catalogRulesEdit')), findsOneWidget);
+      // Defaults del modelo: recoger + domicilio, sin mínimo, envío gratis
+      expect(find.textContaining('Recoger en tienda o a domicilio'), findsOneWidget);
+      expect(find.text('Sin pedido mínimo'), findsOneWidget);
+    });
+
+    testWidgets('editar reglas guarda mínimo, envío, entrega, horario y bienvenida',
+        (tester) async {
+      final (repo, _, _) = await _pump(tester);
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('catalogRulesEdit')));
+      await tester.tap(find.byKey(const Key('catalogRulesEdit')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('rulesMinOrder')), '150');
+      await tester.enterText(find.byKey(const Key('rulesDeliveryFee')), '25.50');
+      await tester.enterText(find.byKey(const Key('rulesHours')), 'Lun–Sáb 8:00 a 21:00');
+      await tester.enterText(find.byKey(const Key('rulesWelcome')), '¡Hola! Pide aquí.');
+      await tester.ensureVisible(find.byKey(const Key('rulesSaveButton')));
+      await tester.tap(find.byKey(const Key('rulesSaveButton')));
+      await tester.pumpAndSettle();
+
+      expect(repo.settings.minOrderAmountMxn, 150);
+      expect(repo.settings.deliveryFeeMxn, 25.50);
+      expect(repo.settings.businessHours, 'Lun–Sáb 8:00 a 21:00');
+      expect(repo.settings.welcomeMessage, '¡Hola! Pide aquí.');
+      expect(find.text('Reglas guardadas. Tu catálogo ya las muestra.'), findsOneWidget);
+      // La tarjeta refleja lo guardado
+      expect(find.textContaining('Pedido mínimo \$150.00'), findsOneWidget);
+      expect(find.textContaining('Envío \$25.50'), findsOneWidget);
+    });
+
+    testWidgets('no se puede guardar sin ninguna forma de entrega', (tester) async {
+      await _pump(tester);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('catalogRulesEdit')));
+      await tester.tap(find.byKey(const Key('catalogRulesEdit')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('rulesPickup')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('rulesDelivery')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('rulesDeliveryError')), findsOneWidget);
+      final btn = tester.widget<FilledButton>(find.byKey(const Key('rulesSaveButton')));
+      expect(btn.onPressed, isNull);
+    });
+
+    testWidgets('apagar domicilio deja el envío en cero al guardar', (tester) async {
+      final (repo, _, _) = await _pump(tester);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('catalogRulesEdit')));
+      await tester.tap(find.byKey(const Key('catalogRulesEdit')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('rulesDeliveryFee')), '30');
+      await tester.tap(find.byKey(const Key('rulesDelivery')));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('rulesSaveButton')));
+      await tester.tap(find.byKey(const Key('rulesSaveButton')));
+      await tester.pumpAndSettle();
+
+      expect(repo.settings.deliveryEnabled, isFalse);
+      expect(repo.settings.deliveryFeeMxn, 0);
+      expect(find.text('Solo recoger en tienda'), findsOneWidget);
     });
   });
 }
