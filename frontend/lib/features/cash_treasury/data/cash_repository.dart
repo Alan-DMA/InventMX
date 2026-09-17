@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../../../core/network/dio_client.dart';
 import '../domain/banxico_denomination.dart';
+import '../domain/cash_movement.dart';
 import '../domain/cash_session.dart';
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,17 @@ abstract class CashRepository {
 
   /// Consulta de turno activo vía `GET /api/v1/cash/active-session`.
   Future<CashSession?> getActiveSession();
+
+  /// Consulta de movimientos del turno vía `GET /api/v1/cash/sessions/{id}/movements`.
+  Future<List<CashMovement>> listMovements(String sessionId);
+
+  /// Registro de movimiento extraordinario vía `POST /api/v1/cash/sessions/{id}/movements`.
+  Future<CashMovement> addMovement({
+    required String sessionId,
+    required CashMovementType type,
+    required double amountMxn,
+    required String description,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +172,74 @@ class CashRepositoryImpl implements CashRepository {
     }
   }
 
+  @override
+  Future<List<CashMovement>> listMovements(String sessionId) async {
+    try {
+      final response = await client.get('/api/v1/cash/sessions/$sessionId/movements');
+      final dynamic data = response.data;
+      if (data == null || data is! List) return const [];
+      return data.map((e) {
+        final map = e as Map<String, dynamic>;
+        final typeStr = map['type']?.toString().toUpperCase();
+        return CashMovement(
+          id: map['id']?.toString() ?? '',
+          cashSessionId: sessionId,
+          type: typeStr == 'DEPOSIT'
+              ? CashMovementType.deposit
+              : CashMovementType.withdrawal,
+          amountMxn: (map['amount_mxn'] as num?)?.toDouble() ?? 0.0,
+          description: map['description']?.toString() ?? '',
+          createdAt: map['created_at'] != null
+              ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
+              : DateTime.now(),
+        );
+      }).toList();
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is CashException) rethrow;
+      throw CashException('Error al listar movimientos de caja: $e');
+    }
+  }
+
+  @override
+  Future<CashMovement> addMovement({
+    required String sessionId,
+    required CashMovementType type,
+    required double amountMxn,
+    required String description,
+  }) async {
+    try {
+      final response = await client.post(
+        '/api/v1/cash/sessions/$sessionId/movements',
+        data: {
+          'type': type.apiValue,
+          'amount_mxn': amountMxn,
+          'description': description,
+        },
+      );
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const CashException('Respuesta inválida al registrar movimiento.');
+      }
+      return CashMovement(
+        id: data['id']?.toString() ?? 'mov-${DateTime.now().millisecondsSinceEpoch}',
+        cashSessionId: sessionId,
+        type: type,
+        amountMxn: amountMxn,
+        description: description,
+        createdAt: data['created_at'] != null
+            ? DateTime.tryParse(data['created_at'].toString()) ?? DateTime.now()
+            : DateTime.now(),
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    } catch (e) {
+      if (e is CashException) rethrow;
+      throw CashException('Error al registrar movimiento: $e');
+    }
+  }
+
   /// Transforma un mapa JSON proveniente de FastAPI a la entidad CashSession
   CashSession _mapSession(Map<dynamic, dynamic> data, {String? fallbackCashierName}) {
     // Normalización de estado en minúsculas
@@ -247,6 +327,15 @@ class CashRepositoryMock implements CashRepository {
   static const defaultOpeningAmountMxn = 500.0;
 
   static int _sessionCounter = 0;
+  static int _movementCounter = 0;
+
+  /// Movimientos de caja menor por sesión — vive en memoria para pruebas offline.
+  /// Clave: `CashSession.id`.
+  static final Map<String, List<CashMovement>> _movementsBySession = {};
+
+  /// Acceso síncrono usado por `_computeExpectedCashMxn` y `CashMovementsNotifier.build()`.
+  static List<CashMovement> movementsFor(String sessionId) =>
+      List.unmodifiable(_movementsBySession[sessionId] ?? const []);
 
   @override
   Future<CashSession> openSession({
@@ -293,5 +382,35 @@ class CashRepositoryMock implements CashRepository {
   Future<CashSession?> getActiveSession() async {
     await Future.delayed(_fakeDelay);
     return null;
+  }
+
+  @override
+  Future<List<CashMovement>> listMovements(String sessionId) async {
+    await Future.delayed(_fakeDelay);
+    return movementsFor(sessionId);
+  }
+
+  @override
+  Future<CashMovement> addMovement({
+    required String sessionId,
+    required CashMovementType type,
+    required double amountMxn,
+    required String description,
+  }) async {
+    await Future.delayed(_fakeDelay);
+
+    final movement = CashMovement(
+      id: 'mov-${++_movementCounter}',
+      cashSessionId: sessionId,
+      type: type,
+      amountMxn: amountMxn,
+      description: description,
+      createdAt: DateTime.now(),
+    );
+
+    final list = _movementsBySession.putIfAbsent(sessionId, () => []);
+    list.insert(0, movement);
+
+    return movement;
   }
 }

@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
+import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
 import 'package:nexus_app/features/cash_treasury/domain/banxico_denomination.dart';
 import 'package:nexus_app/features/cash_treasury/domain/cash_denomination_entry.dart';
 import 'package:nexus_app/features/cash_treasury/domain/cash_movement.dart';
 import 'package:nexus_app/features/cash_treasury/domain/cash_session.dart';
+import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_summary_screen.dart';
 
 CashSession _closedSession({
@@ -37,7 +39,10 @@ CashSession _closedSession({
 /// verificar que "Nuevo turno" hace `pop()` de regreso a esa ruta.
 Widget _buildApp(CashSession session, {List<CashMovement> movements = const []}) {
   return ProviderScope(
-    overrides: [currentUserNameProvider.overrideWith((ref) => 'Ana García')],
+    overrides: [
+      currentUserNameProvider.overrideWith((ref) => 'Ana García'),
+      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+    ],
     child: MaterialApp(
       theme: AppTheme.dark,
       home: Builder(

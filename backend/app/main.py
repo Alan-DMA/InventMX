@@ -7,6 +7,8 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import settings
 from app.core.database.session import get_db
@@ -101,5 +103,22 @@ def read_root():
         "status": "active",
         "environment": settings.ENVIRONMENT,
         "message": "Bienvenido al Sistema de Gestión Comercial Nexus",
+    }
+
+
+@app.get("/health", tags=["health"])
+async def health_check(db: AsyncSession = Depends(get_db)):
+    """Health-check para monitorización de servicio y conexión a base de datos."""
+    try:
+        await db.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "disconnected"
+
+    return {
+        "status": "online",
+        "service": settings.PROJECT_NAME,
+        "database": db_status,
+        "environment": settings.ENVIRONMENT,
     }
 

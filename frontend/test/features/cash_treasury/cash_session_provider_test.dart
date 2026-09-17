@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
+import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
 import 'package:nexus_app/features/cash_treasury/domain/banxico_denomination.dart';
 import 'package:nexus_app/features/cash_treasury/domain/cash_movement.dart';
 import 'package:nexus_app/features/cash_treasury/domain/cash_session.dart';
@@ -19,7 +20,10 @@ import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provi
 
 Future<ProviderContainer> _makeOpenContainer() async {
   final container = ProviderContainer(
-    overrides: [currentUserNameProvider.overrideWith((ref) => 'Ana García')],
+    overrides: [
+      currentUserNameProvider.overrideWith((ref) => 'Ana García'),
+      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+    ],
   );
   addTearDown(container.dispose);
   await container.read(cashSessionProvider.notifier).ensureOpenSession();
