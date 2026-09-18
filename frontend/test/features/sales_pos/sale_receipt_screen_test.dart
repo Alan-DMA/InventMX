@@ -41,6 +41,7 @@ class _StubSalesRepo implements SalesRepository {
     required List<CartItem> items,
     required List<PaymentEntry> payments,
     required String cashierName,
+    required String warehouseId,
   }) =>
       throw UnimplementedError();
 

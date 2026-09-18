@@ -4,11 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/router/app_router.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
 import 'package:nexus_app/features/account/presentation/account_provider.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
+    show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/inventory/presentation/widgets/product_list_tile.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 
@@ -74,6 +78,13 @@ Widget _buildApp(MockInventoryRepository mock) {
       // en el saludo — sin esto golpearía Hive real, no inicializado aquí.
       operatingWarehouseStoreProvider
           .overrideWithValue(OperatingWarehouseStoreMemory()),
+      // El almacén operativo ahora persiste en el backend real.
+      authRepositoryProvider
+          .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+      warehousesProvider.overrideWith((ref) async => const [
+            WarehouseOption(
+                id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+          ]),
     ],
     child: Consumer(
       builder: (_, ref, __) => MaterialApp.router(

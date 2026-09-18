@@ -2,9 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
+import 'package:nexus_app/features/account/presentation/account_provider.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
+    show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/sales_pos/domain/cart_item.dart';
 import 'package:nexus_app/features/sales_pos/domain/cart_state.dart';
@@ -66,6 +72,7 @@ void _stubSalesRepo(MockSalesRepository repo) {
         items: any(named: 'items'),
         payments: any(named: 'payments'),
         cashierName: any(named: 'cashierName'),
+        warehouseId: any(named: 'warehouseId'),
       )).thenAnswer((_) async => CheckoutResult(
         saleId: 'sale-001',
         folio: 'NV-2026-001548',
@@ -97,6 +104,16 @@ Widget _buildScreen({
     overrides: [
       inventoryRepositoryProvider.overrideWithValue(inv),
       salesRepositoryProvider.overrideWithValue(sal),
+      // El checkout ahora exige almacén operativo (warehouse_id real) — sin
+      // esto, `OperatingWarehouseNotifier` golpearía Hive/red reales.
+      operatingWarehouseStoreProvider
+          .overrideWithValue(OperatingWarehouseStoreMemory()),
+      authRepositoryProvider
+          .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+      warehousesProvider.overrideWith((ref) async => const [
+            WarehouseOption(
+                id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+          ]),
       // Pre-carga ítems en el carrito si se especifican
       if (initialCartItems.isNotEmpty)
         cartProvider.overrideWith(() {

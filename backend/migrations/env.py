@@ -10,7 +10,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from alembic import context
 from app.core.config import settings
 from app.core.database import Base
-from app.models import models  # Asegura la carga de todos los modelos en Base.metadata
+
+# Asegura la carga de todos los modelos en Base.metadata — cada módulo
+# registra los suyos en su propio `domain/__init__.py` (arquitectura modular).
+from app.modules.auth_tenancy import domain as _auth_tenancy_domain  # noqa: F401
+from app.modules.cash_treasury import domain as _cash_treasury_domain  # noqa: F401
+from app.modules.community_catalog import domain as _community_catalog_domain  # noqa: F401
+from app.modules.customers_credit import domain as _customers_credit_domain  # noqa: F401
+from app.modules.inventory import domain as _inventory_domain  # noqa: F401
+from app.modules.purchasing_suppliers import domain as _purchasing_suppliers_domain  # noqa: F401
+from app.modules.saas_billing import domain as _saas_billing_domain  # noqa: F401
+from app.modules.sales_pos import domain as _sales_pos_domain  # noqa: F401
+from app.modules.whatsapp_catalog import domain as _whatsapp_catalog_domain  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -77,6 +88,13 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+        # El `SET search_path` de arriba dispara el autobegin de SQLAlchemy
+        # 2.0 en esta conexión *antes* de que Alembic tome el control; al ver
+        # una transacción ya abierta, Alembic asume que quien la abrió es
+        # responsable de cerrarla y no comitea por su cuenta — sin esto, todo
+        # el `run_migrations()` se revierte en silencio al cerrar la conexión.
+        connection.commit()
 
 
 if context.is_offline_mode():

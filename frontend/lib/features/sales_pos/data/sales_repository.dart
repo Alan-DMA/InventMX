@@ -9,6 +9,17 @@ import '../domain/cart_state.dart';
 import '../domain/payment_entry.dart';
 import '../domain/sale_summary.dart';
 
+/// Los montos del backend viajan como `Decimal` de Python — Pydantic los
+/// serializa como string ("40.00") para no perder precisión, no como
+/// número JSON. Un cast directo a `num?` truena con ese payload real
+/// (mismo issue que en `cash_repository.dart`).
+double? _toDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Tipos del listado (Fase 2 — Kardex de ventas)
 // ---------------------------------------------------------------------------
@@ -130,11 +141,14 @@ class SalesException implements Exception {
 abstract class SalesRepository {
   /// POST /api/v1/sales/checkout
   /// Procesa la venta transaccional con uno o más métodos de pago (Tarea 7.2)
-  /// y retorna el resultado.
+  /// y retorna el resultado. [warehouseId] es obligatorio en el contrato real
+  /// (almacén del que se descuenta el stock) — lo resuelve quien llama desde
+  /// `operatingWarehouseProvider` (decisión D6).
   Future<CheckoutResult> checkout({
     required List<CartItem> items,
     required List<PaymentEntry> payments,
     required String cashierName,
+    required String warehouseId,
   });
 
   /// GET /sales — listado paginado, más reciente primero.
@@ -183,29 +197,33 @@ class SalesRepositoryImpl implements SalesRepository {
     required List<CartItem> items,
     required List<PaymentEntry> payments,
     required String cashierName,
+    required String warehouseId,
   }) async {
     try {
       final payload = <String, dynamic>{
+        'warehouse_id': warehouseId,
         'items': items.map((item) {
           final map = <String, dynamic>{
-            'name': item.name,
             'quantity': item.quantity,
-            'unit_price_usd': item.unitPriceMxn,
             'unit_price_mxn': item.unitPriceMxn,
           };
           if (item.productId != null && item.productId!.isNotEmpty) {
             map['product_id'] = item.productId;
+          } else {
+            // Producto al vuelo (Lazy Loading, RF-09) — el backend real no
+            // acepta `name` suelto, necesita estos dos campos explícitos.
+            map['is_on_the_fly'] = true;
+            map['on_the_fly_name'] = item.name;
           }
           return map;
         }).toList(),
         'payments': payments.map((p) {
           final map = <String, dynamic>{
             'payment_method': p.method.apiValue,
-            'amount_usd': p.amountMxn,
-            'amount_mxn': p.amountMxn,
+            'amount_paid_mxn': p.amountMxn,
           };
           if (p.referenceCode != null && p.referenceCode!.isNotEmpty) {
-            map['reference_number'] = p.referenceCode;
+            map['reference_code'] = p.referenceCode;
           }
           return map;
         }).toList(),
@@ -221,21 +239,18 @@ class SalesRepositoryImpl implements SalesRepository {
         throw const SalesException('Respuesta inválida al procesar la venta.');
       }
 
-      final saleId = data['sale_id']?.toString() ??
+      final saleId = data['id']?.toString() ??
           'sale-${DateTime.now().millisecondsSinceEpoch}';
       final folio = data['folio']?.toString() ?? 'NV-SIN-FOLIO';
-      final totalMxn =
-          (data['total_mxn'] ?? data['total_usd'] as num?)?.toDouble() ??
-              items.fold(0.0, (sum, i) => sum + i.subtotalMxn);
-      final totalPaidMxn =
-          (data['total_paid_mxn'] ?? data['total_paid_usd'] as num?)?.toDouble() ??
-              payments.fold(0.0, (sum, p) => sum + p.amountMxn);
-      final changeGivenMxn =
-          (data['change_given_mxn'] ?? data['change_given_usd'] as num?)?.toDouble() ??
-              (totalPaidMxn - totalMxn).clamp(0.0, double.infinity);
-      final completedAtStr = data['completed_at']?.toString();
-      final completedAt = completedAtStr != null
-          ? DateTime.tryParse(completedAtStr) ?? DateTime.now()
+      final totalMxn = _toDouble(data['total_mxn']) ??
+          items.fold<double>(0.0, (sum, i) => sum + i.subtotalMxn);
+      final totalPaidMxn = _toDouble(data['amount_paid_mxn']) ??
+          payments.fold<double>(0.0, (sum, p) => sum + p.amountMxn);
+      final changeGivenMxn = _toDouble(data['change_returned_mxn']) ??
+          (totalPaidMxn - totalMxn).clamp(0.0, double.infinity);
+      final createdAtStr = data['created_at']?.toString();
+      final completedAt = createdAtStr != null
+          ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
           : DateTime.now();
 
       final result = CheckoutResult(
@@ -379,6 +394,8 @@ class SalesRepositoryMock implements SalesRepository {
     required List<CartItem> items,
     required List<PaymentEntry> payments,
     required String cashierName,
+    // El mock no necesita almacén — no hay stock real que descontar.
+    String warehouseId = 'wh-mock',
   }) async {
     await Future.delayed(_fakeDelay);
 

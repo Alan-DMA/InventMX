@@ -23,6 +23,7 @@ from app.modules.auth_tenancy.schemas.token import (
     TokenResponse,
 )
 from app.modules.auth_tenancy.schemas.user import (
+    UpdateOperatingWarehouseRequest,
     UserCreate,
     UserLogin,
     UserRead,
@@ -103,6 +104,25 @@ async def get_me(current_user: User = Depends(get_current_user)):
     Retorna la información del usuario en sesión activa, incluyendo su rol y lista de permisos.
     """
     return current_user
+
+
+@router.patch(
+    "/auth/me/warehouse",
+    response_model=UserRead,
+    status_code=status.HTTP_200_OK,
+    summary="Cambiar el almacén operativo del usuario en sesión",
+)
+async def update_my_warehouse(
+    data: UpdateOperatingWarehouseRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Actualiza en qué almacén está operando el usuario autenticado hoy —
+    configurable desde su perfil, sin requerir un permiso especial.
+    """
+    service = UserService(db)
+    return await service.update_operating_warehouse(data.warehouse_id, current_user)
 
 
 # =============================================================================

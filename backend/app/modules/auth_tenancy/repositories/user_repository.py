@@ -142,6 +142,7 @@ class UserRepository:
         role_id: Optional[uuid.UUID] = None,
         hashed_password: Optional[str] = None,
         is_active: Optional[bool] = None,
+        default_warehouse_id: Optional[uuid.UUID] = None,
     ) -> User:
         """
         Actualiza los campos proporcionados de un usuario existente.
@@ -156,6 +157,8 @@ class UserRepository:
             user.hashed_password = hashed_password
         if is_active is not None:
             user.is_active = is_active
+        if default_warehouse_id is not None:
+            user.default_warehouse_id = default_warehouse_id
 
         # Marcar para actualización y flush
         await self.db.flush()

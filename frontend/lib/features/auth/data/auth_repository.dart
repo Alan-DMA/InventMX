@@ -15,6 +15,16 @@ abstract class AuthRepository {
   Future<void> logout();
 
   Future<bool> hasSession();
+
+  /// GET /api/v1/auth/me — almacén operativo persistido en el perfil del
+  /// usuario (`null` si nunca lo ha elegido). `null` también si falla la
+  /// red: quien llama cae a un almacén por defecto, igual que ya hace
+  /// `warehousesProvider` con la lista completa.
+  Future<String?> fetchDefaultWarehouseId();
+
+  /// PATCH /api/v1/auth/me/warehouse — cambia el almacén operativo del
+  /// usuario en sesión (configurable desde su perfil, Doc. Maestro D6).
+  Future<void> setDefaultWarehouseId(String warehouseId);
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +77,30 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<bool> hasSession() => storage.hasSession();
 
+  @override
+  Future<String?> fetchDefaultWarehouseId() async {
+    try {
+      final response = await client.get('/api/v1/auth/me');
+      final dynamic data = response.data;
+      if (data is Map) return data['default_warehouse_id']?.toString();
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> setDefaultWarehouseId(String warehouseId) async {
+    try {
+      await client.patch(
+        '/api/v1/auth/me/warehouse',
+        data: {'warehouse_id': warehouseId},
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
   Exception _mapDioError(DioException e) {
     if (e.response != null) {
       final data = e.response?.data;
@@ -112,6 +146,8 @@ class AuthRepositoryMock implements AuthRepository {
   static const _validEmail = 'demo@nexus.mx';
   static const _validPassword = 'nexus123';
 
+  String? _defaultWarehouseId;
+
   @override
   Future<AuthToken> login({
     required String email,
@@ -139,6 +175,14 @@ class AuthRepositoryMock implements AuthRepository {
 
   @override
   Future<bool> hasSession() => storage.hasSession();
+
+  @override
+  Future<String?> fetchDefaultWarehouseId() async => _defaultWarehouseId;
+
+  @override
+  Future<void> setDefaultWarehouseId(String warehouseId) async {
+    _defaultWarehouseId = warehouseId;
+  }
 }
 
 // ---------------------------------------------------------------------------

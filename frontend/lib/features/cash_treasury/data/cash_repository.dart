@@ -4,6 +4,16 @@ import '../domain/banxico_denomination.dart';
 import '../domain/cash_movement.dart';
 import '../domain/cash_session.dart';
 
+/// Los montos del backend viajan como `Decimal` de Python — Pydantic los
+/// serializa como string ("500.00") para no perder precisión, no como
+/// número JSON. Un cast directo a `num?` truena con ese payload real.
+double? _toDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Excepción de dominio para Caja y Tesorería
 // ---------------------------------------------------------------------------
@@ -136,9 +146,9 @@ class CashRepositoryImpl implements CashRepository {
       // Retorno de la sesión actualizada con datos calculados del backend
       return session.copyWith(
         status: statusStr == 'open' ? CashSessionStatus.open : CashSessionStatus.closed,
-        expectedCashMxn: (data['expected_cash_mxn'] as num?)?.toDouble() ?? session.expectedCashMxn,
-        physicalCashMxn: (data['physical_cash_mxn'] as num?)?.toDouble() ?? physicalDenominations.totalMxn,
-        differenceMxn: (data['difference_mxn'] as num?)?.toDouble() ?? 0.0,
+        expectedCashMxn: _toDouble(data['expected_cash_mxn']) ?? session.expectedCashMxn,
+        physicalCashMxn: _toDouble(data['physical_cash_mxn']) ?? physicalDenominations.totalMxn,
+        differenceMxn: _toDouble(data['difference_mxn']) ?? 0.0,
         balanceResult: balanceStr == 'short'
             ? CashBalanceResult.short
             : (balanceStr == 'over' ? CashBalanceResult.over : CashBalanceResult.exact),
@@ -187,7 +197,7 @@ class CashRepositoryImpl implements CashRepository {
           type: typeStr == 'DEPOSIT'
               ? CashMovementType.deposit
               : CashMovementType.withdrawal,
-          amountMxn: (map['amount_mxn'] as num?)?.toDouble() ?? 0.0,
+          amountMxn: _toDouble(map['amount_mxn']) ?? 0.0,
           description: map['description']?.toString() ?? '',
           createdAt: map['created_at'] != null
               ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
@@ -251,10 +261,10 @@ class CashRepositoryImpl implements CashRepository {
       id: data['id']?.toString() ?? 'cash-unknown',
       cashierName: data['cashier_name']?.toString() ?? fallbackCashierName ?? 'Cajero',
       status: statusStr == 'closed' ? CashSessionStatus.closed : CashSessionStatus.open,
-      openingAmountMxn: (data['opening_amount_mxn'] as num?)?.toDouble() ?? 0.0,
-      expectedCashMxn: (data['expected_cash_mxn'] as num?)?.toDouble() ?? 0.0,
-      physicalCashMxn: (data['physical_cash_mxn'] as num?)?.toDouble(),
-      differenceMxn: (data['difference_mxn'] as num?)?.toDouble(),
+      openingAmountMxn: _toDouble(data['opening_amount_mxn']) ?? 0.0,
+      expectedCashMxn: _toDouble(data['expected_cash_mxn']) ?? 0.0,
+      physicalCashMxn: _toDouble(data['physical_cash_mxn']),
+      differenceMxn: _toDouble(data['difference_mxn']),
       balanceResult: balanceStr == null
           ? null
           : (balanceStr == 'short'

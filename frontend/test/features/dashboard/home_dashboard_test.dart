@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
 import 'package:nexus_app/features/account/presentation/account_provider.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
 import 'package:nexus_app/features/dashboard/domain/daily_snapshot.dart';
@@ -12,6 +14,8 @@ import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dar
 import 'package:nexus_app/features/dashboard/presentation/home_dashboard_screen.dart';
 import 'package:nexus_app/features/dashboard/presentation/notifications_screen.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
+    show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/purchases/presentation/widgets/phone_launcher.dart';
 import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart'
     show clockProvider;
@@ -52,6 +56,13 @@ ProviderContainer _container({_RecordingLauncher? launcher}) {
           .overrideWithValue(OperatingWarehouseStoreMemory()),
       // Sin esto, "Ajustar stock" golpearía la red real de Inventario.
       inventoryRepositoryProvider.overrideWithValue(InventoryRepositoryMock()),
+      // El almacén operativo del saludo ahora persiste en el backend real.
+      authRepositoryProvider
+          .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+      warehousesProvider.overrideWith((ref) async => const [
+            WarehouseOption(
+                id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+          ]),
     ],
   );
   addTearDown(container.dispose);

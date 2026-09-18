@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/router/app_router.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
 import 'package:nexus_app/features/account/presentation/account_provider.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/auth/presentation/login_screen.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
+    show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_wizard_screen.dart';
 import 'package:nexus_app/features/whatsapp_catalog/data/whatsapp_catalog_repository.dart';
@@ -34,6 +38,13 @@ void main() {
         // esto golpearía Hive real, que no está inicializado en este test.
         operatingWarehouseStoreProvider
             .overrideWithValue(OperatingWarehouseStoreMemory()),
+        // El almacén operativo ahora persiste en el backend real.
+        authRepositoryProvider
+            .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+        warehousesProvider.overrideWith((ref) async => const [
+              WarehouseOption(
+                  id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+            ]),
       ],
       child: Consumer(
         builder: (_, ref, __) {

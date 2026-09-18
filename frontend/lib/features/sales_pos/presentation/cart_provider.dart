@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../features/account/presentation/account_provider.dart';
 import '../../../features/auth/presentation/login_provider.dart';
 import '../../../features/inventory/domain/product.dart';
 import '../data/sales_repository.dart';
@@ -133,10 +134,16 @@ class CartNotifier extends Notifier<CartState> {
 
     try {
       final cashierName = ref.read(currentUserNameProvider) ?? 'Cajero';
+      final warehouse = ref.read(operatingWarehouseProvider).valueOrNull;
+      if (warehouse == null) {
+        throw Exception(
+            'Selecciona un almacén operativo en tu cuenta antes de cobrar.');
+      }
       final result = await _repo.checkout(
         items: state.items,
         payments: payments,
         cashierName: cashierName,
+        warehouseId: warehouse.id,
       );
 
       // Checkout exitoso: guarda el resultado y vacía el carrito

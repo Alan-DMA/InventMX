@@ -9,10 +9,15 @@ import 'package:nexus_app/features/account/presentation/account_screen.dart';
 import 'package:nexus_app/features/account/presentation/operating_warehouse_screen.dart';
 import 'package:nexus_app/features/account/presentation/password_screen.dart';
 import 'package:nexus_app/features/account/presentation/personal_data_screen.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
+    show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/management/domain/app_permission.dart';
 import 'package:nexus_app/features/management/domain/tenant_role.dart';
-import 'package:nexus_app/features/management/presentation/management_provider.dart';
+import 'package:nexus_app/features/management/presentation/management_provider.dart'
+    hide warehousesProvider;
 import 'package:nexus_app/features/saas_admin/data/saas_repository.dart';
 import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart';
 
@@ -24,9 +29,17 @@ const _owner = 'eduardo.cristancho@nexus.mx';
 const _manager = 'maria.hernandez@nexus.mx';
 const _cashier = 'jose.ramirez@nexus.mx';
 
+/// Espeja el mock de Gestión de siempre (wh-001/002/003) pero como lo que
+/// hoy alimenta el selector real: `GET /inventory/warehouses`.
+const _testWarehouses = [
+  WarehouseOption(id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+  WarehouseOption(id: 'wh-002', name: 'Mostrador'),
+  WarehouseOption(id: 'wh-003', name: 'Bodega'),
+];
+
 ProviderContainer _container({
   String email = _owner,
-  OperatingWarehouseStore? store,
+  AuthRepositoryMock? authRepo,
   AccountRepository? account,
 }) {
   final container = ProviderContainer(
@@ -34,7 +47,12 @@ ProviderContainer _container({
       sessionProvider.overrideWith((ref) => true),
       currentUserNameProvider.overrideWith((ref) => email),
       operatingWarehouseStoreProvider
-          .overrideWithValue(store ?? OperatingWarehouseStoreMemory()),
+          .overrideWithValue(OperatingWarehouseStoreMemory()),
+      // El almacén operativo ahora persiste en el backend (/auth/me) — sin
+      // esto, golpearía red real.
+      authRepositoryProvider.overrideWithValue(
+          authRepo ?? AuthRepositoryMock(storage: SecureStorage())),
+      warehousesProvider.overrideWith((ref) async => _testWarehouses),
       if (account != null) accountRepositoryProvider.overrideWithValue(account),
       // Sin esto, el perfil SaaS intentaría salir a la red real.
       saasRepositoryProvider
@@ -224,8 +242,8 @@ void main() {
 
   group('Dónde opero', () {
     testWidgets('elegir un almacén lo recuerda', (tester) async {
-      final store = OperatingWarehouseStoreMemory();
-      final container = _container(store: store);
+      final authRepo = AuthRepositoryMock(storage: SecureStorage());
+      final container = _container(authRepo: authRepo);
       await tester
           .pumpWidget(_app(container, const OperatingWarehouseScreen()));
       await _settle(tester);
@@ -234,7 +252,7 @@ void main() {
       await tester.tap(find.byKey(const Key('warehouseOption-wh-003')));
       await _settle(tester);
 
-      expect(await store.load(), 'wh-003');
+      expect(await authRepo.fetchDefaultWarehouseId(), 'wh-003');
       expect(container.read(operatingWarehouseProvider).valueOrNull?.name,
           'Bodega');
     });

@@ -40,6 +40,12 @@ class User(TenantBaseModel):
         default=True,
         nullable=False,
     )
+    default_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Almacén operativo del usuario — configurable desde su perfil.",
+    )
 
     # Relaciones
     tenant: Mapped[Tenant] = relationship(

@@ -22,6 +22,9 @@ from app.modules.auth_tenancy.domain.user import User
 # Importación de repositorios de datos
 from app.modules.auth_tenancy.repositories.role_repository import RoleRepository
 from app.modules.auth_tenancy.repositories.user_repository import UserRepository
+# Importación del repositorio de almacenes (módulo de inventario) para validar
+# que el almacén operativo elegido pertenezca al mismo comercio del usuario
+from app.modules.inventory.repositories.warehouse_repository import WarehouseRepository
 # Importación de esquemas Pydantic para validación de entrada
 from app.modules.auth_tenancy.schemas.user import UserCreate, UserUpdate
 
@@ -45,6 +48,8 @@ class UserService:
         self.user_repo = UserRepository(db)
         # Instanciación del repositorio de roles
         self.role_repo = RoleRepository(db)
+        # Instanciación del repositorio de almacenes (validación cruzada de tenant)
+        self.warehouse_repo = WarehouseRepository(db)
 
     async def list_employees(self, current_user: User) -> List[User]:
         """
@@ -220,3 +225,26 @@ class UserService:
         await self.user_repo.delete(employee)
         # Confirmar transacción
         await self.db.commit()
+
+    async def update_operating_warehouse(
+        self, warehouse_id: uuid.UUID, current_user: User
+    ) -> User:
+        """
+        Cambia el almacén operativo del usuario en sesión (self-service, sin
+        permiso especial — cualquier empleado elige en cuál almacén está
+        parado hoy). Valida que el almacén exista y sea del mismo comercio.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        warehouse = await self.warehouse_repo.get_by_id(warehouse_id)
+        if not warehouse or warehouse.tenant_id != tenant_id:
+            raise NotFoundException(f"Almacén con ID '{warehouse_id}' no encontrado.")
+
+        await self.user_repo.update(
+            user=current_user, default_warehouse_id=warehouse_id,
+        )
+        await self.db.commit()
+
+        await set_tenant_context(self.db, tenant_id)
+        return await self.user_repo.get_by_id(current_user.id)

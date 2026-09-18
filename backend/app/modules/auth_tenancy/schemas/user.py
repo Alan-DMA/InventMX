@@ -44,8 +44,19 @@ class UserRead(UserBase):
     role_id: uuid.UUID
     role: Optional[RoleRead] = None
     is_active: bool
+    default_warehouse_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="Almacén operativo actual del usuario, configurable desde su perfil.",
+    )
     created_at: datetime
     updated_at: datetime
 
     # Configuración para permitir instanciación directa desde modelos SQLAlchemy
     model_config = ConfigDict(from_attributes=True)
+
+
+class UpdateOperatingWarehouseRequest(BaseModel):
+    """Esquema de entrada para que el usuario en sesión cambie su almacén operativo."""
+    warehouse_id: uuid.UUID = Field(
+        ..., description="ID del almacén al que el usuario quiere operar",
+    )

@@ -5,7 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../management/domain/warehouse.dart';
-import '../../management/presentation/management_provider.dart';
+import '../../management/presentation/management_provider.dart'
+    show canManageWarehousesProvider;
 import 'account_provider.dart';
 
 /// "Dónde opero" — en qué almacén se registran mis ventas y movimientos.
@@ -19,7 +20,8 @@ class OperatingWarehouseScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(operatingWarehouseProvider);
-    final warehouses = ref.watch(activeWarehousesProvider);
+    final warehouses =
+        ref.watch(operatingWarehouseOptionsProvider).valueOrNull ?? const [];
     final canChange = ref.watch(canManageWarehousesProvider);
 
     return Scaffold(

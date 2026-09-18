@@ -292,18 +292,16 @@ void main() {
     ];
 
     test('envía payload correcto y retorna CheckoutResult exitoso', () async {
+      // Shape real de `SaleResponse` (backend modular) — los montos viajan
+      // como string porque Pydantic serializa `Decimal` así.
       final mockResponseData = {
-        'sale_id': 'f0000000-0000-0000-0000-000000000001',
+        'id': 'f0000000-0000-0000-0000-000000000001',
         'folio': 'NV-2026-000001',
-        'total_usd': 42.0,
-        'total_paid_usd': 50.0,
-        'change_given_usd': 8.0,
-        'total_mxn': 42.0,
-        'total_paid_mxn': 50.0,
-        'change_given_mxn': 8.0,
+        'total_mxn': '42.00',
+        'amount_paid_mxn': '50.00',
+        'change_returned_mxn': '8.00',
         'status': 'COMPLETED',
-        'items_count': 2,
-        'completed_at': '2026-09-14T12:00:00.000Z',
+        'created_at': '2026-09-14T12:00:00.000Z',
       };
 
       when(
@@ -324,6 +322,7 @@ void main() {
         items: testItems,
         payments: testPayments,
         cashierName: 'Don Roberto',
+        warehouseId: 'wh-001',
       );
 
       expect(result.saleId, equals('f0000000-0000-0000-0000-000000000001'));
@@ -336,7 +335,7 @@ void main() {
       expect(result.payments.length, equals(1));
       expect(repository.sessionSales.length, equals(1));
 
-      // Verificar que el payload incluya los items y pagos
+      // Verificar que el payload incluya almacén, items y pagos
       final captured = verify(
         () => mockClient.post<dynamic>(
           '/api/v1/sales/checkout',
@@ -345,19 +344,23 @@ void main() {
         ),
       ).captured.single as Map<String, dynamic>;
 
+      expect(captured['warehouse_id'], equals('wh-001'));
+
       final itemsPayload = captured['items'] as List;
       expect(itemsPayload.length, equals(2));
       expect(itemsPayload[0]['product_id'],
           equals('a1111111-b222-c333-d444-e55555555555'));
       expect(itemsPayload[0]['quantity'], equals(2));
-      expect(itemsPayload[0]['unit_price_usd'], equals(18.5));
+      expect(itemsPayload[0]['unit_price_mxn'], equals(18.5));
       expect(itemsPayload[1].containsKey('product_id'),
           isFalse); // on-the-fly no envía product_id
+      expect(itemsPayload[1]['is_on_the_fly'], isTrue);
+      expect(itemsPayload[1]['on_the_fly_name'], equals('Bolsa Ecológica'));
 
       final paymentsPayload = captured['payments'] as List;
       expect(paymentsPayload.length, equals(1));
       expect(paymentsPayload[0]['payment_method'], equals('CASH_MXN'));
-      expect(paymentsPayload[0]['amount_usd'], equals(50.0));
+      expect(paymentsPayload[0]['amount_paid_mxn'], equals(50.0));
     });
 
     test('soporta pagos mixtos (Efectivo + SPEI con referencia)', () async {
@@ -384,14 +387,13 @@ void main() {
       ).thenAnswer(
         (_) async => Response(
           data: {
-            'sale_id': 'sale-mixed-123',
+            'id': 'sale-mixed-123',
             'folio': 'NV-2026-000002',
-            'total_usd': 42.0,
-            'total_paid_usd': 42.0,
-            'change_given_usd': 0.0,
+            'total_mxn': '42.00',
+            'amount_paid_mxn': '42.00',
+            'change_returned_mxn': '0.00',
             'status': 'COMPLETED',
-            'items_count': 2,
-            'completed_at': DateTime.now().toIso8601String(),
+            'created_at': DateTime.now().toIso8601String(),
           },
           statusCode: 200,
           requestOptions: RequestOptions(path: '/api/v1/sales/checkout'),
@@ -402,6 +404,7 @@ void main() {
         items: testItems,
         payments: mixedPayments,
         cashierName: 'Cajero 1',
+        warehouseId: 'wh-001',
       );
 
       expect(result.folio, equals('NV-2026-000002'));
@@ -418,7 +421,7 @@ void main() {
       final paymentsPayload = captured['payments'] as List;
       expect(paymentsPayload.length, equals(2));
       expect(paymentsPayload[1]['payment_method'], equals('SPEI'));
-      expect(paymentsPayload[1]['reference_number'], equals('SPEI-998877'));
+      expect(paymentsPayload[1]['reference_code'], equals('SPEI-998877'));
     });
 
     test(
@@ -453,6 +456,7 @@ void main() {
           items: testItems,
           payments: testPayments,
           cashierName: 'Cajero',
+          warehouseId: 'wh-001',
         ),
         throwsA(
           isA<SalesException>().having(
@@ -484,6 +488,7 @@ void main() {
           items: testItems,
           payments: testPayments,
           cashierName: 'Cajero',
+          warehouseId: 'wh-001',
         ),
         throwsA(
           isA<SalesException>().having(
