@@ -1,5 +1,6 @@
 # Importación de UUID para identificación única de entidades
 import uuid
+from decimal import Decimal
 # Importación de tipos estáticos para anotación
 from typing import List, Optional
 # Importación de operadores de consulta y funciones de agregación
@@ -12,6 +13,7 @@ from sqlalchemy.orm import selectinload
 # Importación de modelos de dominio
 from app.modules.auth_tenancy.domain.role import Role
 from app.modules.auth_tenancy.domain.user import User
+from app.modules.sales_pos.domain.commission import CommissionType
 
 
 class UserRepository:
@@ -143,6 +145,8 @@ class UserRepository:
         hashed_password: Optional[str] = None,
         is_active: Optional[bool] = None,
         default_warehouse_id: Optional[uuid.UUID] = None,
+        commission_type: Optional[CommissionType] = None,
+        commission_rate: Optional[Decimal] = None,
     ) -> User:
         """
         Actualiza los campos proporcionados de un usuario existente.
@@ -159,6 +163,10 @@ class UserRepository:
             user.is_active = is_active
         if default_warehouse_id is not None:
             user.default_warehouse_id = default_warehouse_id
+        if commission_type is not None:
+            user.commission_type = commission_type
+        if commission_rate is not None:
+            user.commission_rate = commission_rate
 
         # Marcar para actualización y flush
         await self.db.flush()

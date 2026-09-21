@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../saas_admin/presentation/saas_provider.dart';
+import '../data/commissions_repository.dart' show monthLabel;
 import 'employee_performance_provider.dart';
 import 'widgets/employee_performance_tab.dart';
 
@@ -43,7 +45,10 @@ class EmployeePerformanceScreen extends ConsumerWidget {
           data: (performance) => SingleChildScrollView(
             child: EmployeePerformanceTab(
               performance: performance,
-              onPeriodTap: () => _showPeriodBlocker(context),
+              onPeriodTap: () => _pickMonth(context, ref),
+              selectedMonth: ref.watch(commissionsMonthProvider),
+              onMonthTap: (m) =>
+                  ref.read(commissionsMonthProvider.notifier).state = m,
             ),
           ),
           loading: () => const Center(
@@ -64,15 +69,60 @@ class EmployeePerformanceScreen extends ConsumerWidget {
     );
   }
 
-  void _showPeriodBlocker(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Filtro por período disponible cuando el backend entregue '
-          'GET /analytics/commissions (Tarea 8.1.3)',
+  /// Hoja con los últimos 12 meses (el actual primero). Cambiar el mes
+  /// invalida el tablero vía `commissionsMonthProvider`.
+  Future<void> _pickMonth(BuildContext context, WidgetRef ref) async {
+    final now = ref.read(clockProvider)();
+    final selected = ref.read(commissionsMonthProvider);
+    final months = [
+      for (var i = 0; i < 12; i++) DateTime(now.year, now.month - i),
+    ];
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
+              child: Text(
+                'Período',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.onSurfaceMuted,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+            for (final m in months)
+              ListTile(
+                key: Key('month-${m.year}-${m.month}'),
+                title: Text(
+                  monthLabel(m),
+                  style: TextStyle(
+                    color: AppColors.onSurface,
+                    fontWeight: m.year == selected.year && m.month == selected.month
+                        ? FontWeight.w700
+                        : FontWeight.w400,
+                  ),
+                ),
+                trailing: m.year == selected.year && m.month == selected.month
+                    ? const Icon(Icons.check_rounded, color: AppColors.emerald)
+                    : null,
+                onTap: () => Navigator.of(context).pop(m),
+              ),
+          ],
         ),
-        behavior: SnackBarBehavior.floating,
       ),
     );
+    if (picked != null) {
+      ref.read(commissionsMonthProvider.notifier).state = picked;
+    }
   }
 }

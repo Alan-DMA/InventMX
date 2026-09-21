@@ -89,7 +89,12 @@ class _MemberTile extends ConsumerWidget {
         ),
       ),
       title: member.name,
-      subtitle: '${role?.label ?? member.roleId} · ${member.email}',
+      // Sin esquema no se dice "0 %": el silencio es la respuesta honesta.
+      subtitle: [
+        '${role?.label ?? member.roleId} · ${member.email}',
+        if (member.commissionLabel != null)
+          'Comisión: ${member.commissionLabel}',
+      ].join('\n'),
       dimmed: !member.isActive,
       badge: !member.isActive
           ? 'Inactivo'

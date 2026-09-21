@@ -8,6 +8,9 @@ import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
 import 'package:nexus_app/features/account/presentation/account_provider.dart';
 import 'package:nexus_app/features/auth/data/auth_repository.dart';
+import 'package:nexus_app/features/management/data/management_repository.dart';
+import 'package:nexus_app/features/management/presentation/management_provider.dart'
+    show managementRepositoryProvider;
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
 import 'package:nexus_app/features/dashboard/domain/daily_snapshot.dart';
@@ -93,6 +96,10 @@ ProviderContainer _container({
       // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
       // se sustituye por un stream vacío y el repo mock (sin timers ni red).
       orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+      // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
+      managementRepositoryProvider.overrideWith(
+          (ref) => ManagementRepositoryMock(
+                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
       storeOrdersRepositoryProvider.overrideWithValue(orders ??
           StoreOrdersRepositoryMock(
               orders: [_lauraOrder()], now: () => _now, latency: Duration.zero)),
@@ -262,6 +269,14 @@ void main() {
           // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
           // se sustituye por un stream vacío y el repo mock (sin timers ni red).
           orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+      // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
+      managementRepositoryProvider.overrideWith(
+          (ref) => ManagementRepositoryMock(
+                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
+          // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
+          managementRepositoryProvider.overrideWith(
+              (ref) => ManagementRepositoryMock(
+                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
           storeOrdersRepositoryProvider.overrideWithValue(
             StoreOrdersRepositoryMock(latency: Duration.zero)),
           clockProvider.overrideWithValue(() => _now),
@@ -416,6 +431,14 @@ void main() {
           // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
           // se sustituye por un stream vacío y el repo mock (sin timers ni red).
           orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+      // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
+      managementRepositoryProvider.overrideWith(
+          (ref) => ManagementRepositoryMock(
+                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
+          // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
+          managementRepositoryProvider.overrideWith(
+              (ref) => ManagementRepositoryMock(
+                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
           storeOrdersRepositoryProvider.overrideWithValue(
             StoreOrdersRepositoryMock(latency: Duration.zero)),
           clockProvider.overrideWithValue(() => _now),

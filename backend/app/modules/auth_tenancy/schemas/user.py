@@ -2,6 +2,8 @@
 import uuid
 # Importación de datetime para marcas de tiempo
 from datetime import datetime
+# Importación de Decimal para tasas de comisión
+from decimal import Decimal
 # Importación de tipos estáticos
 from typing import Optional
 # Importación de constructs de Pydantic v2
@@ -9,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 # Importación de esquema de lectura de roles
 from app.modules.auth_tenancy.schemas.role import RoleRead
+# Esquema de comisión (RF-10) — mismo enum que los asientos de sale_commissions
+from app.modules.sales_pos.domain.commission import CommissionType
 
 
 class UserBase(BaseModel):
@@ -35,6 +39,17 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(default=None, min_length=6, max_length=100)
     role_id: Optional[uuid.UUID] = Field(default=None, description="Nuevo rol asignado al empleado")
     is_active: Optional[bool] = Field(default=None, description="Estado activo/inactivo del empleado")
+    commission_type: Optional[CommissionType] = Field(
+        default=None,
+        description="Esquema de comisión: PERCENTAGE_SALE, PERCENTAGE_PROFIT o FIXED_PER_SALE (RF-10)",
+    )
+    commission_rate: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        max_digits=5,
+        decimal_places=2,
+        description="Porcentaje (0-100) o monto fijo en $ MXN por venta; 0 desactiva la comisión",
+    )
 
 
 class UserRead(UserBase):
@@ -47,6 +62,14 @@ class UserRead(UserBase):
     default_warehouse_id: Optional[uuid.UUID] = Field(
         default=None,
         description="Almacén operativo actual del usuario, configurable desde su perfil.",
+    )
+    commission_type: CommissionType = Field(
+        default=CommissionType.PERCENTAGE_SALE,
+        description="Esquema de comisión del empleado (RF-10)",
+    )
+    commission_rate: Decimal = Field(
+        default=Decimal("0.00"),
+        description="Porcentaje o monto fijo de comisión; 0 = no comisiona",
     )
     created_at: datetime
     updated_at: datetime

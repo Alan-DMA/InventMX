@@ -113,6 +113,8 @@ class _FakeSalesRepo implements SalesRepository {
       items: items.map(SaleSummary.fromCheckout).toList(),
       total: all.length,
       totalAmountMxn: all.fold<double>(0, (a, s) => a + s.netTotalMxn),
+      refundedAmountMxn:
+          all.fold<double>(0, (a, s) => a + (s.refund?.refundAmountMxn ?? 0)),
       page: page,
       pageSize: pageSize,
       totalPages: all.isEmpty ? 1 : (all.length / pageSize).ceil(),
@@ -364,8 +366,51 @@ void main() {
     );
     expect(tester.widget<Opacity>(opacityFinder.first).opacity, lessThan(1));
 
-    // El resumen es neto: sólo cuenta la venta no reembolsada.
+    // El resumen es neto: sólo cuenta la venta no reembolsada — y explica
+    // la diferencia contra la suma de los renglones.
     expect(find.text('2 ventas'), findsOneWidget);
     expect(find.text(mxn(other.totalMxn)), findsWidgets);
+    expect(
+      find.text('${mxn(other.totalMxn + refunded.totalMxn)} vendidos − '
+          '${mxn(refunded.totalMxn)} devueltos'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('una devolución parcial dice cuánto volvió y no tacha el monto',
+      (tester) async {
+    final base = _sale(n: 2, at: _now.subtract(const Duration(minutes: 5)));
+    final partial = CheckoutResult(
+      saleId: base.saleId,
+      folio: base.folio,
+      totalMxn: base.totalMxn,
+      totalPaidMxn: base.totalPaidMxn,
+      changeGivenMxn: base.changeGivenMxn,
+      items: base.items,
+      payments: base.payments,
+      cashierName: base.cashierName,
+      completedAt: base.completedAt,
+      refund: SaleRefund(
+        refundedAt: _now,
+        reason: 'Una pieza dañada',
+        refundAmountMxn: 10,
+        refundToStock: true,
+        lines: const [],
+      ),
+    );
+    final repo = _FakeSalesRepo([partial]);
+    await _pump(tester, repo);
+
+    expect(find.text('Devolución −${mxn(10)}'), findsOneWidget);
+    expect(find.text('Reembolsada'), findsNothing);
+    // No se atenúa: la venta sigue viva por el resto.
+    final opacityFinder = find.ancestor(
+      of: find.byKey(Key('saleRow-${partial.saleId}')),
+      matching: find.byType(Opacity),
+    );
+    expect(tester.widget<Opacity>(opacityFinder.first).opacity, 1);
+    final amount = tester.widget<Text>(find.byKey(const Key('salesSummaryAmount')));
+    expect(amount.data, mxn(base.totalMxn - 10));
+    expect(find.byKey(const Key('salesSummaryRefunds')), findsOneWidget);
   });
 }

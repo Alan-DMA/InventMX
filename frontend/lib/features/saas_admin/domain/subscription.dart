@@ -532,13 +532,16 @@ DateTime addMonths(DateTime d, int months) {
 
 /// "$399.00" — formato MXN de dos decimales con separador de miles.
 String mxn(double value) {
-  final fixed = value.toStringAsFixed(2);
+  // Negativos como "−$279.50" (signo antes del símbolo), no "$-279.50":
+  // aparecen en "Tu dinero hoy" cuando se debe más de lo que se tiene.
+  final negative = value < 0;
+  final fixed = value.abs().toStringAsFixed(2);
   final parts = fixed.split('.');
   final intPart = parts[0].replaceAllMapped(
     RegExp(r'(\d)(?=(\d{3})+$)'),
     (m) => '${m[1]},',
   );
-  return '\$$intPart.${parts[1]}';
+  return '${negative ? '−' : ''}\$$intPart.${parts[1]}';
 }
 
 const _months = [

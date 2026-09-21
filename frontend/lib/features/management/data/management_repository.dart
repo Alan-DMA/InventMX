@@ -13,11 +13,12 @@ import '../domain/warehouse.dart';
 /// Es scope de **un solo tenant** — nada que ver con el panel de fundadores
 /// (`saas.manage`, Tarea 14.2), que administra la plataforma entera.
 ///
-/// Estado del backend (verificado Sep 2026): el legacy sólo expone
-/// `GET /api/v1/inventory/warehouses`. No existen alta/edición/baja de
-/// almacenes, ni CRUD de usuarios del tenant, ni edición de permisos por rol.
-/// Por eso todo corre contra [ManagementRepositoryMock] — cuando Alan los
-/// entregue cambia el repositorio, no la UI.
+/// Estado del backend (Sep 21, 2026 — Fase B de Reportes): el modular ya
+/// expone `GET/POST /users`, `PUT /users/{id}`, `PATCH /users/{id}/status`,
+/// `GET /roles` y `GET /permissions`. **Personas y roles corren contra el
+/// real** (`ManagementRepositoryImpl`, decisión D6a de Eduardo); almacenes,
+/// categorías y la edición de permisos por rol siguen en el mock hasta que
+/// Alan los entregue — la Impl delega esas partes al mock.
 abstract class ManagementRepository {
   /// Quién está usando la app ahora mismo.
   Future<TenantMember> getCurrentMember();
@@ -38,17 +39,26 @@ abstract class ManagementRepository {
   // ── Personas del comercio ──────────────────────────────────────────────
   Future<List<TenantMember>> listMembers();
 
+  /// POST /users — la contraseña inicial la elige el dueño y se la dice a la
+  /// persona; el backend la exige (mín. 6). Tasa 0 = no comisiona.
   Future<TenantMember> createMember({
     required String name,
     required String email,
     required String roleId,
+    required String password,
+    CommissionType commissionType = CommissionType.percentageSale,
+    double commissionRate = 0,
   });
 
+  /// PUT /users/{id}. El correo no se puede cambiar en el backend real
+  /// (`UserUpdate` no lo acepta): la UI lo muestra bloqueado al editar.
   Future<TenantMember> updateMember({
     required String id,
     String? name,
     String? email,
     String? roleId,
+    CommissionType? commissionType,
+    double? commissionRate,
   });
 
   Future<void> deactivateMember(String id);
@@ -178,6 +188,9 @@ class ManagementRepositoryMock implements ManagementRepository {
     required String name,
     required String email,
     required String roleId,
+    required String password,
+    CommissionType commissionType = CommissionType.percentageSale,
+    double commissionRate = 0,
   }) async {
     await Future.delayed(_fakeDelay);
     final cleanEmail = email.trim().toLowerCase();
@@ -190,6 +203,8 @@ class ManagementRepositoryMock implements ManagementRepository {
       roleId: roleId,
       isActive: true,
       createdAt: DateTime.now(),
+      commissionType: commissionType,
+      commissionRate: commissionRate,
     );
     _members.add(member);
     return member;
@@ -201,6 +216,8 @@ class ManagementRepositoryMock implements ManagementRepository {
     String? name,
     String? email,
     String? roleId,
+    CommissionType? commissionType,
+    double? commissionRate,
   }) async {
     await Future.delayed(_fakeDelay);
     final index = _members.indexWhere((m) => m.id == id);
@@ -219,6 +236,8 @@ class ManagementRepositoryMock implements ManagementRepository {
       name: name?.trim(),
       email: cleanEmail,
       roleId: roleId,
+      commissionType: commissionType,
+      commissionRate: commissionRate,
     );
     _members[index] = updated;
     return updated;
@@ -394,6 +413,8 @@ class ManagementRepositoryMock implements ManagementRepository {
         roleId: TenantRoles.cashier,
         isActive: true,
         createdAt: base.add(const Duration(days: 30)),
+        commissionType: CommissionType.percentageSale,
+        commissionRate: 5,
       ),
       TenantMember(
         id: 'usr-004',
@@ -433,12 +454,14 @@ class ManagementRepositoryMock implements ManagementRepository {
     return [
       TenantRole(
         id: TenantRoles.owner,
+        code: RoleCodes.owner,
         label: 'Dueño',
         description: 'Control total del negocio, incluidos usuarios y permisos',
         permissions: todos,
       ),
       TenantRole(
         id: TenantRoles.manager,
+        code: RoleCodes.admin,
         label: 'Encargado',
         description: 'Opera y administra el día a día, sin tocar los almacenes',
         permissions: todos
@@ -447,6 +470,7 @@ class ManagementRepositoryMock implements ManagementRepository {
       ),
       const TenantRole(
         id: TenantRoles.cashier,
+        code: RoleCodes.cashier,
         label: 'Cajero',
         description: 'Cobra, abre y cierra su turno de caja',
         permissions: {

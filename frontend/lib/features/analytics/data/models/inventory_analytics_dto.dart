@@ -5,6 +5,8 @@
 // 3. Serialización y deserialización a prueba de nulos.
 // 4. Comentarios exhaustivos línea por línea.
 
+import 'json_number.dart';
+
 /// Valuación financiera de existencias en almacén en Pesos Mexicanos ($ MXN).
 class InventoryValuationDto {
   /// Total de artículos/SKUs activos en el catálogo de productos.
@@ -28,18 +30,18 @@ class InventoryValuationDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory InventoryValuationDto.fromJson(Map<String, dynamic> json) {
+  factory InventoryValuationDto.fromJson(Map<dynamic, dynamic> json) {
     return InventoryValuationDto(
-      totalActiveSkus: json['total_active_skus'] as int? ?? 0,
-      totalUnitsInStock: (json['total_units_in_stock'] as num?)?.toDouble() ?? 0.0,
-      totalInventoryCostMxn: (json['total_inventory_cost_mxn'] as num?)?.toDouble() ?? 0.0,
-      totalInventoryRetailMxn: (json['total_inventory_retail_mxn'] as num?)?.toDouble() ?? 0.0,
-      potentialGrossProfitMxn: (json['potential_gross_profit_mxn'] as num?)?.toDouble() ?? 0.0,
+      totalActiveSkus: toIntOrZero(json['total_active_skus']),
+      totalUnitsInStock: toDoubleOrZero(json['total_units_in_stock']),
+      totalInventoryCostMxn: toDoubleOrZero(json['total_inventory_cost_mxn']),
+      totalInventoryRetailMxn: toDoubleOrZero(json['total_inventory_retail_mxn']),
+      potentialGrossProfitMxn: toDoubleOrZero(json['potential_gross_profit_mxn']),
     );
   }
 
   /// Serialización segura a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'total_active_skus': totalActiveSkus,
       'total_units_in_stock': totalUnitsInStock,
@@ -76,19 +78,19 @@ class TopSellingProductDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory TopSellingProductDto.fromJson(Map<String, dynamic> json) {
+  factory TopSellingProductDto.fromJson(Map<dynamic, dynamic> json) {
     return TopSellingProductDto(
       productId: json['product_id'] as String? ?? '',
       productName: json['product_name'] as String? ?? 'Producto',
       sku: json['sku'] as String? ?? '',
-      unitsSold: (json['units_sold'] as num?)?.toDouble() ?? 0.0,
-      revenueMxn: (json['revenue_mxn'] as num?)?.toDouble() ?? 0.0,
-      profitMxn: (json['profit_mxn'] as num?)?.toDouble() ?? 0.0,
+      unitsSold: toDoubleOrZero(json['units_sold']),
+      revenueMxn: toDoubleOrZero(json['revenue_mxn']),
+      profitMxn: toDoubleOrZero(json['profit_mxn']),
     );
   }
 
   /// Serialización a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'product_id': productId,
       'product_name': productName,
@@ -126,19 +128,19 @@ class CriticalStockProductDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory CriticalStockProductDto.fromJson(Map<String, dynamic> json) {
+  factory CriticalStockProductDto.fromJson(Map<dynamic, dynamic> json) {
     return CriticalStockProductDto(
       productId: json['product_id'] as String? ?? '',
       productName: json['product_name'] as String? ?? 'Producto',
       sku: json['sku'] as String? ?? '',
-      currentStock: (json['current_stock'] as num?)?.toDouble() ?? 0.0,
-      minStock: (json['min_stock'] as num?)?.toDouble() ?? 0.0,
+      currentStock: toDoubleOrZero(json['current_stock']),
+      minStock: toDoubleOrZero(json['min_stock']),
       isOutOfStock: json['is_out_of_stock'] as bool? ?? false,
     );
   }
 
   /// Serialización a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'product_id': productId,
       'product_name': productName,
@@ -167,10 +169,10 @@ class InventoryHealthDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory InventoryHealthDto.fromJson(Map<String, dynamic> json) {
+  factory InventoryHealthDto.fromJson(Map<dynamic, dynamic> json) {
     return InventoryHealthDto(
       valuation: json['valuation'] != null
-          ? InventoryValuationDto.fromJson(json['valuation'] as Map<String, dynamic>)
+          ? InventoryValuationDto.fromJson(json['valuation'] as Map<dynamic, dynamic>)
           : const InventoryValuationDto(
               totalActiveSkus: 0,
               totalUnitsInStock: 0.0,
@@ -179,18 +181,18 @@ class InventoryHealthDto {
               potentialGrossProfitMxn: 0.0,
             ),
       topSellingProducts: (json['top_selling_products'] as List<dynamic>?)
-              ?.map((e) => TopSellingProductDto.fromJson(e as Map<String, dynamic>))
+              ?.map((e) => TopSellingProductDto.fromJson(e as Map<dynamic, dynamic>))
               .toList() ??
           [],
       criticalStockProducts: (json['critical_stock_products'] as List<dynamic>?)
-              ?.map((e) => CriticalStockProductDto.fromJson(e as Map<String, dynamic>))
+              ?.map((e) => CriticalStockProductDto.fromJson(e as Map<dynamic, dynamic>))
               .toList() ??
           [],
     );
   }
 
   /// Serialización segura a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'valuation': valuation.toJson(),
       'top_selling_products': topSellingProducts.map((p) => p.toJson()).toList(),

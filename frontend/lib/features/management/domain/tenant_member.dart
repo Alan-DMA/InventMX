@@ -1,5 +1,9 @@
 import 'package:equatable/equatable.dart';
 
+import '../../analytics/domain/employee_performance.dart' show CommissionType;
+
+export '../../analytics/domain/employee_performance.dart' show CommissionType;
+
 /// Una persona que trabaja en el comercio. Es el `User` del backend acotado
 /// al tenant en sesión — nunca cruza a usuarios de otro comercio (RLS).
 class TenantMember extends Equatable {
@@ -10,6 +14,8 @@ class TenantMember extends Equatable {
     required this.roleId,
     required this.isActive,
     required this.createdAt,
+    this.commissionType = CommissionType.percentageSale,
+    this.commissionRate = 0,
   });
 
   final String id;
@@ -18,6 +24,29 @@ class TenantMember extends Equatable {
   final String roleId;
   final bool isActive;
   final DateTime createdAt;
+
+  /// Esquema de comisión (RF-10). Lo fija el dueño desde Usuarios; tasa 0 =
+  /// no comisiona (valor por defecto, sin sugerencia). El checkout del backend
+  /// registra el asiento con estos valores cada vez que la persona cobra.
+  final CommissionType commissionType;
+  final double commissionRate;
+
+  bool get hasCommission => commissionRate > 0;
+
+  /// "5 % de lo que vende" · "10 % de la ganancia" · "$15.00 fijos por venta".
+  /// Lenguaje de tendero, no de contador (Fase B, Sep 2026).
+  String? get commissionLabel {
+    if (!hasCommission) return null;
+    final rate = commissionRate == commissionRate.roundToDouble()
+        ? commissionRate.toStringAsFixed(0)
+        : commissionRate.toStringAsFixed(2);
+    return switch (commissionType) {
+      CommissionType.percentageSale => '$rate % de lo que vende',
+      CommissionType.percentageProfit => '$rate % de la ganancia',
+      CommissionType.fixedPerSale =>
+        '\$${commissionRate.toStringAsFixed(2)} fijos por venta',
+    };
+  }
 
   /// Iniciales para el avatar ("José Luis Ramírez" → "JR").
   String get initials {
@@ -33,6 +62,8 @@ class TenantMember extends Equatable {
     String? email,
     String? roleId,
     bool? isActive,
+    CommissionType? commissionType,
+    double? commissionRate,
   }) =>
       TenantMember(
         id: id,
@@ -41,10 +72,21 @@ class TenantMember extends Equatable {
         roleId: roleId ?? this.roleId,
         isActive: isActive ?? this.isActive,
         createdAt: createdAt,
+        commissionType: commissionType ?? this.commissionType,
+        commissionRate: commissionRate ?? this.commissionRate,
       );
 
   @override
-  List<Object?> get props => [id, name, email, roleId, isActive, createdAt];
+  List<Object?> get props => [
+        id,
+        name,
+        email,
+        roleId,
+        isActive,
+        createdAt,
+        commissionType,
+        commissionRate,
+      ];
 }
 
 /// El correo ya lo usa otra persona del comercio.

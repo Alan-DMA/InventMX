@@ -9,6 +9,7 @@ import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/management/data/management_repository.dart';
 import 'package:nexus_app/features/management/domain/app_permission.dart';
+import 'package:nexus_app/features/management/domain/tenant_member.dart';
 import 'package:nexus_app/features/management/domain/category.dart';
 import 'package:nexus_app/features/management/domain/tenant_role.dart';
 import 'package:nexus_app/features/management/presentation/categories_screen.dart';
@@ -29,6 +30,10 @@ ProviderContainer _container({String email = _email}) {
     overrides: [
       sessionProvider.overrideWith((ref) => true),
       currentUserNameProvider.overrideWith((ref) => email),
+      // Personas y roles son reales desde la Fase B (Sep 21): el arnés
+      // fija el mock para no pegarle a /users.
+      managementRepositoryProvider.overrideWith(
+          (ref) => ManagementRepositoryMock(currentEmail: email)),
       // "Precios" (real, Sep 2026) llama a authRepositoryProvider — sin este
       // override haría una petición HTTP real en cada test de esta pantalla.
       authRepositoryProvider
@@ -235,7 +240,10 @@ void main() {
           find.byKey(const Key('memberNameField')), 'Lucía Fernández');
       await tester.enterText(
           find.byKey(const Key('memberEmailField')), 'lucia@minegocio.mx');
+      await tester.enterText(
+          find.byKey(const Key('memberPasswordField')), 'lucia123');
       await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('memberRole-SALESPERSON')));
       await tester.tap(find.byKey(const Key('memberRole-SALESPERSON')));
       await tester.pump();
       await tester.ensureVisible(find.byKey(const Key('memberSaveButton')));
@@ -263,6 +271,8 @@ void main() {
           find.byKey(const Key('memberNameField')), 'Otra Persona');
       await tester.enterText(find.byKey(const Key('memberEmailField')),
           'maria.hernandez@nexus.mx');
+      await tester.enterText(
+          find.byKey(const Key('memberPasswordField')), 'clave123');
       await tester.pump();
       await tester.ensureVisible(find.byKey(const Key('memberSaveButton')));
       await tester.pump();
@@ -270,6 +280,81 @@ void main() {
       await _settle(tester);
 
       expect(find.byKey(const Key('memberFormError')), findsOneWidget);
+    });
+
+    testWidgets('la lista dice la comisión de quien la tiene y calla la de quien no',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const MembersScreen()));
+      await _settle(tester);
+
+      // José Luis (semilla) comisiona 5 % sobre ventas; Ana no.
+      expect(find.textContaining('Comisión: 5 % de lo que vende'), findsOneWidget);
+      expect(find.textContaining('Comisión: 0'), findsNothing);
+    });
+
+    testWidgets('el dueño fija "% de lo que vende" al editar y se refleja en la lista',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const MembersScreen()));
+      await _settle(tester);
+
+      // Ana Torres (usr-004) no comisiona todavía.
+      await tester.tap(find.descendant(
+          of: find.byKey(const Key('member-usr-004')),
+          matching: find.byType(PopupMenuButton<String>)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Editar'));
+      await _settle(tester);
+
+      // Sin esquema pre-marcado: "No comisiona" es el estado inicial y el
+      // campo de tasa no existe hasta elegir uno.
+      expect(find.byKey(const Key('memberCommissionRateField')), findsNothing);
+      await tester.ensureVisible(find.byKey(const Key('memberCommission-PERCENTAGE_SALE')));
+      await tester.tap(find.byKey(const Key('memberCommission-PERCENTAGE_SALE')));
+      await tester.pump();
+      expect(find.byKey(const Key('memberCommissionRateField')), findsOneWidget);
+
+      // Tasa vacía → no se puede guardar; 150 % → tampoco; 5 → ejemplo en pesos.
+      final save = find.byKey(const Key('memberSaveButton'));
+      expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+      await tester.enterText(find.byKey(const Key('memberCommissionRateField')), '150');
+      await tester.pump();
+      expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+      await tester.enterText(find.byKey(const Key('memberCommissionRateField')), '5');
+      await tester.pump();
+      expect(find.text(r'Con 5 %, una venta de $200 le deja $10.'), findsOneWidget);
+      expect(tester.widget<ElevatedButton>(save).onPressed, isNotNull);
+
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await _settle(tester);
+
+      final ana = container
+          .read(membersProvider)
+          .valueOrNull!
+          .firstWhere((m) => m.id == 'usr-004');
+      expect(ana.commissionType, CommissionType.percentageSale);
+      expect(ana.commissionRate, 5);
+      expect(find.textContaining('Comisión: 5 % de lo que vende'), findsNWidgets(2));
+    });
+
+    testWidgets('al editar, el correo queda bloqueado y no se pide contraseña',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const MembersScreen()));
+      await _settle(tester);
+      await tester.tap(find.descendant(
+          of: find.byKey(const Key('member-usr-004')),
+          matching: find.byType(PopupMenuButton<String>)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Editar'));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('memberPasswordField')), findsNothing);
+      expect(find.text('El correo no se puede cambiar.'), findsOneWidget);
+      final email = tester.widget<TextFormField>(find.byKey(const Key('memberEmailField')));
+      expect(email.enabled, isFalse);
     });
   });
 

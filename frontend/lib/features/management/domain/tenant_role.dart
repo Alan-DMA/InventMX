@@ -3,17 +3,26 @@ import 'package:equatable/equatable.dart';
 import 'app_permission.dart';
 
 /// Rol dentro de un comercio. Los cuatro roles de sistema replican los
-/// sembrados en `backend/app/seed.py`.
+/// sembrados por la migración `0001` del backend (`OWNER`, `ADMIN`,
+/// `CASHIER`, `WAREHOUSE`).
 class TenantRole extends Equatable {
   const TenantRole({
     required this.id,
     required this.label,
     required this.description,
     required this.permissions,
-  });
+    String? code,
+  }) : code = code ?? id;
 
-  /// Identificador del backend (`TENANT_OWNER`, `MANAGER`, …).
+  /// Identificador del backend. Con el backend real es un UUID; el mock usa
+  /// el propio código como id.
   final String id;
+
+  /// Código estable del rol (`OWNER`, `ADMIN`, `CASHIER`, `WAREHOUSE`): es lo
+  /// que la app compara, nunca el id — el UUID cambia por instalación.
+  final String code;
+
+  bool get isOwner => code == RoleCodes.owner || code == TenantRoles.owner;
 
   /// Cómo se le llama al rol en la tienda ("Dueño", "Cajero").
   final String label;
@@ -24,13 +33,22 @@ class TenantRole extends Equatable {
 
   TenantRole copyWith({Set<String>? permissions}) => TenantRole(
         id: id,
+        code: code,
         label: label,
         description: description,
         permissions: permissions ?? this.permissions,
       );
 
   @override
-  List<Object?> get props => [id, label, description, permissions];
+  List<Object?> get props => [id, code, label, description, permissions];
+}
+
+/// Códigos de rol del backend real (`public.roles.name`).
+abstract final class RoleCodes {
+  static const owner = 'OWNER';
+  static const admin = 'ADMIN';
+  static const cashier = 'CASHIER';
+  static const warehouse = 'WAREHOUSE';
 }
 
 abstract final class TenantRoles {
@@ -44,6 +62,7 @@ abstract final class TenantRoles {
   /// comercio queda bloqueado sin salida (ver [RoleLockoutException]).
   static const undroppable = <String, String>{
     owner: Permissions.usuariosGestionar,
+    RoleCodes.owner: Permissions.usuariosGestionar,
   };
 }
 

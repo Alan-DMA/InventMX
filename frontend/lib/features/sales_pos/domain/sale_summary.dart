@@ -87,6 +87,7 @@ class SaleSummary extends Equatable {
     required this.itemCount,
     required this.paymentKind,
     required this.isRefunded,
+    this.refundedAmountMxn = 0,
     this.payments = const [],
   });
 
@@ -99,6 +100,7 @@ class SaleSummary extends Equatable {
         itemCount: r.items.fold<int>(0, (a, i) => a + i.quantity),
         paymentKind: SalePaymentKind.fromPayments(r.payments),
         isRefunded: r.isRefunded,
+        refundedAmountMxn: r.refund?.refundAmountMxn ?? 0,
         payments: r.payments,
       );
 
@@ -117,6 +119,23 @@ class SaleSummary extends Equatable {
   final SalePaymentKind paymentKind;
   final bool isRefunded;
 
+  /// Cuánto se devolvió (`refunded_amount_mxn`). Distingue el reembolso
+  /// **total** del **parcial** — QA de Eduardo (Sep 21): "Reembolsada" a secas
+  /// hacía creer que toda la venta se devolvió y la franja no cuadraba con
+  /// Reportes.
+  final double refundedAmountMxn;
+
+  /// Lo que quedó cobrado tras la devolución; es lo que suman la franja del
+  /// kardex y Reportes (neto). El renglón sigue mostrando `totalMxn`.
+  double get netTotalMxn => totalMxn - refundedAmountMxn;
+
+  /// Devolución total: no quedó nada cobrado (o el estado lo dice y no hay
+  /// desglose, caso del mock antiguo).
+  bool get isFullyRefunded =>
+      isRefunded && (refundedAmountMxn <= 0 || refundedAmountMxn >= totalMxn);
+
+  bool get isPartiallyRefunded => isRefunded && !isFullyRefunded;
+
   /// Desglose exacto de pagos de la venta (Sep 2026) — necesario para el
   /// arqueo de caja: `paymentKind` sólo clasifica ("mixto"), no dice cuánto
   /// de una venta mixta fue efectivo vs. tarjeta/SPEI/CoDi.
@@ -132,6 +151,7 @@ class SaleSummary extends Equatable {
         itemCount,
         paymentKind,
         isRefunded,
+        refundedAmountMxn,
         payments,
       ];
 }

@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/data/auth_repository.dart';
 import '../../auth/presentation/login_provider.dart';
 import '../data/management_repository.dart';
+import '../data/management_repository_impl.dart';
 import '../domain/app_permission.dart';
 import '../domain/category.dart';
 import '../domain/tenant_member.dart';
@@ -12,13 +14,22 @@ import '../domain/warehouse.dart';
 // Repositorio
 // ---------------------------------------------------------------------------
 
-/// 100% mock por decisión de Eduardo (Sep 2026): esta pasada no se conecta a
-/// backend real, ni siquiera a `GET /inventory/warehouses` que ya existe en el
-/// legacy — así Almacenes, Usuarios y Permisos se comportan igual entre sí en
-/// vez de mezclar una sección real con dos simuladas.
+/// Personas y roles contra el backend real desde la Fase B (Sep 21, 2026,
+/// decisión D6a de Eduardo): la tasa de comisión por empleado sólo tiene
+/// sentido si se guarda en `users`. Almacenes, categorías y la edición de
+/// permisos siguen en el mock (la Impl delega). `--dart-define=MANAGEMENT_MOCK=true`
+/// vuelve al mock completo (tests y demos).
+const bool kManagementUseMock =
+    bool.fromEnvironment('MANAGEMENT_MOCK', defaultValue: false);
+
 final managementRepositoryProvider = Provider<ManagementRepository>((ref) {
-  return ManagementRepositoryMock(
+  final mock = ManagementRepositoryMock(
     currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx',
+  );
+  if (kManagementUseMock) return mock;
+  return ManagementRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+    fallback: mock,
   );
 });
 
@@ -100,8 +111,18 @@ class MembersNotifier extends AsyncNotifier<List<TenantMember>> {
     required String name,
     required String email,
     required String roleId,
+    required String password,
+    CommissionType commissionType = CommissionType.percentageSale,
+    double commissionRate = 0,
   }) async {
-    await _repo.createMember(name: name, email: email, roleId: roleId);
+    await _repo.createMember(
+      name: name,
+      email: email,
+      roleId: roleId,
+      password: password,
+      commissionType: commissionType,
+      commissionRate: commissionRate,
+    );
     await _reload();
   }
 
@@ -110,8 +131,17 @@ class MembersNotifier extends AsyncNotifier<List<TenantMember>> {
     String? name,
     String? email,
     String? roleId,
+    CommissionType? commissionType,
+    double? commissionRate,
   }) async {
-    await _repo.updateMember(id: id, name: name, email: email, roleId: roleId);
+    await _repo.updateMember(
+      id: id,
+      name: name,
+      email: email,
+      roleId: roleId,
+      commissionType: commissionType,
+      commissionRate: commissionRate,
+    );
     await _reload();
     // Cambiarse el rol a sí mismo repinta los permisos de toda la sesión.
     ref.invalidate(currentMemberProvider);

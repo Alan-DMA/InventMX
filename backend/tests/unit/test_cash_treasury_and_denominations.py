@@ -146,7 +146,9 @@ async def test_cash_session_lifecycle_with_banxico_denominations(client: AsyncCl
 async def test_analytics_commissions_endpoint(client: AsyncClient):
     """
     Verifica que el endpoint canónico /api/v1/analytics/commissions
-    retorne el ranking y desglose de comisiones esperado por Flutter y OpenAPI.
+    retorne el tablero personal (resumen, desglose diario e histórico) del
+    usuario en sesión. Desde Sep 21 no expone ranking ni comisiones ajenas:
+    son dato privado de cada vendedor (decisión de Eduardo en QA).
     """
     headers, _, _ = await create_store_and_get_auth(client)
     response = await client.get(
@@ -156,6 +158,9 @@ async def test_analytics_commissions_endpoint(client: AsyncClient):
     assert response.status_code == 200
     data = response.json()
     assert "period" in data
-    assert "total_commissions_mxn" in data
-    assert "cashiers" in data
-    assert "ranking" in data
+    assert "current_user" in data
+    assert "summary" in data
+    assert "daily_breakdown" in data
+    assert len(data["history"]) == 6
+    assert "ranking" not in data
+    assert "cashiers" not in data

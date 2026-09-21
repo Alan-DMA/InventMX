@@ -1,5 +1,5 @@
 # Importación de marcas de fecha
-from datetime import datetime
+from datetime import date as date_type, datetime
 # Importación de precisión decimal
 from decimal import Decimal
 # Importación de tipado estático
@@ -47,6 +47,18 @@ class UserCommissionSummary(BaseModel):
     total_commission_amount_mxn: Decimal
     pending_settlement_mxn: Decimal
     settled_commission_mxn: Decimal
+    commission_type: CommissionType = CommissionType.PERCENTAGE_SALE
+    commission_rate: Decimal = Decimal("0.00")
+
+
+class DailyCommissionEntry(BaseModel):
+    """Comisión devengada por un empleado en un día natural (desglose diario del tablero, SR-05)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    date: date_type
+    sales_count: int
+    sales_amount_mxn: Decimal
+    commission_mxn: Decimal
 
 
 class CommissionSummaryResponse(BaseModel):

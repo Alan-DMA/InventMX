@@ -14,12 +14,14 @@ from app.modules.auth_tenancy.domain.user import User
 from app.modules.analytics_reports.repositories.financial_analytics_repository import FinancialAnalyticsRepository
 from app.modules.analytics_reports.schemas.analytics_schemas import (
     CashFlowSummaryResponse,
+    DailySalesPointResponse,
     CriticalStockProductResponse,
     DateRangePreset,
     ExecutiveFinancialSummaryResponse,
     InventoryHealthResponse,
     InventoryValuationResponse,
     PaymentMethodMetric,
+    SalesTrendsResponse,
     TopSellingProductResponse,
     WorkingCapitalResponse,
 )
@@ -95,6 +97,7 @@ class FinancialAnalyticsService:
             gross_sales_mxn=metrics["gross_sales_mxn"],
             discounts_mxn=metrics["discounts_mxn"],
             net_sales_mxn=metrics["net_sales_mxn"],
+            refunds_mxn=metrics["refunds_mxn"],
             cogs_mxn=metrics["cogs_mxn"],
             gross_profit_mxn=metrics["gross_profit_mxn"],
             profit_margin_pct=metrics["profit_margin_pct"],
@@ -149,6 +152,37 @@ class FinancialAnalyticsService:
             top_selling_products=top_products,
             critical_stock_products=critical_products,
         )
+
+    async def get_sales_trends(
+        self,
+        current_user: User,
+        preset: Optional[DateRangePreset] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> SalesTrendsResponse:
+        """Serie diaria de ventas del periodo, con los días sin venta en cero (RF-21)."""
+        start, end = self.resolve_date_range(preset, start_date, end_date)
+        by_day = await self.repo.get_daily_sales_series(current_user.tenant_id, start, end)
+
+        # Un punto por día natural del rango: "no vendí" ($0) es distinto de "sin dato".
+        # Los presets de calendario terminan en el futuro (fin de semana/mes); la
+        # serie se corta en hoy para no pintar días que aún no ocurren.
+        last_day = min(end.date(), datetime.now().date())
+        points: List[DailySalesPointResponse] = []
+        cursor = start.date()
+        while cursor <= last_day:
+            metrics = by_day.get(cursor)
+            points.append(
+                DailySalesPointResponse(
+                    period=cursor,
+                    revenue_mxn=metrics["revenue_mxn"] if metrics else Decimal("0.00"),
+                    orders_count=metrics["orders_count"] if metrics else 0,
+                    gross_profit_mxn=metrics["gross_profit_mxn"] if metrics else Decimal("0.00"),
+                )
+            )
+            cursor += timedelta(days=1)
+
+        return SalesTrendsResponse(period_start=start, period_end=end, granularity="daily", trends=points)
 
     async def get_working_capital(
         self,

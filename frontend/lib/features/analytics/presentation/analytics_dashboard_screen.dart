@@ -106,6 +106,15 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
                             _ComparisonSection(comparison: d.comparison),
                             const SizedBox(height: 12),
                             _TopProductsSection(products: d.topProducts),
+                            // Fase B: lo que el backend ya sabía y no se decía.
+                            if (d.workingCapital != null) ...[
+                              const SizedBox(height: 12),
+                              _MoneySection(capital: d.workingCapital!),
+                            ],
+                            if (d.paymentMethods.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _PaymentMethodsSection(methods: d.paymentMethods),
+                            ],
                           ],
                         ),
                       ),
@@ -241,6 +250,16 @@ class _SalesSection extends StatelessWidget {
             'ticket promedio ${mxn(d.averageTicketMxn)}',
             style: _subStyle,
           ),
+          // Con devoluciones el neto no coincide con lo que suma el
+          // historial: se dice aquí mismo cuánto se vendió y cuánto volvió.
+          if (d.refundsMxn > 0) ...[
+            const SizedBox(height: 2),
+            Text(
+              '${mxn(d.grossRevenueMxn)} vendidos · ${mxn(d.refundsMxn)} devueltos',
+              key: const Key('salesRefundsNote'),
+              style: _subStyle,
+            ),
+          ],
           const SizedBox(height: 16),
           DailySalesChart(points: d.dailySales, today: today),
         ],
@@ -355,14 +374,21 @@ class _HBar extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: emphasized ? FontWeight.w600 : FontWeight.w400,
-                color: emphasized ? AppColors.onSurface : AppColors.onSurfaceMuted,
+            // Flexible: la etiqueta cede antes que el monto ("Transferencia ·
+            // 9%" con fuentes grandes del sistema no debe empujar la cifra).
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: emphasized ? FontWeight.w600 : FontWeight.w400,
+                  color: emphasized ? AppColors.onSurface : AppColors.onSurfaceMuted,
+                ),
               ),
             ),
+            const SizedBox(width: 12),
             Text(
               mxn(value),
               style: TextStyle(
@@ -505,6 +531,123 @@ class _TopProductRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// "Tu dinero hoy": una foto de la liquidez con signo. Sin la palabra
+/// "capital de trabajo" — el tendero piensa en "lo que tengo y lo que debo".
+/// No depende del período elegido.
+///
+/// El fiado (`accounts_receivable`) **no se muestra** salvo que sea > 0: la
+/// app no permite vender a crédito (QA de Eduardo, Sep 21), así que un
+/// renglón "Te deben" siempre en $0 sólo confundiría. Si algún día el
+/// backend manda saldo, aparece para que la suma siga cuadrando.
+class _MoneySection extends StatelessWidget {
+  const _MoneySection({required this.capital});
+  final WorkingCapital capital;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = capital;
+    final negative = c.netMxn < 0;
+    return _Section(
+      title: 'Tu dinero hoy',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            mxn(c.netMxn),
+            key: const Key('workingCapitalNet'),
+            style: _amountStyle.copyWith(
+                color: negative ? AppColors.error : AppColors.onSurface),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            c.receivableMxn > 0
+                ? 'Lo que tienes, más lo que te deben, menos lo que debes.'
+                : 'Lo que tienes menos lo que debes.',
+            style: _subStyle,
+          ),
+          const SizedBox(height: 14),
+          _MoneyRow(label: 'Fondo de caja', value: c.cashInRegisterMxn, sign: '+'),
+          if (c.receivableMxn > 0) ...[
+            const SizedBox(height: 8),
+            _MoneyRow(label: 'Te deben', value: c.receivableMxn, sign: '+'),
+          ],
+          const SizedBox(height: 8),
+          _MoneyRow(label: 'Debes a proveedores', value: c.payableMxn, sign: '−'),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoneyRow extends StatelessWidget {
+  const _MoneyRow({required this.label, required this.value, required this.sign});
+  final String label;
+  final double value;
+  final String sign;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 16,
+          child: Text(
+            sign,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.onSurfaceMuted,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 14, color: AppColors.onSurface),
+          ),
+        ),
+        Text(
+          mxn(value),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.onSurface,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Cómo te pagan": una barra por método, ordenadas por monto; el efectivo
+/// lleva el acento porque es lo que cuadra la caja física.
+class _PaymentMethodsSection extends StatelessWidget {
+  const _PaymentMethodsSection({required this.methods});
+  final List<PaymentMethodShare> methods;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = methods.first.totalMxn;
+    return _Section(
+      title: 'Cómo te pagan',
+      child: Column(
+        children: [
+          for (var i = 0; i < methods.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            _HBar(
+              label: '${methods[i].label} · ${methods[i].percentage.toStringAsFixed(0)}%',
+              value: methods[i].totalMxn,
+              maxValue: maxValue,
+              emphasized: methods[i].isCash,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

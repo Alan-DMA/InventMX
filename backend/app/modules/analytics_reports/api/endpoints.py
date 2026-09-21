@@ -1,5 +1,5 @@
 # Importación del módulo datetime
-from datetime import datetime
+from datetime import datetime, time, timedelta
 # Importación de tipado estático
 from typing import Optional
 import uuid
@@ -18,6 +18,7 @@ from app.modules.analytics_reports.schemas.analytics_schemas import (
     DateRangePreset,
     ExecutiveFinancialSummaryResponse,
     InventoryHealthResponse,
+    SalesTrendsResponse,
     WorkingCapitalResponse,
 )
 from app.modules.analytics_reports.services.financial_analytics_service import FinancialAnalyticsService
@@ -96,6 +97,29 @@ async def get_inventory_health(
 
 
 @router.get(
+    "/sales-trends",
+    response_model=SalesTrendsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Serie Diaria de Ventas del Periodo (Ingreso neto, tickets y utilidad por día)",
+)
+async def get_sales_trends(
+    preset: Optional[DateRangePreset] = Query(DateRangePreset.THIS_MONTH, description="Rango predefinido de fechas"),
+    start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
+    end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SalesTrendsResponse:
+    """Alimenta la gráfica diaria del dashboard de Reportes; misma base que `/financial-summary` (RF-21)."""
+    service = FinancialAnalyticsService(db)
+    return await service.get_sales_trends(
+        current_user=current_user,
+        preset=preset,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get(
     "/working-capital",
     response_model=WorkingCapitalResponse,
     status_code=status.HTTP_200_OK,
@@ -113,59 +137,83 @@ async def get_working_capital(
 @router.get(
     "/commissions",
     status_code=status.HTTP_200_OK,
-    summary="Reporte de Comisiones de Vendedores (Canonical OpenAPI /analytics/commissions)",
-    description="Calcula y retorna las comisiones devengadas por vendedores/cajeros en el periodo especificado.",
+    summary="Mis comisiones (RF-10 / SR-05) — sólo del usuario en sesión",
+    description=(
+        "Comisiones devengadas por el usuario autenticado en el periodo, con desglose diario e histórico "
+        "de los últimos 6 meses. Nunca expone las comisiones de otros empleados (dato privado de cada "
+        "vendedor). Sin filtros de fecha se usa el mes en curso; `period_month=YYYY-MM` acota a ese mes."
+    ),
 )
 async def get_analytics_commissions(
-    cashier_id: Optional[uuid.UUID] = Query(None, description="Filtrar por cajero específico"),
-    user_id: Optional[uuid.UUID] = Query(None, description="Filtrar por usuario específico"),
-    cashier_name: Optional[str] = Query(None, description="Filtrar por nombre de cajero"),
-    period_month: Optional[str] = Query(None, description="Mes en formato YYYY-MM"),
+    period_month: Optional[str] = Query(None, description="Mes en formato YYYY-MM", pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Endpoint formal para consulta de comisiones en el módulo de analítica.
-    Regla Constitucional: Artículo VIII (8.2), OpenAPI docs/api/analytics.yaml.
+    Tablero personal de comisiones. Regla Constitucional: Artículo VIII (8.2).
     """
     from app.modules.sales_pos.services.sales_service import SalesService
     sales_service = SalesService(db)
 
-    target_id = cashier_id or user_id
+    # Resolver el periodo: mes explícito > rango explícito > mes en curso.
+    if period_month:
+        year, month = (int(p) for p in period_month.split("-"))
+        start_date = datetime(year, month, 1)
+        end_date = (datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)) - timedelta(microseconds=1)
+    elif not (start_date and end_date):
+        now = datetime.now()
+        start_date = datetime(now.year, now.month, 1)
+        end_date = datetime.combine(now.date(), time.max)
+    period_label = start_date.strftime("%Y-%m")
+
+    # Siempre filtrado al usuario en sesión: las comisiones ajenas no se exponen.
     summary = await sales_service.get_commissions_summary(
         current_user=current_user,
-        user_id=target_id,
+        user_id=current_user.id,
         start_date=start_date,
         end_date=end_date,
     )
+    mine = next((s for s in summary.summaries_by_user if s.user_id == current_user.id), None)
 
-    # Construir respuesta híbrida que satisface tanto la OpenAPI spec como el repositorio de Flutter
-    ranking = [
-        {
-            "cashier_name": s.user_name,
-            "commission_mxn": float(s.total_commission_amount_mxn),
-            "is_current_user": str(s.user_id) == str(current_user.id),
-        }
-        for s in summary.summaries_by_user
-    ]
+    daily = await sales_service.commission_repo.get_daily_breakdown(
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    history = await sales_service.commission_repo.get_monthly_history(
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        months=6,
+    )
 
     return {
-        "period": period_month or datetime.now().strftime("%Y-%m"),
-        "total_commissions_mxn": summary.total_commissions_mxn,
-        "total_sales_count": summary.total_sales_count,
-        "cashiers": [
+        "period": period_label,
+        "period_start": start_date,
+        "period_end": end_date,
+        "current_user": {
+            "cashier_id": str(current_user.id),
+            "cashier_name": current_user.full_name or current_user.email,
+            "role": current_user.role.name if current_user.role else None,
+            "commission_type": current_user.commission_type.value,
+            "commission_rate": current_user.commission_rate,
+        },
+        "summary": {
+            "sales_count": mine.total_sales_count if mine else 0,
+            "total_sales_mxn": mine.total_sales_amount_mxn if mine else 0,
+            "earned_commission_mxn": mine.total_commission_amount_mxn if mine else 0,
+            "pending_settlement_mxn": mine.pending_settlement_mxn if mine else 0,
+        },
+        "daily_breakdown": [
             {
-                "cashier_id": str(s.user_id),
-                "cashier_name": s.user_name,
-                "total_sales_mxn": s.total_sales_amount_mxn,
-                "earned_commission_mxn": s.total_commission_amount_mxn,
-                "sales_count": s.total_sales_count,
+                "date": d.date.isoformat(),
+                "sales_count": d.sales_count,
+                "sales_amount_mxn": d.sales_amount_mxn,
+                "commission_mxn": d.commission_mxn,
             }
-            for s in summary.summaries_by_user
+            for d in daily
         ],
-        "ranking": ranking,
-        "summaries_by_user": summary.summaries_by_user,
+        "history": history,
     }
-

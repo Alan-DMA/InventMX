@@ -14,6 +14,7 @@ import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
     show WarehouseOption, warehousesProvider;
+import 'package:nexus_app/features/management/data/management_repository.dart';
 import 'package:nexus_app/features/management/domain/app_permission.dart';
 import 'package:nexus_app/features/management/domain/tenant_role.dart';
 import 'package:nexus_app/features/management/presentation/management_provider.dart'
@@ -46,6 +47,10 @@ ProviderContainer _container({
     overrides: [
       sessionProvider.overrideWith((ref) => true),
       currentUserNameProvider.overrideWith((ref) => email),
+      // Personas y roles son reales desde la Fase B (Sep 21): el arnés
+      // fija el mock para no pegarle a /users.
+      managementRepositoryProvider.overrideWith(
+          (ref) => ManagementRepositoryMock(currentEmail: email)),
       operatingWarehouseStoreProvider
           .overrideWithValue(OperatingWarehouseStoreMemory()),
       // El almacén operativo ahora persiste en el backend (/auth/me) — sin

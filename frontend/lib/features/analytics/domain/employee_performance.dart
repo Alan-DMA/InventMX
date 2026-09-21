@@ -1,5 +1,32 @@
 import 'package:equatable/equatable.dart';
 
+/// Esquema de comisión del empleado (RF-10). Mismo enum que el backend
+/// (`commission_type_enum`): la tasa se lee según el tipo.
+enum CommissionType {
+  percentageSale('PERCENTAGE_SALE'),
+  percentageProfit('PERCENTAGE_PROFIT'),
+  fixedPerSale('FIXED_PER_SALE');
+
+  const CommissionType(this.apiValue);
+  final String apiValue;
+
+  static CommissionType fromApi(String? value) => values.firstWhere(
+        (t) => t.apiValue == value,
+        orElse: () => CommissionType.percentageSale,
+      );
+
+  /// Texto de la tarjeta "Tasa": "5% sobre ventas", "10% sobre utilidad",
+  /// "\$15.00 por ticket".
+  String describe(double rate) => switch (this) {
+        CommissionType.percentageSale => '${_pct(rate)} sobre ventas',
+        CommissionType.percentageProfit => '${_pct(rate)} sobre utilidad',
+        CommissionType.fixedPerSale => '\$${rate.toStringAsFixed(2)} por ticket',
+      };
+
+  static String _pct(double rate) =>
+      '${rate == rate.roundToDouble() ? rate.toStringAsFixed(0) : rate.toStringAsFixed(2)}%';
+}
+
 /// Comisiones generadas por el vendedor en un día del período consultado.
 ///
 /// Trazabilidad: Doc. Maestro RF-10 (Sección 5.2) · `docs/api/analytics.yaml`
@@ -19,28 +46,33 @@ class DailyCommissionEntry extends Equatable {
   List<Object?> get props => [date, salesCount, commissionMxn];
 }
 
-/// Fila del ranking de vendedores por comisión generada en el período.
-class RankingEntry extends Equatable {
-  const RankingEntry({
-    required this.cashierName,
+/// Un mes del histórico personal de comisiones (últimos 6 meses).
+///
+/// Sustituye al ranking (QA de Eduardo, Sep 21): las comisiones de los
+/// demás son dato privado de cada vendedor; lo que sí sirve es compararse
+/// con uno mismo mes a mes.
+class MonthlyCommissionEntry extends Equatable {
+  const MonthlyCommissionEntry({
+    required this.month,
+    required this.salesCount,
     required this.commissionMxn,
-    this.isCurrentUser = false,
   });
 
-  final String cashierName;
+  /// Primer día del mes (sólo cuentan año y mes).
+  final DateTime month;
+  final int salesCount;
   final double commissionMxn;
-  final bool isCurrentUser;
 
   @override
-  List<Object?> get props => [cashierName, commissionMxn, isCurrentUser];
+  List<Object?> get props => [month, salesCount, commissionMxn];
 }
 
 /// Snapshot de rendimiento/comisiones de un vendedor — Tarea 8.2.3.
 ///
-/// Modelado sobre la forma de `GET /analytics/commissions` (un elemento de
-/// `data.cashiers[]` más el desglose diario derivado de
-/// `commission_details[]`), aunque hoy se alimenta de un Mock local mientras
-/// Alan no entrega la Tarea 8.1.3.
+/// Alimentado por `GET /analytics/commissions?period_month=YYYY-MM` real
+/// (Sep 2026): `current_user` (tasa y esquema vigentes), `summary`,
+/// `daily_breakdown[]` e `history[]` — todo del usuario en sesión; el
+/// servidor no expone comisiones ajenas.
 ///
 /// Trazabilidad: Doc. Maestro RF-10, Sección 6 (SR-05) · HU-14 / CU-16
 class EmployeePerformance extends Equatable {
@@ -51,8 +83,9 @@ class EmployeePerformance extends Equatable {
     required this.totalSalesMxn,
     required this.accumulatedCommissionMxn,
     required this.commissionRatePercent,
+    this.commissionType = CommissionType.percentageSale,
     required this.dailyBreakdown,
-    required this.ranking,
+    this.history = const [],
   });
 
   final String cashierName;
@@ -63,10 +96,17 @@ class EmployeePerformance extends Equatable {
 
   final double totalSalesMxn;
   final double accumulatedCommissionMxn;
+  /// Tasa vigente del empleado: porcentaje o monto fijo según [commissionType].
   final double commissionRatePercent;
+  final CommissionType commissionType;
+
+  /// Sin esquema configurado (tasa 0) el tablero lo dice en vez de mostrar 0 %.
+  bool get hasCommissionScheme => commissionRatePercent > 0;
 
   final List<DailyCommissionEntry> dailyBreakdown;
-  final List<RankingEntry> ranking;
+
+  /// Últimos 6 meses del propio vendedor, del más reciente al más viejo.
+  final List<MonthlyCommissionEntry> history;
 
   @override
   List<Object?> get props => [
@@ -76,7 +116,8 @@ class EmployeePerformance extends Equatable {
         totalSalesMxn,
         accumulatedCommissionMxn,
         commissionRatePercent,
+        commissionType,
         dailyBreakdown,
-        ranking,
+        history,
       ];
 }

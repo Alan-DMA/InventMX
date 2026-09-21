@@ -17,10 +17,18 @@ class EmployeePerformanceTab extends StatelessWidget {
     super.key,
     required this.performance,
     required this.onPeriodTap,
+    this.selectedMonth,
+    this.onMonthTap,
   });
 
   final EmployeePerformance performance;
   final VoidCallback onPeriodTap;
+
+  /// Mes que alimenta el tablero (resaltado en "Tu histórico").
+  final DateTime? selectedMonth;
+
+  /// Tocar un mes del histórico lo convierte en el período del tablero.
+  final ValueChanged<DateTime>? onMonthTap;
 
   @override
   Widget build(BuildContext context) {
@@ -35,15 +43,19 @@ class EmployeePerformanceTab extends StatelessWidget {
             children: [
               _KpiGrid(performance: performance),
               const SizedBox(height: 16),
-              _TasaCard(ratePercent: performance.commissionRatePercent),
+              _TasaCard(performance: performance),
               const SizedBox(height: 24),
               const _SectionHeading('Desglose Diario'),
               const SizedBox(height: 12),
               _DailyBreakdownCard(entries: performance.dailyBreakdown),
               const SizedBox(height: 24),
-              const _SectionHeading('Ranking del Período'),
+              const _SectionHeading('Tu histórico'),
               const SizedBox(height: 12),
-              _RankingCard(ranking: performance.ranking),
+              _HistoryCard(
+                history: performance.history,
+                selectedMonth: selectedMonth,
+                onMonthTap: onMonthTap,
+              ),
             ],
           ),
         ),
@@ -278,13 +290,19 @@ class _KpiCard extends StatelessWidget {
 // 4. Tasa de comisión
 // ---------------------------------------------------------------------------
 
+/// Esquema vigente del empleado. Sin esquema (tasa 0) lo dice tal cual: el
+/// dueño lo configura en Usuarios y permisos (Fase B); no se inventa un 0 %.
 class _TasaCard extends StatelessWidget {
-  const _TasaCard({required this.ratePercent});
+  const _TasaCard({required this.performance});
 
-  final double ratePercent;
+  final EmployeePerformance performance;
 
   @override
   Widget build(BuildContext context) {
+    final p = performance;
+    final text = p.hasCommissionScheme
+        ? 'Tasa comisión: ${p.commissionType.describe(p.commissionRatePercent)}'
+        : 'Sin esquema de comisión configurado para tu usuario.';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -299,7 +317,8 @@ class _TasaCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Tasa comisión: ${ratePercent.toStringAsFixed(0)}% sobre volumen',
+              text,
+              key: const Key('commissionScheme'),
               style: const TextStyle(fontSize: 14, color: AppColors.onSurface),
             ),
           ),
@@ -404,23 +423,42 @@ class _DailyBreakdownCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Ranking del período
+// 6. Tu histórico (últimos 6 meses del propio vendedor)
 // ---------------------------------------------------------------------------
 
-class _RankingCard extends StatelessWidget {
-  const _RankingCard({required this.ranking});
+const _kShortMonths = [
+  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+];
 
-  final List<RankingEntry> ranking;
+/// Una fila por mes: mes · N ventas · comisión. El mes seleccionado va
+/// resaltado con el mismo tratamiento que tenía "(yo)" en el ranking; tocar
+/// otro mes cambia el período del tablero.
+class _HistoryCard extends StatelessWidget {
+  const _HistoryCard({
+    required this.history,
+    this.selectedMonth,
+    this.onMonthTap,
+  });
 
-  static const _medals = ['🥇', '🥈', '🥉'];
+  final List<MonthlyCommissionEntry> history;
+  final DateTime? selectedMonth;
+  final ValueChanged<DateTime>? onMonthTap;
+
+  bool _isSelected(MonthlyCommissionEntry e) =>
+      selectedMonth != null &&
+      e.month.year == selectedMonth!.year &&
+      e.month.month == selectedMonth!.month;
 
   @override
   Widget build(BuildContext context) {
-    if (ranking.isEmpty) {
-      return const _EmptyListCard(message: 'Sin datos de ranking todavía.');
+    if (history.isEmpty) {
+      return const _EmptyListCard(message: 'Todavía no hay historial.');
     }
 
     final mono = GoogleFonts.jetBrainsMono();
+    final maxCommission = history.fold<double>(
+        0, (a, e) => e.commissionMxn > a ? e.commissionMxn : a);
 
     return Container(
       decoration: BoxDecoration(
@@ -431,89 +469,129 @@ class _RankingCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          for (var i = 0; i < ranking.length; i++)
-            Container(
-              padding: EdgeInsets.only(
-                left: ranking[i].isCurrentUser ? 12 : 16,
-                right: 16,
-                top: 16,
-                bottom: 16,
-              ),
-              decoration: BoxDecoration(
-                color: ranking[i].isCurrentUser
-                    ? AppColors.skyBlue.withValues(alpha: 0.08)
-                    : null,
-                border: Border(
-                  bottom: i < ranking.length - 1
-                      ? const BorderSide(color: AppColors.border)
-                      : BorderSide.none,
-                  left: ranking[i].isCurrentUser
-                      ? const BorderSide(color: AppColors.skyBlue, width: 4)
-                      : BorderSide.none,
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          for (var i = 0; i < history.length; i++)
+            _HistoryRow(
+              key: Key('history-${history[i].month.year}-${history[i].month.month}'),
+              entry: history[i],
+              selected: _isSelected(history[i]),
+              isLast: i == history.length - 1,
+              fraction: maxCommission <= 0
+                  ? 0
+                  : (history[i].commissionMxn / maxCommission).clamp(0.0, 1.0),
+              mono: mono,
+              onTap: onMonthTap == null ? null : () => onMonthTap!(history[i].month),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryRow extends StatelessWidget {
+  const _HistoryRow({
+    super.key,
+    required this.entry,
+    required this.selected,
+    required this.isLast,
+    required this.fraction,
+    required this.mono,
+    this.onTap,
+  });
+
+  final MonthlyCommissionEntry entry;
+  final bool selected;
+  final bool isLast;
+  final double fraction;
+  final TextStyle mono;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = entry;
+    final label = '${_kShortMonths[e.month.month - 1]} ${e.month.year}';
+    final sales = e.salesCount == 1 ? '1 venta' : '${e.salesCount} ventas';
+    final accent = selected ? AppColors.skyBlue : AppColors.onSurface;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.only(
+            left: selected ? 12 : 16,
+            right: 16,
+            top: 12,
+            bottom: 12,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.skyBlue.withValues(alpha: 0.08) : null,
+            border: Border(
+              bottom: isLast
+                  ? BorderSide.none
+                  : const BorderSide(color: AppColors.border),
+              left: selected
+                  ? const BorderSide(color: AppColors.skyBlue, width: 4)
+                  : BorderSide.none,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
                   Expanded(
-                    child: Row(
-                      children: [
-                        Text(
-                          i < _medals.length ? _medals[i] : '${i + 1}.',
-                          style: const TextStyle(fontSize: 18),
-                        ),
-                        const SizedBox(width: 12),
-                        Flexible(
-                          child: Text(
-                            ranking[i].cashierName,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: ranking[i].isCurrentUser
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: ranking[i].isCurrentUser
-                                  ? AppColors.skyBlue
-                                  : AppColors.onSurface,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (ranking[i].isCurrentUser) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.skyBlue.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              '(yo)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: AppColors.skyBlue,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        color: accent,
+                      ),
                     ),
                   ),
                   Text(
-                    '\$${ranking[i].commissionMxn.toStringAsFixed(2)}',
+                    sales,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.onSurfaceMuted,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '\$${e.commissionMxn.toStringAsFixed(2)}',
                     style: mono.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: ranking[i].isCurrentUser
-                          ? AppColors.skyBlue
-                          : AppColors.onSurface,
+                      color: accent,
                     ),
                   ),
                 ],
               ),
-            ),
-        ],
+              const SizedBox(height: 6),
+              // Barra relativa al mejor mes del recorte: la comparación es
+              // contra uno mismo, no contra nadie más.
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: SizedBox(
+                  height: 4,
+                  child: Stack(
+                    children: [
+                      Container(color: AppColors.surfaceVariant),
+                      FractionallySizedBox(
+                        widthFactor: fraction,
+                        child: Container(
+                          color: selected
+                              ? AppColors.skyBlue
+                              : AppColors.onSurfaceMuted.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../inventory/presentation/inventory_provider.dart'
     show WarehouseOption, warehousesProvider;
-import '../../management/domain/tenant_role.dart';
 import '../../management/domain/warehouse.dart';
 import '../../management/presentation/management_provider.dart'
     hide warehousesProvider;
@@ -106,5 +105,5 @@ final maxMarginPercentProvider =
 /// `seed.py`; se propone `saas.ver_suscripcion` y mientras tanto se resuelve
 /// por rol. Falso mientras carga (fail-closed).
 final canSeeSubscriptionProvider = Provider<bool>((ref) {
-  return ref.watch(myRoleProvider)?.id == TenantRoles.owner;
+  return ref.watch(myRoleProvider)?.isOwner ?? false;
 });

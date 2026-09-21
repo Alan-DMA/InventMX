@@ -13,8 +13,8 @@ import '../domain/store_notification.dart';
 ///
 /// | Dato del snapshot        | Endpoint destino                              | Tarea |
 /// |--------------------------|-----------------------------------------------|-------|
-/// | Ventas de hoy y de ayer  | `GET /analytics/dashboard?period=today`       | 15.1.3 |
-/// | Margen de hoy            | `GET /analytics/dashboard` (`profitability.gross_profit_mxn`) | 15.1.3 |
+/// | Ventas de hoy y de ayer  | `GET /analytics/financial-summary?preset=TODAY` (+ `CUSTOM` ayer) — **ya existe** (Reportes lo consume) | 15.1.3 |
+/// | Margen de hoy            | `GET /analytics/financial-summary` (`gross_profit_mxn`) — **ya existe** | 15.1.3 |
 /// | Stock bajo / agotado (conteo y renglones) | `GET /inventory/products?low_stock=true` | 3.1 / 5.1 |
 /// | Cuentas por pagar        | `GET /accounts-payable?overdue_only=true`     | 11.1 |
 /// | Estado de caja           | `GET /cash/current-session`                   | 9.1 |
@@ -22,7 +22,7 @@ import '../domain/store_notification.dart';
 /// | Notificación             | Origen futuro                                  | Tarea |
 /// |--------------------------|------------------------------------------------|-------|
 /// | Stock por agotarse       | Regla sobre el stock + venta histórica          | 15.1 |
-/// | Meta/comparativa de venta| `GET /analytics/sales-trends`                   | 15.1.3 |
+/// | Meta/comparativa de venta| `GET /analytics/sales-trends` — **ya existe**    | 15.1.3 |
 /// | Pedido de la vitrina     | `GET /catalog/orders?status=pending`            | 13.1 |
 /// | Cuenta por pagar próxima | `GET /accounts-payable` (vencimiento)           | 11.1 |
 ///

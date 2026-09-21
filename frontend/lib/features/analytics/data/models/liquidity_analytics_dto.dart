@@ -5,6 +5,8 @@
 // 3. Serialización y deserialización a prueba de nulos.
 // 4. Comentarios exhaustivos línea por línea.
 
+import 'json_number.dart';
+
 /// DTO de respuesta para el Capital de Trabajo y Posición Neta de Liquidez (RF-21).
 class WorkingCapitalDto {
   /// Fecha y hora del cálculo de liquidez.
@@ -28,20 +30,20 @@ class WorkingCapitalDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory WorkingCapitalDto.fromJson(Map<String, dynamic> json) {
+  factory WorkingCapitalDto.fromJson(Map<dynamic, dynamic> json) {
     return WorkingCapitalDto(
       asOfDate: json['as_of_date'] != null
           ? DateTime.tryParse(json['as_of_date'] as String) ?? DateTime.now()
           : DateTime.now(),
-      cashInRegisterMxn: (json['cash_in_register_mxn'] as num?)?.toDouble() ?? 0.0,
-      accountsReceivableMxn: (json['accounts_receivable_mxn'] as num?)?.toDouble() ?? 0.0,
-      accountsPayableMxn: (json['accounts_payable_mxn'] as num?)?.toDouble() ?? 0.0,
-      netWorkingCapitalMxn: (json['net_working_capital_mxn'] as num?)?.toDouble() ?? 0.0,
+      cashInRegisterMxn: toDoubleOrZero(json['cash_in_register_mxn']),
+      accountsReceivableMxn: toDoubleOrZero(json['accounts_receivable_mxn']),
+      accountsPayableMxn: toDoubleOrZero(json['accounts_payable_mxn']),
+      netWorkingCapitalMxn: toDoubleOrZero(json['net_working_capital_mxn']),
     );
   }
 
   /// Serialización segura a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'as_of_date': asOfDate.toIso8601String(),
       'cash_in_register_mxn': cashInRegisterMxn,

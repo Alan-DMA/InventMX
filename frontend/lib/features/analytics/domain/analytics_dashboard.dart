@@ -1,8 +1,9 @@
 /// Modelo de dominio — Dashboard analítico del negocio (RF-20, RF-21, SR-02).
 ///
-/// Anclado a `GET /analytics/dashboard` (sales_metrics, profitability,
-/// top_products) y a la serie diaria de `GET /analytics/sales-trends`
-/// (docs/api/analytics.yaml). Todo en pesos mexicanos.
+/// Se compone en el repositorio a partir de tres lecturas del backend real
+/// (`backend/app/modules/analytics_reports`): `GET /analytics/financial-summary`
+/// (período actual y anterior), `GET /analytics/inventory-health` (lo más
+/// vendido) y `GET /analytics/sales-trends` (serie diaria). Todo en pesos.
 ///
 /// Sin enmarcado de pérdida: la comparativa muestra ambos meses y el cambio
 /// como dato; un margen negativo se pinta en rojo como número, no como regaño.
@@ -14,21 +15,78 @@ import 'package:equatable/equatable.dart';
 // Período
 // ---------------------------------------------------------------------------
 
+/// Rango cerrado de fechas (ambos extremos inclusive, a nivel de día).
+typedef DateRange = ({DateTime start, DateTime end});
+
+/// Períodos del dashboard. Son **de calendario** (decisión D2, Sep 2026):
+/// "Semana" es lunes→domingo y "Mes" el mes natural, igual que los presets
+/// `THIS_WEEK` / `THIS_MONTH` del backend — así "comparado con la semana
+/// pasada" es exactamente eso, no "los 7 días anteriores".
 enum DashboardPeriod {
   today('TODAY', 'Hoy'),
-  week('WEEK', 'Semana'),
-  month('MONTH', 'Mes');
+  week('THIS_WEEK', 'Semana'),
+  month('THIS_MONTH', 'Mes');
 
-  const DashboardPeriod(this.apiValue, this.label);
-  final String apiValue;
+  const DashboardPeriod(this.preset, this.label);
+
+  /// Valor del query param `preset` de `/analytics/*`.
+  final String preset;
   final String label;
+
+  /// Rango del período que contiene a [now].
+  DateRange range(DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    return switch (this) {
+      DashboardPeriod.today => (start: today, end: today),
+      DashboardPeriod.week => (
+          start: today.subtract(Duration(days: today.weekday - 1)),
+          end: today.add(Duration(days: DateTime.daysPerWeek - today.weekday)),
+        ),
+      DashboardPeriod.month => (
+          start: DateTime(today.year, today.month, 1),
+          end: DateTime(today.year, today.month + 1, 0),
+        ),
+    };
+  }
+
+  /// Período inmediatamente anterior, del mismo tipo (ayer / semana pasada /
+  /// mes pasado). Es la base de la comparativa.
+  DateRange previousRange(DateTime now) {
+    final current = range(now);
+    return switch (this) {
+      DashboardPeriod.today => (
+          start: current.start.subtract(const Duration(days: 1)),
+          end: current.start.subtract(const Duration(days: 1)),
+        ),
+      DashboardPeriod.week => (
+          start: current.start.subtract(const Duration(days: 7)),
+          end: current.start.subtract(const Duration(days: 1)),
+        ),
+      DashboardPeriod.month => (
+          start: DateTime(current.start.year, current.start.month - 1, 1),
+          end: DateTime(current.start.year, current.start.month, 0),
+        ),
+    };
+  }
+
+  String get currentLabel => switch (this) {
+        DashboardPeriod.today => 'Hoy',
+        DashboardPeriod.week => 'Esta semana',
+        DashboardPeriod.month => 'Este mes',
+      };
+
+  String get previousLabel => switch (this) {
+        DashboardPeriod.today => 'Ayer',
+        DashboardPeriod.week => 'Semana pasada',
+        DashboardPeriod.month => 'Mes pasado',
+      };
 }
 
 // ---------------------------------------------------------------------------
 // Piezas
 // ---------------------------------------------------------------------------
 
-/// Un punto de la serie de ventas (un día).
+/// Un punto de la serie de ventas (un día natural).
 class DailySalesPoint extends Equatable {
   const DailySalesPoint({
     required this.date,
@@ -39,12 +97,6 @@ class DailySalesPoint extends Equatable {
   final DateTime date;
   final double revenueMxn;
   final int ordersCount;
-
-  factory DailySalesPoint.fromJson(Map<dynamic, dynamic> json) => DailySalesPoint(
-        date: DateTime.tryParse(json['period']?.toString() ?? '') ?? DateTime.now(),
-        revenueMxn: _d(json['revenue_mxn']),
-        ordersCount: (json['orders_count'] as num?)?.toInt() ?? 0,
-      );
 
   @override
   List<Object?> get props => [date, revenueMxn, ordersCount];
@@ -60,16 +112,12 @@ class TopProduct extends Equatable {
   });
 
   final String name;
+
+  /// Piezas netas (vendidas − devueltas). El backend maneja decimales para
+  /// productos a granel; aquí se redondea porque el Top se lee en piezas.
   final int unitsSold;
   final double revenueMxn;
   final double profitMxn;
-
-  factory TopProduct.fromJson(Map<dynamic, dynamic> json) => TopProduct(
-        name: (json['product_name'] ?? json['name'] ?? '').toString(),
-        unitsSold: (json['units_sold'] as num?)?.toInt() ?? 0,
-        revenueMxn: _d(json['revenue_mxn']),
-        profitMxn: _d(json['profit_mxn']),
-      );
 
   @override
   List<Object?> get props => [name, unitsSold, revenueMxn, profitMxn];
@@ -99,6 +147,74 @@ class PeriodComparison extends Equatable {
       [currentLabel, previousLabel, currentRevenueMxn, previousRevenueMxn];
 }
 
+/// Cuánto de lo cobrado entró por cada método (`payment_methods` de
+/// `/analytics/financial-summary`). Responde "¿cuánto tengo en efectivo
+/// físico y cuánto en el banco?" — sección "Cómo te pagan" (Fase B).
+class PaymentMethodShare extends Equatable {
+  const PaymentMethodShare({
+    required this.method,
+    required this.totalMxn,
+    required this.transactionCount,
+    required this.percentage,
+  });
+
+  /// Código del backend (`CASH_MXN`, `CARD_TPV`, `SPEI`, `CODI`, …).
+  final String method;
+  final double totalMxn;
+  final int transactionCount;
+
+  /// Sobre el total cobrado (los % suman 100).
+  final double percentage;
+
+  /// Nombre en lenguaje de tendero.
+  String get label => switch (method) {
+        'CASH_MXN' || 'CASH' => 'Efectivo',
+        'CARD_TPV' || 'CARD' => 'Tarjeta',
+        'SPEI' || 'TRANSFER' => 'Transferencia',
+        'CODI' => 'CoDi',
+        'CREDIT' => 'Crédito',
+        _ => 'Otro',
+      };
+
+  bool get isCash => method == 'CASH_MXN' || method == 'CASH';
+
+  @override
+  List<Object?> get props => [method, totalMxn, transactionCount, percentage];
+}
+
+/// "Tu dinero hoy" (`/analytics/working-capital`): lo que hay en caja menos
+/// lo que debes a proveedores (más cuentas por cobrar, si el backend las
+/// mandara — la app no vende fiado). No depende del período: es una foto de hoy.
+///
+/// Sin *loss framing*: una deuda con proveedores es un dato con signo, no un
+/// regaño; el neto negativo se pinta en rojo como número.
+class WorkingCapital extends Equatable {
+  const WorkingCapital({
+    required this.asOf,
+    required this.cashInRegisterMxn,
+    required this.receivableMxn,
+    required this.payableMxn,
+    required this.netMxn,
+  });
+
+  final DateTime asOf;
+
+  /// Fondo de apertura de las cajas abiertas — el backend **no** suma las
+  /// ventas del turno (anotado para Alan); en pantalla se llama "Fondo de
+  /// caja" para no prometer lo que no es.
+  final double cashInRegisterMxn;
+  final double receivableMxn;
+  final double payableMxn;
+  final double netMxn;
+
+  bool get isEmpty =>
+      cashInRegisterMxn == 0 && receivableMxn == 0 && payableMxn == 0;
+
+  @override
+  List<Object?> get props =>
+      [asOf, cashInRegisterMxn, receivableMxn, payableMxn, netMxn];
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
@@ -109,6 +225,7 @@ class AnalyticsDashboard extends Equatable {
     required this.periodStart,
     required this.periodEnd,
     required this.totalRevenueMxn,
+    this.refundsMxn = 0,
     required this.totalOrders,
     required this.averageTicketMxn,
     required this.grossProfitMxn,
@@ -116,18 +233,25 @@ class AnalyticsDashboard extends Equatable {
     required this.dailySales,
     required this.topProducts,
     required this.comparison,
+    this.paymentMethods = const [],
+    this.workingCapital,
   });
 
   final DashboardPeriod period;
   final DateTime periodStart;
   final DateTime periodEnd;
 
-  // sales_metrics
+  // Ventas netas (bruto − reembolsos), tickets y ticket promedio
   final double totalRevenueMxn;
+
+  /// Lo devuelto en el período. La pantalla lo dice junto al neto para que
+  /// el total cuadre con el historial (QA de Eduardo, Sep 21).
+  final double refundsMxn;
+  double get grossRevenueMxn => totalRevenueMxn + refundsMxn;
   final int totalOrders;
   final double averageTicketMxn;
 
-  // profitability — utilidad bruta con costo congelado (RF-20)
+  // Utilidad bruta con costo congelado al momento de vender (RF-20)
   final double grossProfitMxn;
   final double grossMarginPercent;
 
@@ -135,45 +259,13 @@ class AnalyticsDashboard extends Equatable {
   final List<TopProduct> topProducts;
   final PeriodComparison comparison;
 
+  /// "Cómo te pagan" — vacío si la lectura falló o no hubo cobros.
+  final List<PaymentMethodShare> paymentMethods;
+
+  /// "Tu dinero hoy" — null si la lectura falló (la sección no se pinta).
+  final WorkingCapital? workingCapital;
+
   bool get isEmpty => totalOrders == 0 && dailySales.every((d) => d.revenueMxn == 0);
-
-  /// Mapea `GET /analytics/dashboard` + la serie de `sales-trends`.
-  factory AnalyticsDashboard.fromJson(
-    Map<dynamic, dynamic> json, {
-    required DashboardPeriod period,
-    List<dynamic> trends = const [],
-  }) {
-    final info = (json['period_info'] as Map?) ?? const {};
-    final sales = (json['sales_metrics'] as Map?) ?? const {};
-    final profit = (json['profitability'] as Map?) ?? const {};
-    final top = (json['top_products'] as List?) ?? const [];
-    final start = DateTime.tryParse(info['start_date']?.toString() ?? '') ?? DateTime.now();
-    final end = DateTime.tryParse(info['end_date']?.toString() ?? '') ?? DateTime.now();
-    final current = _d(sales['total_revenue_mxn']);
-    final change = sales['revenue_change_percent'];
-    final previous = change is num && change != -100
-        ? current / (1 + change / 100)
-        : 0.0;
-
-    return AnalyticsDashboard(
-      period: period,
-      periodStart: start,
-      periodEnd: end,
-      totalRevenueMxn: current,
-      totalOrders: (sales['total_orders'] as num?)?.toInt() ?? 0,
-      averageTicketMxn: _d(sales['average_ticket_mxn']),
-      grossProfitMxn: _d(profit['gross_profit_mxn']),
-      grossMarginPercent: _d(profit['gross_margin_percent']),
-      dailySales: trends.whereType<Map>().map(DailySalesPoint.fromJson).toList(),
-      topProducts: top.whereType<Map>().map(TopProduct.fromJson).toList(),
-      comparison: PeriodComparison(
-        currentLabel: 'Este período',
-        previousLabel: 'Período anterior',
-        currentRevenueMxn: current,
-        previousRevenueMxn: previous,
-      ),
-    );
-  }
 
   @override
   List<Object?> get props => [
@@ -181,6 +273,7 @@ class AnalyticsDashboard extends Equatable {
         periodStart,
         periodEnd,
         totalRevenueMxn,
+        refundsMxn,
         totalOrders,
         averageTicketMxn,
         grossProfitMxn,
@@ -188,10 +281,7 @@ class AnalyticsDashboard extends Equatable {
         dailySales,
         topProducts,
         comparison,
+        paymentMethods,
+        workingCapital,
       ];
-}
-
-double _d(dynamic v) {
-  if (v is num) return v.toDouble();
-  return double.tryParse('$v') ?? 0.0;
 }

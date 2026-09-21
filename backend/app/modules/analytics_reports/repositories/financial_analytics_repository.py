@@ -1,5 +1,5 @@
 # Importación de precisión decimal para Pesos Mexicanos
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 # Importación de tipado estático
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,6 +26,13 @@ from app.modules.sales_pos.domain.payment import PaymentMethod, SalePayment
 from app.modules.sales_pos.domain.sale import Sale, SaleItem, SaleStatus
 
 
+# Estados de venta que cuentan como ingreso. REFUNDED se incluye a propósito:
+# un reembolso (parcial o total) cambia el estado pero la venta sigue siendo un
+# hecho; lo devuelto se resta vía `refunded_amount_mxn` / `refunded_quantity`
+# (neto = bruto − reembolsos, mismo criterio que el kardex de ventas del frontend).
+REVENUE_STATUSES = (SaleStatus.COMPLETED, SaleStatus.PAID, SaleStatus.REFUNDED)
+
+
 class FinancialAnalyticsRepository:
     """
     Repositorio de consultas agregadas y métricas analíticas de alta velocidad (RF-18, RF-19, RF-20, RF-21).
@@ -42,22 +49,43 @@ class FinancialAnalyticsRepository:
     ) -> Dict[str, Decimal]:
         """
         Calcula las ventas brutas, netas, descuentos, COGS histórico y utilidades en el rango de fechas.
+        Las ventas netas descuentan lo reembolsado; el COGS sólo cuenta las piezas que no volvieron.
         """
-        # 1. Consulta agregada sobre ventas completadas
+        # 1. Consulta agregada sobre ventas cobradas (neto de reembolsos)
         sales_stmt = select(
             func.coalesce(func.sum(Sale.subtotal_mxn), Decimal("0.00")),
             func.coalesce(func.sum(Sale.discount_mxn), Decimal("0.00")),
-            func.coalesce(func.sum(Sale.total_mxn), Decimal("0.00")),
-            func.coalesce(func.sum(Sale.total_cost_mxn), Decimal("0.00")),
+            func.coalesce(func.sum(Sale.total_mxn - Sale.refunded_amount_mxn), Decimal("0.00")),
+            func.coalesce(func.sum(Sale.refunded_amount_mxn), Decimal("0.00")),
             func.count(Sale.id),
         ).where(
             Sale.tenant_id == tenant_id,
-            Sale.status.in_([SaleStatus.COMPLETED, SaleStatus.PAID]),
+            Sale.status.in_(REVENUE_STATUSES),
             Sale.created_at >= start_date,
             Sale.created_at <= end_date,
         )
         sales_res = await self.session.execute(sales_stmt)
-        gross_sales, discounts, net_sales, cogs_total, transaction_count = sales_res.one()
+        gross_sales, discounts, net_sales, refunds, transaction_count = sales_res.one()
+
+        # 2. COGS por partida: costo congelado × piezas que no se devolvieron
+        cogs_stmt = (
+            select(
+                func.coalesce(
+                    func.sum((SaleItem.quantity - SaleItem.refunded_quantity) * SaleItem.unit_cost_mxn),
+                    Decimal("0.00"),
+                )
+            )
+            .join(Sale, Sale.id == SaleItem.sale_id)
+            .where(
+                Sale.tenant_id == tenant_id,
+                Sale.status.in_(REVENUE_STATUSES),
+                Sale.created_at >= start_date,
+                Sale.created_at <= end_date,
+            )
+        )
+        cogs_total = (await self.session.execute(cogs_stmt)).scalar() or Decimal("0.00")
+        net_sales = Decimal(str(net_sales))
+        cogs_total = Decimal(str(cogs_total))
 
         gross_profit = (net_sales - cogs_total).quantize(Decimal("0.01"))
         profit_margin_pct = (
@@ -75,6 +103,7 @@ class FinancialAnalyticsRepository:
             "gross_sales_mxn": Decimal(str(gross_sales)).quantize(Decimal("0.01")),
             "discounts_mxn": Decimal(str(discounts)).quantize(Decimal("0.01")),
             "net_sales_mxn": Decimal(str(net_sales)).quantize(Decimal("0.01")),
+            "refunds_mxn": Decimal(str(refunds)).quantize(Decimal("0.01")),
             "cogs_mxn": Decimal(str(cogs_total)).quantize(Decimal("0.01")),
             "gross_profit_mxn": gross_profit,
             "profit_margin_pct": profit_margin_pct,
@@ -102,7 +131,7 @@ class FinancialAnalyticsRepository:
             .join(Sale, Sale.id == SalePayment.sale_id)
             .where(
                 Sale.tenant_id == tenant_id,
-                Sale.status.in_([SaleStatus.COMPLETED, SaleStatus.PAID]),
+                Sale.status.in_(REVENUE_STATUSES),
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
             )
@@ -111,12 +140,16 @@ class FinancialAnalyticsRepository:
         result = await self.session.execute(stmt)
         rows = result.all()
 
+        # El % se calcula sobre lo cobrado (suma de métodos), no sobre las ventas
+        # netas: con reembolsos las ventas netas bajan pero lo cobrado no, y el
+        # desglose superaba el 100 %.
+        total_paid = sum((Decimal(str(r[1])) for r in rows), Decimal("0.00"))
         breakdown: List[Dict[str, Any]] = []
         for method, total_amount, count in rows:
             method_str = method.value if hasattr(method, "value") else str(method)
             pct = (
-                (Decimal(str(total_amount)) / net_sales * Decimal("100.00")).quantize(Decimal("0.01"))
-                if net_sales > Decimal("0.00")
+                (Decimal(str(total_amount)) / total_paid * Decimal("100.00")).quantize(Decimal("0.01"))
+                if total_paid > Decimal("0.00")
                 else Decimal("0.00")
             )
             breakdown.append({
@@ -148,7 +181,7 @@ class FinancialAnalyticsRepository:
             .join(Sale, Sale.id == SalePayment.sale_id)
             .where(
                 Sale.tenant_id == tenant_id,
-                Sale.status.in_([SaleStatus.COMPLETED, SaleStatus.PAID]),
+                Sale.status.in_(REVENUE_STATUSES),
                 SalePayment.payment_method == PaymentMethod.CASH_MXN,
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
@@ -263,16 +296,18 @@ class FinancialAnalyticsRepository:
         end_date: datetime,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Obtiene el ranking de los productos más vendidos en el periodo."""
+        """Obtiene el ranking de los productos más vendidos en el periodo (neto de devoluciones)."""
+        net_qty = SaleItem.quantity - SaleItem.refunded_quantity
+        net_revenue = SaleItem.total_mxn - (SaleItem.refunded_quantity * SaleItem.unit_price_mxn)
         stmt = (
             select(
                 Product.id,
                 Product.name,
                 Product.sku,
-                func.coalesce(func.sum(SaleItem.quantity), Decimal("0.00")).label("units_sold"),
-                func.coalesce(func.sum(SaleItem.total_mxn), Decimal("0.00")).label("revenue_mxn"),
+                func.coalesce(func.sum(net_qty), Decimal("0.00")).label("units_sold"),
+                func.coalesce(func.sum(net_revenue), Decimal("0.00")).label("revenue_mxn"),
                 func.coalesce(
-                    func.sum(SaleItem.total_mxn - (SaleItem.quantity * SaleItem.unit_cost_mxn)),
+                    func.sum(net_revenue - (net_qty * SaleItem.unit_cost_mxn)),
                     Decimal("0.00"),
                 ).label("profit_mxn"),
             )
@@ -280,12 +315,12 @@ class FinancialAnalyticsRepository:
             .join(Sale, Sale.id == SaleItem.sale_id)
             .where(
                 Sale.tenant_id == tenant_id,
-                Sale.status.in_([SaleStatus.COMPLETED, SaleStatus.PAID]),
+                Sale.status.in_(REVENUE_STATUSES),
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
             )
             .group_by(Product.id, Product.name, Product.sku)
-            .order_by(func.sum(SaleItem.quantity).desc())
+            .order_by(func.sum(net_qty).desc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
@@ -302,6 +337,59 @@ class FinancialAnalyticsRepository:
             }
             for r in rows
         ]
+
+    async def get_daily_sales_series(
+        self,
+        tenant_id: uuid.UUID,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> Dict[date, Dict[str, Any]]:
+        """
+        Serie de ventas por día natural (ingreso neto, tickets y utilidad bruta), indexada por fecha.
+        Mismos predicados que el resumen financiero para que la suma de la serie cuadre con el total.
+        """
+        day = func.date(Sale.created_at)
+        # Utilidad por venta = neto − costo de las piezas no devueltas (subconsulta por venta)
+        cogs_by_sale = (
+            select(
+                SaleItem.sale_id.label("sale_id"),
+                func.coalesce(
+                    func.sum((SaleItem.quantity - SaleItem.refunded_quantity) * SaleItem.unit_cost_mxn),
+                    Decimal("0.00"),
+                ).label("cogs_mxn"),
+            )
+            .group_by(SaleItem.sale_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                day.label("day"),
+                func.coalesce(func.sum(Sale.total_mxn - Sale.refunded_amount_mxn), Decimal("0.00")).label("revenue_mxn"),
+                func.count(Sale.id).label("orders_count"),
+                func.coalesce(
+                    func.sum(Sale.total_mxn - Sale.refunded_amount_mxn - func.coalesce(cogs_by_sale.c.cogs_mxn, Decimal("0.00"))),
+                    Decimal("0.00"),
+                ).label("gross_profit_mxn"),
+            )
+            .outerjoin(cogs_by_sale, cogs_by_sale.c.sale_id == Sale.id)
+            .where(
+                Sale.tenant_id == tenant_id,
+                Sale.status.in_(REVENUE_STATUSES),
+                Sale.created_at >= start_date,
+                Sale.created_at <= end_date,
+            )
+            .group_by(day)
+            .order_by(day)
+        )
+        result = await self.session.execute(stmt)
+        return {
+            r.day: {
+                "revenue_mxn": Decimal(str(r.revenue_mxn)).quantize(Decimal("0.01")),
+                "orders_count": int(r.orders_count),
+                "gross_profit_mxn": Decimal(str(r.gross_profit_mxn)).quantize(Decimal("0.01")),
+            }
+            for r in result.all()
+        }
 
     async def get_critical_stock_products(self, tenant_id: uuid.UUID) -> List[Dict[str, Any]]:
         """Obtiene los productos cuyas existencias están en o por debajo del umbral mínimo."""

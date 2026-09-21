@@ -5,6 +5,8 @@
 // 3. Serialización y deserialización a prueba de nulos.
 // 4. Comentarios exhaustivos línea por línea.
 
+import 'json_number.dart';
+
 /// Presets temporales para filtrado de reportes analíticos.
 enum DateRangePreset {
   today('TODAY'),
@@ -44,17 +46,17 @@ class PaymentMethodMetricDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory PaymentMethodMetricDto.fromJson(Map<String, dynamic> json) {
+  factory PaymentMethodMetricDto.fromJson(Map<dynamic, dynamic> json) {
     return PaymentMethodMetricDto(
       paymentMethod: json['payment_method'] as String? ?? 'OTHER',
-      totalMxn: (json['total_mxn'] as num?)?.toDouble() ?? 0.0,
-      transactionCount: json['transaction_count'] as int? ?? 0,
-      percentage: (json['percentage'] as num?)?.toDouble() ?? 0.0,
+      totalMxn: toDoubleOrZero(json['total_mxn']),
+      transactionCount: toIntOrZero(json['transaction_count']),
+      percentage: toDoubleOrZero(json['percentage']),
     );
   }
 
   /// Serialización segura a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'payment_method': paymentMethod,
       'total_mxn': totalMxn,
@@ -76,6 +78,8 @@ class ExecutiveFinancialSummaryDto {
   final double discountsMxn;
   /// Ventas netas totales facturadas en $ MXN.
   final double netSalesMxn;
+  /// Reembolsos del periodo en $ MXN (ya restados de las ventas netas).
+  final double refundsMxn;
   /// Costo de Mercancía Vendida (COGS) en $ MXN basado en costo histórico.
   final double cogsMxn;
   /// Utilidad bruta en $ MXN (Ventas Netas - COGS).
@@ -96,6 +100,7 @@ class ExecutiveFinancialSummaryDto {
     required this.grossSalesMxn,
     required this.discountsMxn,
     required this.netSalesMxn,
+    this.refundsMxn = 0.0,
     required this.cogsMxn,
     required this.grossProfitMxn,
     required this.profitMarginPct,
@@ -105,7 +110,7 @@ class ExecutiveFinancialSummaryDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory ExecutiveFinancialSummaryDto.fromJson(Map<String, dynamic> json) {
+  factory ExecutiveFinancialSummaryDto.fromJson(Map<dynamic, dynamic> json) {
     return ExecutiveFinancialSummaryDto(
       periodStart: json['period_start'] != null
           ? DateTime.tryParse(json['period_start'] as String) ?? DateTime.now()
@@ -113,29 +118,31 @@ class ExecutiveFinancialSummaryDto {
       periodEnd: json['period_end'] != null
           ? DateTime.tryParse(json['period_end'] as String) ?? DateTime.now()
           : DateTime.now(),
-      grossSalesMxn: (json['gross_sales_mxn'] as num?)?.toDouble() ?? 0.0,
-      discountsMxn: (json['discounts_mxn'] as num?)?.toDouble() ?? 0.0,
-      netSalesMxn: (json['net_sales_mxn'] as num?)?.toDouble() ?? 0.0,
-      cogsMxn: (json['cogs_mxn'] as num?)?.toDouble() ?? 0.0,
-      grossProfitMxn: (json['gross_profit_mxn'] as num?)?.toDouble() ?? 0.0,
-      profitMarginPct: (json['profit_margin_pct'] as num?)?.toDouble() ?? 0.0,
-      averageTicketMxn: (json['average_ticket_mxn'] as num?)?.toDouble() ?? 0.0,
-      totalTransactions: json['total_transactions'] as int? ?? 0,
+      grossSalesMxn: toDoubleOrZero(json['gross_sales_mxn']),
+      discountsMxn: toDoubleOrZero(json['discounts_mxn']),
+      netSalesMxn: toDoubleOrZero(json['net_sales_mxn']),
+      refundsMxn: toDoubleOrZero(json['refunds_mxn']),
+      cogsMxn: toDoubleOrZero(json['cogs_mxn']),
+      grossProfitMxn: toDoubleOrZero(json['gross_profit_mxn']),
+      profitMarginPct: toDoubleOrZero(json['profit_margin_pct']),
+      averageTicketMxn: toDoubleOrZero(json['average_ticket_mxn']),
+      totalTransactions: toIntOrZero(json['total_transactions']),
       paymentMethods: (json['payment_methods'] as List<dynamic>?)
-              ?.map((e) => PaymentMethodMetricDto.fromJson(e as Map<String, dynamic>))
+              ?.map((e) => PaymentMethodMetricDto.fromJson(e as Map<dynamic, dynamic>))
               .toList() ??
           [],
     );
   }
 
   /// Serialización segura a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'period_start': periodStart.toIso8601String(),
       'period_end': periodEnd.toIso8601String(),
       'gross_sales_mxn': grossSalesMxn,
       'discounts_mxn': discountsMxn,
       'net_sales_mxn': netSalesMxn,
+      'refunds_mxn': refundsMxn,
       'cogs_mxn': cogsMxn,
       'gross_profit_mxn': grossProfitMxn,
       'profit_margin_pct': profitMarginPct,
@@ -184,7 +191,7 @@ class CashFlowSummaryDto {
   });
 
   /// Deserialización segura desde JSON.
-  factory CashFlowSummaryDto.fromJson(Map<String, dynamic> json) {
+  factory CashFlowSummaryDto.fromJson(Map<dynamic, dynamic> json) {
     return CashFlowSummaryDto(
       periodStart: json['period_start'] != null
           ? DateTime.tryParse(json['period_start'] as String) ?? DateTime.now()
@@ -192,19 +199,19 @@ class CashFlowSummaryDto {
       periodEnd: json['period_end'] != null
           ? DateTime.tryParse(json['period_end'] as String) ?? DateTime.now()
           : DateTime.now(),
-      cashSalesInflowMxn: (json['cash_sales_inflow_mxn'] as num?)?.toDouble() ?? 0.0,
-      creditCollectionsInflowMxn: (json['credit_collections_inflow_mxn'] as num?)?.toDouble() ?? 0.0,
-      cashIncomeMovementsMxn: (json['cash_income_movements_mxn'] as num?)?.toDouble() ?? 0.0,
-      totalInflowMxn: (json['total_inflow_mxn'] as num?)?.toDouble() ?? 0.0,
-      supplierPaymentsOutflowMxn: (json['supplier_payments_outflow_mxn'] as num?)?.toDouble() ?? 0.0,
-      cashExpenseMovementsMxn: (json['cash_expense_movements_mxn'] as num?)?.toDouble() ?? 0.0,
-      totalOutflowMxn: (json['total_outflow_mxn'] as num?)?.toDouble() ?? 0.0,
-      netCashFlowMxn: (json['net_cash_flow_mxn'] as num?)?.toDouble() ?? 0.0,
+      cashSalesInflowMxn: toDoubleOrZero(json['cash_sales_inflow_mxn']),
+      creditCollectionsInflowMxn: toDoubleOrZero(json['credit_collections_inflow_mxn']),
+      cashIncomeMovementsMxn: toDoubleOrZero(json['cash_income_movements_mxn']),
+      totalInflowMxn: toDoubleOrZero(json['total_inflow_mxn']),
+      supplierPaymentsOutflowMxn: toDoubleOrZero(json['supplier_payments_outflow_mxn']),
+      cashExpenseMovementsMxn: toDoubleOrZero(json['cash_expense_movements_mxn']),
+      totalOutflowMxn: toDoubleOrZero(json['total_outflow_mxn']),
+      netCashFlowMxn: toDoubleOrZero(json['net_cash_flow_mxn']),
     );
   }
 
   /// Serialización segura a JSON.
-  Map<String, dynamic> toJson() {
+  Map<dynamic, dynamic> toJson() {
     return {
       'period_start': periodStart.toIso8601String(),
       'period_end': periodEnd.toIso8601String(),
@@ -217,5 +224,65 @@ class CashFlowSummaryDto {
       'total_outflow_mxn': totalOutflowMxn,
       'net_cash_flow_mxn': netCashFlowMxn,
     };
+  }
+}
+
+/// Un día natural de la serie de ventas (`GET /analytics/sales-trends`).
+class DailySalesPointDto {
+  /// Día natural (YYYY-MM-DD).
+  final DateTime period;
+  /// Ingreso neto del día en $ MXN (ventas − reembolsos).
+  final double revenueMxn;
+  /// Tickets cobrados en el día.
+  final int ordersCount;
+  /// Utilidad bruta del día en $ MXN.
+  final double grossProfitMxn;
+
+  /// Constructor inmutable de punto diario.
+  const DailySalesPointDto({
+    required this.period,
+    required this.revenueMxn,
+    required this.ordersCount,
+    required this.grossProfitMxn,
+  });
+
+  /// Deserialización segura desde JSON.
+  factory DailySalesPointDto.fromJson(Map<dynamic, dynamic> json) {
+    return DailySalesPointDto(
+      period: toDateTimeOrNull(json['period']) ?? DateTime.now(),
+      revenueMxn: toDoubleOrZero(json['revenue_mxn']),
+      ordersCount: toIntOrZero(json['orders_count']),
+      grossProfitMxn: toDoubleOrZero(json['gross_profit_mxn']),
+    );
+  }
+}
+
+/// DTO de respuesta para la Serie Diaria de Ventas (RF-21).
+class SalesTrendsDto {
+  /// Fecha inicial del periodo.
+  final DateTime periodStart;
+  /// Fecha final del periodo.
+  final DateTime periodEnd;
+  /// Un punto por día natural; los días sin venta vienen en cero.
+  final List<DailySalesPointDto> trends;
+
+  /// Constructor inmutable de serie diaria.
+  const SalesTrendsDto({
+    required this.periodStart,
+    required this.periodEnd,
+    required this.trends,
+  });
+
+  /// Deserialización segura desde JSON.
+  factory SalesTrendsDto.fromJson(Map<dynamic, dynamic> json) {
+    return SalesTrendsDto(
+      periodStart: toDateTimeOrNull(json['period_start']) ?? DateTime.now(),
+      periodEnd: toDateTimeOrNull(json['period_end']) ?? DateTime.now(),
+      trends: (json['trends'] as List<dynamic>?)
+              ?.whereType<Map>()
+              .map(DailySalesPointDto.fromJson)
+              .toList() ??
+          const [],
+    );
   }
 }

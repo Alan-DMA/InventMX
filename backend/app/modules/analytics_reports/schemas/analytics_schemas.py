@@ -1,7 +1,7 @@
 # Importación de enumeraciones
 import enum
 # Importación del módulo datetime
-from datetime import datetime
+from datetime import date, datetime
 # Importación del módulo decimal para operaciones monetarias exactas
 from decimal import Decimal
 # Importación de tipado estático
@@ -39,6 +39,7 @@ class ExecutiveFinancialSummaryResponse(BaseModel):
     gross_sales_mxn: Decimal = Field(..., description="Ventas brutas totales en $ MXN")
     discounts_mxn: Decimal = Field(..., description="Descuentos aplicados en $ MXN")
     net_sales_mxn: Decimal = Field(..., description="Ventas netas totales en $ MXN")
+    refunds_mxn: Decimal = Field(Decimal("0.00"), description="Reembolsos del periodo en $ MXN (ya restados de las ventas netas)")
     cogs_mxn: Decimal = Field(..., description="Costo de lo Vendido (COGS) en $ MXN basado en costo histórico congelado")
     gross_profit_mxn: Decimal = Field(..., description="Utilidad bruta en $ MXN (Ventas Netas - COGS)")
     profit_margin_pct: Decimal = Field(..., description="Margen de utilidad bruta porcentual (Gross Profit / Net Sales * 100)")
@@ -118,5 +119,25 @@ class WorkingCapitalResponse(BaseModel):
     accounts_receivable_mxn: Decimal = Field(..., description="Cuentas por cobrar a clientes (cartera de crédito) en $ MXN")
     accounts_payable_mxn: Decimal = Field(..., description="Cuentas por pagar a proveedores pendientes en $ MXN")
     net_working_capital_mxn: Decimal = Field(..., description="Capital de trabajo neto en $ MXN (Caja + Por Cobrar - Por Pagar)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DailySalesPointResponse(BaseModel):
+    """Un día natural de la serie de ventas (RF-21 / dashboard en tiempo real)."""
+    period: date = Field(..., description="Día natural (YYYY-MM-DD)")
+    revenue_mxn: Decimal = Field(..., description="Ingreso neto del día en $ MXN (ventas − reembolsos)")
+    orders_count: int = Field(..., description="Tickets cobrados en el día")
+    gross_profit_mxn: Decimal = Field(..., description="Utilidad bruta del día en $ MXN")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SalesTrendsResponse(BaseModel):
+    """Serie diaria de ventas del periodo; incluye en cero los días sin venta (RF-21)."""
+    period_start: datetime = Field(..., description="Fecha inicial del periodo analizado")
+    period_end: datetime = Field(..., description="Fecha final del periodo analizado")
+    granularity: str = Field("daily", description="Granularidad de la serie (sólo 'daily' en el MVP)")
+    trends: List[DailySalesPointResponse] = Field(default_factory=list, description="Un punto por día natural")
 
     model_config = ConfigDict(from_attributes=True)

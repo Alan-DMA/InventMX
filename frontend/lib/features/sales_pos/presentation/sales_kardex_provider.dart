@@ -18,6 +18,7 @@ class SalesKardexState {
     this.cashiers = const [],
     this.total = 0,
     this.totalAmountMxn = 0,
+    this.refundedAmountMxn = 0,
     this.currentPage = 1,
     this.totalPages = 1,
     this.isLoading = false,
@@ -31,7 +32,12 @@ class SalesKardexState {
   /// Opciones del filtro por cajero (se cargan una vez).
   final List<String> cashiers;
   final int total;
+
+  /// Neto (cobrado − devuelto) del recorte.
   final double totalAmountMxn;
+
+  /// Devuelto en el recorte — la franja lo explica cuando es > 0.
+  final double refundedAmountMxn;
   final int currentPage;
   final int totalPages;
   final bool isLoading;
@@ -49,6 +55,7 @@ class SalesKardexState {
     List<String>? cashiers,
     int? total,
     double? totalAmountMxn,
+    double? refundedAmountMxn,
     int? currentPage,
     int? totalPages,
     bool? isLoading,
@@ -61,6 +68,7 @@ class SalesKardexState {
       cashiers: cashiers ?? this.cashiers,
       total: total ?? this.total,
       totalAmountMxn: totalAmountMxn ?? this.totalAmountMxn,
+      refundedAmountMxn: refundedAmountMxn ?? this.refundedAmountMxn,
       currentPage: currentPage ?? this.currentPage,
       totalPages: totalPages ?? this.totalPages,
       isLoading: isLoading ?? this.isLoading,
@@ -135,6 +143,7 @@ class SalesKardexNotifier extends AutoDisposeNotifier<SalesKardexState> {
         sales: resetList ? result.items : [...state.sales, ...result.items],
         total: result.total,
         totalAmountMxn: result.totalAmountMxn,
+        refundedAmountMxn: result.refundedAmountMxn,
         currentPage: result.page,
         totalPages: result.totalPages,
         isLoading: false,

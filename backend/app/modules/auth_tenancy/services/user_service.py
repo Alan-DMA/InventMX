@@ -1,5 +1,6 @@
 # Importación de UUID para tipado y validación de identificadores
 import uuid
+from decimal import Decimal
 # Importación de tipos estáticos
 from typing import Dict, List, Optional
 # Importación de la sesión asíncrona de base de datos
@@ -19,6 +20,7 @@ from app.core.database.session import set_tenant_context
 # Importación de modelos de dominio
 from app.modules.auth_tenancy.domain.tenant import TenantPlan
 from app.modules.auth_tenancy.domain.user import User
+from app.modules.sales_pos.domain.commission import CommissionType
 # Importación de repositorios de datos
 from app.modules.auth_tenancy.repositories.role_repository import RoleRepository
 from app.modules.auth_tenancy.repositories.user_repository import UserRepository
@@ -159,6 +161,13 @@ class UserService:
             if new_role.name == "OWNER" and current_user.role and current_user.role.name != "OWNER":
                 raise ForbiddenException("Solo el dueño del comercio puede designar roles de tipo OWNER.")
 
+        # Esquema de comisión (RF-10): un porcentaje no puede pasar de 100; un
+        # monto fijo sí (es $ MXN por ticket). El tipo vigente decide la regla.
+        if data.commission_rate is not None:
+            effective_type = data.commission_type or employee.commission_type
+            if effective_type != CommissionType.FIXED_PER_SALE and data.commission_rate > Decimal("100"):
+                raise BadRequestException("El porcentaje de comisión no puede ser mayor a 100 %.")
+
         # Hashear nueva contraseña si fue provista
         hashed_pwd = get_password_hash(data.password) if data.password else None
 
@@ -169,6 +178,8 @@ class UserService:
             role_id=data.role_id,
             hashed_password=hashed_pwd,
             is_active=data.is_active,
+            commission_type=data.commission_type,
+            commission_rate=data.commission_rate,
         )
 
         # Persistir cambios en base de datos

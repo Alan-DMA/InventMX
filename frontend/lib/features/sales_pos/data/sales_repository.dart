@@ -111,6 +111,7 @@ class PaginatedSales {
     required this.items,
     required this.total,
     required this.totalAmountMxn,
+    this.refundedAmountMxn = 0,
     required this.page,
     required this.pageSize,
     required this.totalPages,
@@ -118,7 +119,13 @@ class PaginatedSales {
 
   final List<SaleSummary> items;
   final int total;
+
+  /// Suma **neta** (cobrado − devuelto) del recorte.
   final double totalAmountMxn;
+
+  /// Cuánto se devolvió en el recorte; la franja lo muestra para explicar
+  /// por qué el neto no coincide con la suma de los renglones.
+  final double refundedAmountMxn;
   final int page;
   final int pageSize;
   final int totalPages;
@@ -434,7 +441,10 @@ class SalesRepositoryImpl implements SalesRepository {
         total: total,
         // Sólo de la página actual — el contrato real no expone una suma
         // agregada del recorte completo (ver docs/architecture/integrations.md).
-        totalAmountMxn: items.fold<double>(0, (a, s) => a + s.totalMxn),
+        // Neto de devoluciones: es lo que cuadra con Reportes.
+        totalAmountMxn: items.fold<double>(0, (a, s) => a + s.netTotalMxn),
+        refundedAmountMxn:
+            items.fold<double>(0, (a, s) => a + s.refundedAmountMxn),
         page: page,
         pageSize: pageSize,
         totalPages: totalPages,
@@ -511,6 +521,7 @@ class SalesRepositoryImpl implements SalesRepository {
       itemCount: itemCount,
       paymentKind: SalePaymentKind.fromPayments(payments),
       isRefunded: json['status']?.toString() == 'REFUNDED',
+      refundedAmountMxn: _toDouble(json['refunded_amount_mxn']) ?? 0,
       payments: payments,
     );
   }
@@ -710,6 +721,8 @@ class SalesRepositoryMock implements SalesRepository {
       // Neto (decisión de Eduardo, Fase 2 · reembolsos): una venta
       // reembolsada sigue en la lista, pero no infla "cuánto entró".
       totalAmountMxn: all.fold<double>(0, (a, s) => a + s.netTotalMxn),
+      refundedAmountMxn:
+          all.fold<double>(0, (a, s) => a + (s.refund?.refundAmountMxn ?? 0)),
       page: page,
       pageSize: pageSize,
       totalPages: totalPages,

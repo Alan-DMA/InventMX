@@ -319,37 +319,63 @@ class _SummaryStrip extends StatelessWidget {
     final ready = !state.isLoading && !state.hasError;
     final count = state.total;
     final label = count == 1 ? '1 venta' : '$count ventas';
+    // Con devoluciones, el neto no coincide con la suma de los renglones:
+    // se muestra la cuenta completa (QA de Eduardo, Sep 21) para que
+    // Reportes y el historial cuadren a simple vista.
+    final refunded = state.refundedAmountMxn;
+    final hasRefunds = refunded > 0;
+    final gross = state.totalAmountMxn + refunded;
 
     return SizedBox(
-      height: 36,
+      height: hasRefunds ? 56 : 36,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16 + side),
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 150),
           opacity: ready ? 1 : 0,
-          child: Row(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                label,
-                key: const Key('salesSummaryCount'),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.onSurfaceMuted,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
+              Row(
+                children: [
+                  Text(
+                    label,
+                    key: const Key('salesSummaryCount'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.onSurfaceMuted,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    mxn(state.totalAmountMxn),
+                    key: const Key('salesSummaryAmount'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.onSurface,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
               ),
-              const Spacer(),
-              Text(
-                mxn(state.totalAmountMxn),
-                key: const Key('salesSummaryAmount'),
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.onSurface,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              if (hasRefunds) ...[
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${mxn(gross)} vendidos − ${mxn(refunded)} devueltos',
+                    key: const Key('salesSummaryRefunds'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.onSurfaceMuted,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -688,11 +714,14 @@ class _SaleTile extends StatelessWidget {
         '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
     final pieces = sale.itemCount == 1 ? '1 pza' : '${sale.itemCount} pzas';
 
-    // Reembolsada: se atenúa (sigue en la lista — transparencia, no se
+    // Reembolso total: se atenúa (sigue en la lista — transparencia, no se
     // oculta) y el total lleva tachado, no se descuenta aquí (es el hecho
     // histórico; lo neto vive en la franja de resumen y en Reportes).
+    // Reembolso parcial: la etiqueta dice cuánto volvió y el monto no se
+    // tacha — la venta sigue viva por el resto.
+    final fully = sale.isFullyRefunded;
     return Opacity(
-      opacity: sale.isRefunded ? 0.55 : 1,
+      opacity: fully ? 0.55 : 1,
       child: Material(
         type: MaterialType.transparency,
         child: InkWell(
@@ -733,7 +762,9 @@ class _SaleTile extends StatelessWidget {
                           ),
                           if (sale.isRefunded) ...[
                             const SizedBox(width: 6),
-                            const _RefundedTag(),
+                            // Flexible: "Devolución −$1,234.00" no debe
+                            // empujar el monto fuera del renglón.
+                            Flexible(child: _RefundedTag(sale: sale)),
                           ],
                           const Spacer(),
                           Text(
@@ -745,9 +776,8 @@ class _SaleTile extends StatelessWidget {
                               fontFeatures: const [
                                 FontFeature.tabularFigures()
                               ],
-                              decoration: sale.isRefunded
-                                  ? TextDecoration.lineThrough
-                                  : null,
+                              decoration:
+                                  fully ? TextDecoration.lineThrough : null,
                               decorationColor: AppColors.onSurfaceMuted,
                             ),
                           ),
@@ -803,20 +833,29 @@ class _SaleTile extends StatelessWidget {
   }
 }
 
+/// "Reembolsada" cuando volvió todo; "Devolución −$X" cuando fue parcial —
+/// la diferencia importa: una venta parcialmente devuelta sigue contando.
 class _RefundedTag extends StatelessWidget {
-  const _RefundedTag();
+  const _RefundedTag({required this.sale});
+  final SaleSummary sale;
 
   @override
   Widget build(BuildContext context) {
+    final text = sale.isFullyRefunded
+        ? 'Reembolsada'
+        : 'Devolución −${mxn(sale.refundedAmountMxn)}';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
         color: AppColors.error.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: const Text(
-        'Reembolsada',
-        style: TextStyle(
+      child: Text(
+        text,
+        key: const Key('refundTag'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
           fontSize: 9.5,
           fontWeight: FontWeight.w700,
           color: AppColors.error,

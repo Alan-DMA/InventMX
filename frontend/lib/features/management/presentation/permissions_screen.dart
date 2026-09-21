@@ -180,7 +180,7 @@ class _PermissionRow extends ConsumerWidget {
     // El permiso que sostiene la administración del negocio no se puede
     // apagar en el rol que lo garantiza: se muestra bloqueado en vez de
     // dejar intentarlo para después rechazarlo.
-    final locked = TenantRoles.undroppable[role.id] == permission.name;
+    final locked = TenantRoles.undroppable[role.code] == permission.name;
 
     return SwitchListTile(
       key: Key('perm-${role.id}-${permission.name}'),

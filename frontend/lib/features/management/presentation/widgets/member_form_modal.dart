@@ -36,10 +36,19 @@ class MemberFormModal extends ConsumerStatefulWidget {
 class _MemberFormModalState extends ConsumerState<MemberFormModal> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _rateController = TextEditingController();
   final _nameFocus = FocusNode();
   final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
 
-  late String _roleId;
+  /// Vacío hasta que se conocen los roles: entonces se elige "Cajero" (o el
+  /// primero) — con el backend real los ids son UUID, no se pueden fijar aquí.
+  String _roleId = '';
+
+  /// Esquema de comisión. `null` = "No comisiona" (valor por defecto, sin
+  /// sugerir ninguno: la tasa la decide el dueño).
+  CommissionType? _commissionType;
   bool _isSaving = false;
   bool _isValid = false;
   String? _error;
@@ -50,10 +59,19 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
     final initial = widget.initial;
     _nameController.text = initial?.name ?? '';
     _emailController.text = initial?.email ?? '';
-    _roleId = initial?.roleId ?? TenantRoles.cashier;
+    _roleId = initial?.roleId ?? '';
+    if (initial != null && initial.hasCommission) {
+      _commissionType = initial.commissionType;
+      final r = initial.commissionRate;
+      _rateController.text = r == r.roundToDouble()
+          ? r.toStringAsFixed(0)
+          : r.toStringAsFixed(2);
+    }
 
     _nameController.addListener(_validate);
     _emailController.addListener(_validate);
+    _passwordController.addListener(_validate);
+    _rateController.addListener(_onRateChanged);
     _validate();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _nameFocus.requestFocus());
@@ -63,16 +81,55 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _passwordController.dispose();
+    _rateController.dispose();
     _nameFocus.dispose();
     _emailFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
+  /// Tasa tecleada, o null si está vacía o no es número.
+  double? get _rate => double.tryParse(_rateController.text.trim().replaceAll(',', '.'));
+
+  /// Con esquema elegido, la tasa tiene que ser un número > 0 (y ≤ 100 si es
+  /// porcentaje) — el backend rechaza lo demás con 400.
+  bool get _commissionValid {
+    if (_commissionType == null) return true;
+    final r = _rate;
+    if (r == null || r <= 0) return false;
+    return _commissionType == CommissionType.fixedPerSale || r <= 100;
+  }
+
+  void _onRateChanged() => setState(_validate);
+
   void _validate() {
     final email = _emailController.text.trim();
+    final passwordOk =
+        widget.isEditing || _passwordController.text.trim().length >= 6;
     final valid = _nameController.text.trim().length >= 3 &&
-        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email) &&
+        passwordOk &&
+        _roleId.isNotEmpty &&
+        _commissionValid;
     if (valid != _isValid) setState(() => _isValid = valid);
+  }
+
+  /// "Con 5 %, una venta de \$200 le deja \$10." — el ejemplo hace tangible
+  /// la tasa sin pedirle cuentas al dueño.
+  String? get _commissionExample {
+    final r = _rate;
+    if (_commissionType == null || r == null || r <= 0) return null;
+    String money(double v) => '\$${v.toStringAsFixed(v == v.roundToDouble() ? 0 : 2)}';
+    final pct = r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(2);
+    return switch (_commissionType!) {
+      CommissionType.percentageSale =>
+        'Con $pct %, una venta de \$200 le deja ${money(200 * r / 100)}.',
+      CommissionType.percentageProfit =>
+        'Con $pct %, una venta de \$200 con \$60 de ganancia le deja ${money(60 * r / 100)}.',
+      CommissionType.fixedPerSale =>
+        'Cada venta que cobre le deja ${money(r)}, sin importar el monto.',
+    };
   }
 
   Future<void> _submit() async {
@@ -84,17 +141,27 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
 
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
+    final commissionType = _commissionType ?? CommissionType.percentageSale;
+    final commissionRate = _commissionType == null ? 0.0 : (_rate ?? 0);
     final notifier = ref.read(membersProvider.notifier);
     try {
       if (widget.isEditing) {
         await notifier.edit(
           id: widget.initial!.id,
           name: name,
-          email: email,
           roleId: _roleId,
+          commissionType: commissionType,
+          commissionRate: commissionRate,
         );
       } else {
-        await notifier.create(name: name, email: email, roleId: _roleId);
+        await notifier.create(
+          name: name,
+          email: email,
+          roleId: _roleId,
+          password: _passwordController.text.trim(),
+          commissionType: commissionType,
+          commissionRate: commissionRate,
+        );
       }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -110,6 +177,13 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
     final mq = MediaQuery.of(context);
     final bottomInset = max(mq.viewInsets.bottom, mq.padding.bottom);
     final roles = ref.watch(rolesProvider).valueOrNull ?? const <TenantRole>[];
+    if (_roleId.isEmpty && roles.isNotEmpty) {
+      // Cajero por defecto: es el rol que más se da de alta en una tiendita.
+      _roleId = roles
+          .firstWhere((r) => r.code == RoleCodes.cashier, orElse: () => roles.first)
+          .id;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _validate());
+    }
 
     return Container(
       decoration: const BoxDecoration(
@@ -183,21 +257,55 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
                 key: const Key('memberEmailField'),
                 controller: _emailController,
                 focusNode: _emailFocus,
+                // El backend no permite cambiar el correo de una cuenta.
+                readOnly: widget.isEditing,
+                enabled: !widget.isEditing,
                 keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.done,
+                textInputAction:
+                    widget.isEditing ? TextInputAction.done : TextInputAction.next,
                 style:
                     const TextStyle(color: AppColors.onSurface, fontSize: 15),
                 decoration: const InputDecoration(
                   hintText: 'Ej: ana@minegocio.mx',
                   prefixIcon: Icon(Icons.alternate_email_rounded, size: 18),
                 ),
-                onFieldSubmitted: (_) => _submit(),
+                onFieldSubmitted: (_) => widget.isEditing
+                    ? _submit()
+                    : _passwordFocus.requestFocus(),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Con este correo entra a la app.',
-                style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+              Text(
+                widget.isEditing
+                    ? 'El correo no se puede cambiar.'
+                    : 'Con este correo entra a la app.',
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.onSurfaceMuted),
               ),
+              if (!widget.isEditing) ...[
+                const SizedBox(height: 16),
+                _label('Contraseña inicial'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  key: const Key('memberPasswordField'),
+                  controller: _passwordController,
+                  focusNode: _passwordFocus,
+                  obscureText: true,
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(
+                      color: AppColors.onSurface, fontSize: 15),
+                  decoration: const InputDecoration(
+                    hintText: 'Mínimo 6 caracteres',
+                    prefixIcon: Icon(Icons.lock_outline_rounded, size: 18),
+                  ),
+                  onFieldSubmitted: (_) => _submit(),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Tú se la dices; podrá cambiarla desde su cuenta.',
+                  style:
+                      TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+                ),
+              ],
               const SizedBox(height: 16),
               _label('Rol'),
               const SizedBox(height: 6),
@@ -225,6 +333,72 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
                         fontWeight: FontWeight.w600),
                   ),
                 ),
+              const SizedBox(height: 16),
+              _label('Comisión'),
+              const SizedBox(height: 6),
+              // Sin opción pre-marcada más allá de "No comisiona" y sin tasa
+              // sugerida: la decide el dueño (RF-10). El ejemplo de abajo
+              // traduce el porcentaje a pesos para que no haya que calcular.
+              for (final option in _commissionOptions)
+                RadioListTile<CommissionType?>(
+                  key: Key('memberCommission-${option.$1?.apiValue ?? 'none'}'),
+                  value: option.$1,
+                  // ignore: deprecated_member_use
+                  groupValue: _commissionType,
+                  // ignore: deprecated_member_use
+                  onChanged: (value) => setState(() {
+                    _commissionType = value;
+                    _validate();
+                  }),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  activeColor: AppColors.emerald,
+                  visualDensity: VisualDensity.compact,
+                  title: Text(
+                    option.$2,
+                    style: const TextStyle(
+                        color: AppColors.onSurface,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+              if (_commissionType != null) ...[
+                const SizedBox(height: 6),
+                TextFormField(
+                  key: const Key('memberCommissionRateField'),
+                  controller: _rateController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(
+                      color: AppColors.onSurface, fontSize: 15),
+                  decoration: InputDecoration(
+                    hintText: _commissionType == CommissionType.fixedPerSale
+                        ? 'Ej: 15'
+                        : 'Ej: 5',
+                    prefixIcon: Icon(
+                      _commissionType == CommissionType.fixedPerSale
+                          ? Icons.attach_money_rounded
+                          : Icons.percent_rounded,
+                      size: 18,
+                    ),
+                    suffixText: _commissionType == CommissionType.fixedPerSale
+                        ? 'MXN por venta'
+                        : '%',
+                  ),
+                  onFieldSubmitted: (_) => _submit(),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _commissionExample ??
+                      (_commissionType == CommissionType.fixedPerSale
+                          ? 'Monto en pesos por cada venta cobrada.'
+                          : 'Porcentaje entre 0 y 100.'),
+                  key: const Key('memberCommissionExample'),
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.onSurfaceMuted),
+                ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 12),
                 Container(
@@ -273,6 +447,14 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
       ),
     );
   }
+
+  /// (tipo, etiqueta) — `null` es "No comisiona". Lenguaje de tendero.
+  static const _commissionOptions = <(CommissionType?, String)>[
+    (null, 'No comisiona'),
+    (CommissionType.percentageSale, '% de lo que vende'),
+    (CommissionType.percentageProfit, '% de la ganancia'),
+    (CommissionType.fixedPerSale, '\$ fijos por venta'),
+  ];
 
   Widget _label(String text) => Text(
         text,

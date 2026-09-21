@@ -642,6 +642,20 @@ class SalesService:
             self.session.add(credit_charge_entry)
 
         await self.sale_repo.create_sale(sale)
+
+        # Comisión automática del cajero (RF-10): si el empleado tiene un esquema
+        # configurado (tasa > 0), el asiento se congela en la misma transacción
+        # que la venta — nadie tiene que "registrar" la comisión a mano.
+        if current_user.commission_rate and current_user.commission_rate > Decimal("0.00"):
+            self.session.add(
+                self._build_commission(
+                    sale=sale,
+                    user_id=current_user.id,
+                    commission_type=current_user.commission_type,
+                    commission_rate=current_user.commission_rate,
+                )
+            )
+
         await self.session.commit()
         return self._build_sale_response(sale)
 
@@ -1340,6 +1354,43 @@ class SalesService:
     # DÍA 8: CÁLCULO Y GESTIÓN DE COMISIONES DINÁMICAS (RF-10 / Const. Art. 8.2)
     # =========================================================================
 
+    @staticmethod
+    def _build_commission(
+        sale: Sale,
+        user_id: uuid.UUID,
+        commission_type: CommissionType,
+        commission_rate: Decimal,
+    ) -> SaleCommission:
+        """
+        Calcula base y monto de la comisión según el esquema y arma el asiento (sin persistirlo).
+        PERCENTAGE_SALE: % del total · PERCENTAGE_PROFIT: % de la utilidad bruta · FIXED_PER_SALE: $ fijo.
+        """
+        if commission_type == CommissionType.PERCENTAGE_SALE:
+            base_amount = sale.total_mxn
+            commission_amount = (base_amount * (commission_rate / Decimal("100.00"))).quantize(Decimal("0.01"))
+        elif commission_type == CommissionType.PERCENTAGE_PROFIT:
+            profit = sale.total_mxn - sale.total_cost_mxn
+            base_amount = max(Decimal("0.00"), profit)
+            commission_amount = (base_amount * (commission_rate / Decimal("100.00"))).quantize(Decimal("0.01"))
+        elif commission_type == CommissionType.FIXED_PER_SALE:
+            base_amount = sale.total_mxn
+            commission_amount = commission_rate.quantize(Decimal("0.01"))
+        else:
+            base_amount = sale.total_mxn
+            commission_amount = Decimal("0.00")
+
+        return SaleCommission(
+            tenant_id=sale.tenant_id,
+            sale_id=sale.id,
+            user_id=user_id,
+            commission_type=commission_type,
+            commission_rate=commission_rate,
+            base_amount_mxn=base_amount,
+            commission_amount_mxn=commission_amount,
+            is_settled=False,
+            settled_at=None,
+        )
+
     async def record_sale_commission(
         self,
         sale_id: uuid.UUID,
@@ -1361,34 +1412,13 @@ class SalesService:
                 detail=f"La venta con ID {sale_id} no fue encontrada.",
             )
 
-        # 2. Calcular base y monto de comisión según el esquema
-        if commission_type == CommissionType.PERCENTAGE_SALE:
-            base_amount = sale.total_mxn
-            commission_amount = (base_amount * (commission_rate / Decimal("100.00"))).quantize(Decimal("0.01"))
-        elif commission_type == CommissionType.PERCENTAGE_PROFIT:
-            profit = sale.total_mxn - sale.total_cost_mxn
-            base_amount = max(Decimal("0.00"), profit)
-            commission_amount = (base_amount * (commission_rate / Decimal("100.00"))).quantize(Decimal("0.01"))
-        elif commission_type == CommissionType.FIXED_PER_SALE:
-            base_amount = sale.total_mxn
-            commission_amount = commission_rate.quantize(Decimal("0.01"))
-        else:
-            base_amount = sale.total_mxn
-            commission_amount = Decimal("0.00")
-
-        # 3. Crear entidad de comisión inmutable
-        commission = SaleCommission(
-            tenant_id=tenant_id,
-            sale_id=sale.id,
+        # 2. Calcular y crear el asiento inmutable (misma regla que el checkout automático)
+        commission = self._build_commission(
+            sale=sale,
             user_id=user_id,
             commission_type=commission_type,
             commission_rate=commission_rate,
-            base_amount_mxn=base_amount,
-            commission_amount_mxn=commission_amount,
-            is_settled=False,
-            settled_at=None,
         )
-
         created = await self.commission_repo.create_commission(commission)
 
         # Cargar nombre del beneficiario
