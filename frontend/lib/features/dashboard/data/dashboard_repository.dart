@@ -67,6 +67,12 @@ class DashboardRepositoryImpl implements DashboardRepository {
   static dynamic _unwrap(dynamic body) =>
       body is Map && body.containsKey('data') ? body['data'] : body;
 
+  /// Los `Decimal` del backend llegan como string con `response_model`.
+  static double _num(dynamic v) {
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '') ?? 0.0;
+  }
+
   @override
   Future<DailySnapshot> getTodaySnapshot() async {
     try {
@@ -78,7 +84,23 @@ class DashboardRepositoryImpl implements DashboardRepository {
       if (raw is! Map) {
         throw const DashboardException('Respuesta inválida recibida del servidor.');
       }
-      final snapshot = DailySnapshot.fromJson(Map<String, dynamic>.from(raw));
+      var snapshot = DailySnapshot.fromJson(Map<String, dynamic>.from(raw));
+      // "Por pagar a proveedores" es la deuda pendiente real (mismo resumen
+      // que usa el hub de Compras), no las órdenes por recibir. Es una
+      // lectura complementaria: si falla, la tarjeta queda en $0 sin tumbar
+      // el Inicio.
+      try {
+        final payables = await client.get('/api/v1/accounts-payable/summary');
+        final pr = _unwrap(payables.data);
+        if (pr is Map) {
+          snapshot = snapshot.withPayables(
+            dueMxn: _num(pr['total_pending_mxn']),
+            overdueCount: _num(pr['overdue_count']).round(),
+          );
+        }
+      } on DioException {
+        // Sin permiso o sin red: la tarjeta no miente, muestra $0.
+      }
       _lastSnapshot = snapshot;
       return snapshot;
     } on DioException catch (e) {

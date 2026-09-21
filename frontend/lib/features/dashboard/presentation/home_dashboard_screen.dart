@@ -104,7 +104,10 @@ class HomeDashboardScreen extends ConsumerWidget {
       body: RefreshIndicator(
         color: AppColors.emerald,
         backgroundColor: AppColors.surface,
-        onRefresh: () => ref.read(dailySnapshotProvider.notifier).refresh(),
+        onRefresh: () async {
+          ref.invalidate(recentSalesProvider);
+          await ref.read(dailySnapshotProvider.notifier).refresh();
+        },
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
@@ -541,8 +544,17 @@ class _AlertsSection extends ConsumerWidget {
                 ],
               ),
             ),
-            for (final alert in snapshot.lowStockAlerts)
+            // Tope (QA de Eduardo, Sep 21): con muchos productos el Inicio se
+            // volvía un scroll interminable. Se muestran los primeros; el
+            // resto vive en "Ver todas" (Inventario filtrado).
+            for (final alert in snapshot.lowStockAlerts.take(_kMaxStockAlertRows))
               _AlertRow(alert: alert),
+            if (snapshot.lowStockAlerts.length > _kMaxStockAlertRows)
+              _MoreAlertsRow(
+                key: const Key('homeAlertsMore'),
+                count: snapshot.lowStockAlerts.length - _kMaxStockAlertRows,
+                onTap: () => context.go(AppRoutes.inventory),
+              ),
           ],
 
           // Alertas de órdenes de compra pendientes
@@ -575,8 +587,14 @@ class _AlertsSection extends ConsumerWidget {
                 ],
               ),
             ),
-            for (final po in snapshot.pendingPurchaseAlerts)
+            for (final po in snapshot.pendingPurchaseAlerts.take(_kMaxPurchaseAlertRows))
               _PendingPurchaseAlertRow(alert: po),
+            if (snapshot.pendingPurchaseAlerts.length > _kMaxPurchaseAlertRows)
+              _MoreAlertsRow(
+                key: const Key('homePurchaseAlertsMore'),
+                count: snapshot.pendingPurchaseAlerts.length - _kMaxPurchaseAlertRows,
+                onTap: () => context.go(AppRoutes.purchases),
+              ),
           ],
         ],
       ),
@@ -585,6 +603,42 @@ class _AlertsSection extends ConsumerWidget {
 }
 
 /// Fila para alerta de producto agotado o con stock bajo
+/// Cuántos renglones de cada tipo caben en el Inicio antes de mandar a la
+/// lista completa: suficientes para actuar, pocos para no tapar el resto.
+const _kMaxStockAlertRows = 4;
+const _kMaxPurchaseAlertRows = 3;
+
+/// "+N más" al final de una lista recortada — toca y abre la lista completa.
+class _MoreAlertsRow extends StatelessWidget {
+  const _MoreAlertsRow({super.key, required this.count, required this.onTap});
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+        child: Row(
+          children: [
+            Text(
+              '+$count más',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.skyBlue,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.skyBlue),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AlertRow extends StatelessWidget {
   const _AlertRow({required this.alert});
 
@@ -739,7 +793,8 @@ class _DaySummary extends StatelessWidget {
                     : AppColors.onSurface,
                 value: mxn(snapshot.payablesDueMxn),
                 label: snapshot.payablesOverdueCount > 0
-                    ? '${snapshot.payablesOverdueCount} cuenta vencida'
+                    ? '${snapshot.payablesOverdueCount} '
+                        '${snapshot.payablesOverdueCount == 1 ? 'cuenta vencida' : 'cuentas vencidas'}'
                     : 'por pagar a proveedores',
                 onTap: () => context.go(AppRoutes.purchases),
               ),

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
+import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart'
+    show dashboardRepositoryProvider;
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
@@ -195,6 +198,7 @@ Future<void> _pump(
     ProviderScope(
       overrides: [
         if (repo != null) salesRepositoryProvider.overrideWithValue(repo),
+        dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock()),
         if (inventoryRepo != null)
           inventoryRepositoryProvider.overrideWithValue(inventoryRepo),
         hasPermissionProvider(Permissions.ventasEliminar).overrideWithValue(canRefund),

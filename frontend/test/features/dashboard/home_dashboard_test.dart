@@ -14,6 +14,7 @@ import 'package:nexus_app/features/management/presentation/management_provider.d
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
 import 'package:nexus_app/features/dashboard/domain/daily_snapshot.dart';
+import 'package:nexus_app/features/dashboard/domain/stock_alert.dart';
 import 'package:nexus_app/features/dashboard/domain/store_notification.dart';
 import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart';
 import 'package:nexus_app/features/dashboard/presentation/home_dashboard_screen.dart';
@@ -262,6 +263,43 @@ void main() {
       expect(find.text('Quedan 4'), findsOneWidget);
     });
 
+    testWidgets('con muchas alertas muestra 4 y manda el resto a "+N más"',
+        (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+          managementRepositoryProvider.overrideWith(
+              (ref) => ManagementRepositoryMock(
+                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
+          storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
+          clockProvider.overrideWithValue(() => _now),
+          dashboardRepositoryProvider
+              .overrideWithValue(_ManyAlertsMock(now: _now, count: 9)),
+          sessionProvider.overrideWith((ref) => true),
+          currentUserNameProvider.overrideWith((ref) => _owner),
+          operatingWarehouseStoreProvider
+              .overrideWithValue(OperatingWarehouseStoreMemory()),
+          inventoryRepositoryProvider
+              .overrideWithValue(InventoryRepositoryMock()),
+          salesRepositoryProvider
+              .overrideWith((ref) => SalesRepositoryMock(clock: () => _now)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_app(container, const HomeDashboardScreen()));
+      await _settle(tester);
+
+      await tester.scrollUntilVisible(find.byKey(const Key('homeAlertsMore')), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.byKey(const Key('homeAlertsMore')), findsOneWidget);
+      expect(find.text('+5 más'), findsOneWidget);
+      expect(find.byKey(const Key('homeAlertRow-many-0')), findsOneWidget);
+      expect(find.byKey(const Key('homeAlertRow-many-3')), findsOneWidget);
+      expect(find.byKey(const Key('homeAlertRow-many-4')), findsNothing);
+    });
+
     testWidgets('sin alertas de stock muestra un estado tranquilo',
         (tester) async {
       final container = ProviderContainer(
@@ -269,10 +307,6 @@ void main() {
           // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
           // se sustituye por un stream vacío y el repo mock (sin timers ni red).
           orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
-      // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
-      managementRepositoryProvider.overrideWith(
-          (ref) => ManagementRepositoryMock(
-                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
           // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
           managementRepositoryProvider.overrideWith(
               (ref) => ManagementRepositoryMock(
@@ -431,10 +465,6 @@ void main() {
           // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
           // se sustituye por un stream vacío y el repo mock (sin timers ni red).
           orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
-      // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
-      managementRepositoryProvider.overrideWith(
-          (ref) => ManagementRepositoryMock(
-                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
           // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
           managementRepositoryProvider.overrideWith(
               (ref) => ManagementRepositoryMock(
@@ -514,7 +544,15 @@ void main() {
       expect(snapshot.pendingPurchasesAlerts.length, equals(1));
       expect(snapshot.pendingPurchasesAlerts.first.totalMxn, equals(1500.50));
       expect(snapshot.pendingPurchasesAlerts.first.daysPending, equals(2));
-      expect(snapshot.payablesDueMxn, equals(1500.50));
+      // Las órdenes por recibir NO son cuentas por pagar (QA de Eduardo,
+      // Sep 21): el JSON de KPIs deja las por pagar en cero y el repositorio
+      // las completa con /accounts-payable/summary.
+      expect(snapshot.payablesDueMxn, equals(0));
+      expect(snapshot.payablesOverdueCount, equals(0));
+      final withDebt = snapshot.withPayables(dueMxn: 3240.5, overdueCount: 2);
+      expect(withDebt.payablesDueMxn, 3240.5);
+      expect(withDebt.payablesOverdueCount, 2);
+      expect(withDebt.salesTodayMxn, snapshot.salesTodayMxn);
     });
   });
 }
@@ -542,6 +580,40 @@ class _NoAlertsMock extends DashboardRepositoryMock {
       lowStockCount: 0,
       outOfStockCount: 0,
       lowStockAlerts: const [],
+      payablesDueMxn: base.payablesDueMxn,
+      payablesOverdueCount: base.payablesOverdueCount,
+      isCashSessionOpen: base.isCashSessionOpen,
+      cashExpectedMxn: base.cashExpectedMxn,
+    );
+  }
+}
+
+/// Snapshot con `count` productos en alerta — para el tope del Inicio.
+class _ManyAlertsMock extends DashboardRepositoryMock {
+  _ManyAlertsMock({super.now, required this.count});
+  final int count;
+
+  @override
+  Future<DailySnapshot> getTodaySnapshot() async {
+    final base = await super.getTodaySnapshot();
+    final alerts = [
+      for (var i = 0; i < count; i++)
+        StockAlertItem(
+          productId: 'many-$i',
+          productName: 'Producto $i',
+          availableStock: i,
+          isOutOfStock: i == 0,
+          minStock: 5,
+        ),
+    ];
+    return DailySnapshot(
+      salesTodayMxn: base.salesTodayMxn,
+      salesTodayCount: base.salesTodayCount,
+      salesYesterdayMxn: base.salesYesterdayMxn,
+      marginTodayMxn: base.marginTodayMxn,
+      lowStockCount: count - 1,
+      outOfStockCount: 1,
+      lowStockAlerts: alerts,
       payablesDueMxn: base.payablesDueMxn,
       payablesOverdueCount: base.payablesOverdueCount,
       isCashSessionOpen: base.isCashSessionOpen,

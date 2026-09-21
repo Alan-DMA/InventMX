@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
+import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart'
+    show dashboardRepositoryProvider;
 import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
 import 'package:nexus_app/features/account/presentation/account_provider.dart';
@@ -71,6 +74,9 @@ ProviderContainer _makeCheckoutContainer({
     overrides: [
       salesRepositoryProvider.overrideWithValue(salesRepo),
       inventoryRepositoryProvider.overrideWithValue(inventoryRepo),
+      // El checkout invalida el Inicio (Sep 21): sin mock, construiría el
+      // repo real (Hive + red) dentro del test.
+      dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock()),
       operatingWarehouseStoreProvider
           .overrideWithValue(OperatingWarehouseStoreMemory()),
       authRepositoryProvider

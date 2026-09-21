@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../dashboard/presentation/dashboard_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../management/domain/app_permission.dart' show Permissions;
 import '../../inventory/presentation/inventory_provider.dart';
@@ -234,6 +235,9 @@ class _SaleReceiptScreenState extends ConsumerState<SaleReceiptScreen> {
     // producto seguían mostrando la lista cacheada de `inventoryProvider` si
     // no se invalida también aquí.
     ref.invalidate(inventoryProvider);
+    // Y el Inicio: lo vendido hoy baja y el renglón cambia de etiqueta.
+    ref.invalidate(dailySnapshotProvider);
+    ref.invalidate(recentSalesProvider);
   }
 
   void _showPrintBlocker(BuildContext context) {

@@ -145,12 +145,39 @@ class DailySnapshot extends Equatable {
       pendingPurchasesAlerts: poList,
       revenueChangePercent: revChange,
       marginChangePercent: marginChange,
-      payablesDueMxn: poList.fold<double>(0.0, (acc, po) => acc + po.totalMxn),
-      payablesOverdueCount: poList.where((po) => po.isOverdue).length,
+      // Provisional: el endpoint de KPIs no trae cuentas por pagar; el
+      // repositorio las sustituye con `GET /accounts-payable/summary`
+      // (`withPayables`). Sumar órdenes por recibir aquí era "por recibir",
+      // no "por pagar" (QA de Eduardo, Sep 21).
+      payablesDueMxn: 0,
+      payablesOverdueCount: 0,
       isCashSessionOpen: true,
       cashExpectedMxn: totalRevenue,
     );
   }
+
+  /// Mismo snapshot con las cuentas por pagar reales (deuda con proveedores
+  /// pendiente y cuántas están vencidas), que salen de otro endpoint.
+  DailySnapshot withPayables({
+    required double dueMxn,
+    required int overdueCount,
+  }) =>
+      DailySnapshot(
+        salesTodayMxn: salesTodayMxn,
+        salesTodayCount: salesTodayCount,
+        salesYesterdayMxn: salesYesterdayMxn,
+        marginTodayMxn: marginTodayMxn,
+        lowStockCount: lowStockCount,
+        outOfStockCount: outOfStockCount,
+        lowStockAlerts: lowStockAlerts,
+        pendingPurchasesAlerts: pendingPurchasesAlerts,
+        revenueChangePercent: revenueChangePercent,
+        marginChangePercent: marginChangePercent,
+        payablesDueMxn: dueMxn,
+        payablesOverdueCount: overdueCount,
+        isCashSessionOpen: isCashSessionOpen,
+        cashExpectedMxn: cashExpectedMxn,
+      );
 
   @override
   List<Object?> get props => [

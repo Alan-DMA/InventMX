@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../features/account/presentation/account_provider.dart';
 import '../../../features/auth/presentation/login_provider.dart';
+import '../../../features/dashboard/presentation/dashboard_provider.dart';
 import '../../../features/inventory/domain/product.dart';
 import '../../../features/inventory/presentation/inventory_provider.dart';
 import '../../../features/whatsapp_catalog/domain/store_order.dart';
@@ -184,6 +185,11 @@ class CartNotifier extends Notifier<CartState> {
       final originFolio = state.originOrderFolio;
       state = CartState(lastCheckoutResult: result);
       ref.invalidate(inventoryProvider);
+      // Inicio (QA de Eduardo, Sep 21): "Vendido hoy" y "Últimas ventas" se
+      // cargan una vez y nadie los refrescaba al cobrar — el mismo bug de
+      // caché que el stock. Se invalidan aquí, no en la pantalla.
+      ref.invalidate(dailySnapshotProvider);
+      ref.invalidate(recentSalesProvider);
       // El pedido web que originó este cobro queda Entregado con su venta.
       // Nunca falla hacia afuera: la venta ya existe.
       if (originFolio != null) {
