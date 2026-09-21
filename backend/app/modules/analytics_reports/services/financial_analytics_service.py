@@ -15,11 +15,18 @@ from app.modules.analytics_reports.repositories.financial_analytics_repository i
 from app.modules.analytics_reports.schemas.analytics_schemas import (
     CashFlowSummaryResponse,
     CriticalStockProductResponse,
+    DashboardInventoryMetrics,
+    DashboardKPIResponse,
+    DashboardPeriodInfo,
+    DashboardProfitability,
+    DashboardSalesMetrics,
+    DashboardTopProductItem,
     DateRangePreset,
     ExecutiveFinancialSummaryResponse,
     InventoryHealthResponse,
     InventoryValuationResponse,
     PaymentMethodMetric,
+    PendingPurchaseAlertSchema,
     TopSellingProductResponse,
     WorkingCapitalResponse,
 )
@@ -163,4 +170,135 @@ class FinancialAnalyticsService:
             accounts_receivable_mxn=wc["accounts_receivable_mxn"],
             accounts_payable_mxn=wc["accounts_payable_mxn"],
             net_working_capital_mxn=wc["net_working_capital_mxn"],
+        )
+
+    async def get_dashboard_kpis(
+        self,
+        current_user: User,
+        period: str = "TODAY",
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        compare_previous: bool = True,
+    ) -> DashboardKPIResponse:
+        """
+        Calcula y consolida todos los indicadores de rendimiento (KPIs) en tiempo real
+        para el Dashboard principal (docs/api/analytics.yaml).
+        """
+        now = datetime.now()
+        # 1. Determinar rango actual y rango previo para comparación
+        if period == "TODAY" or not period:
+            start_current = datetime.combine(now.date(), time.min)
+            end_current = datetime.combine(now.date(), time.max)
+            # Periodo previo = Ayer completo
+            start_prev = datetime.combine(now.date() - timedelta(days=1), time.min)
+            end_prev = datetime.combine(now.date() - timedelta(days=1), time.max)
+        elif period == "YESTERDAY":
+            start_current = datetime.combine(now.date() - timedelta(days=1), time.min)
+            end_current = datetime.combine(now.date() - timedelta(days=1), time.max)
+            start_prev = datetime.combine(now.date() - timedelta(days=2), time.min)
+            end_prev = datetime.combine(now.date() - timedelta(days=2), time.max)
+        elif period == "WEEK":
+            start_week = now.date() - timedelta(days=now.weekday())
+            start_current = datetime.combine(start_week, time.min)
+            end_current = datetime.combine(now.date() + timedelta(days=(6 - now.weekday())), time.max)
+            start_prev = start_current - timedelta(days=7)
+            end_prev = end_current - timedelta(days=7)
+        elif period == "MONTH":
+            start_current = datetime.combine(now.date().replace(day=1), time.min)
+            next_month = (now.date().replace(day=28) + timedelta(days=4)).replace(day=1)
+            end_current = datetime.combine(next_month - timedelta(days=1), time.max)
+            prev_month_last = start_current.date() - timedelta(days=1)
+            start_prev = datetime.combine(prev_month_last.replace(day=1), time.min)
+            end_prev = datetime.combine(prev_month_last, time.max)
+        elif date_from and date_to:
+            start_current = date_from
+            end_current = date_to
+            diff = end_current - start_current
+            start_prev = start_current - diff
+            end_prev = start_current - timedelta(seconds=1)
+        else:
+            start_current = datetime.combine(now.date(), time.min)
+            end_current = datetime.combine(now.date(), time.max)
+            start_prev = datetime.combine(now.date() - timedelta(days=1), time.min)
+            end_prev = datetime.combine(now.date() - timedelta(days=1), time.max)
+
+        # 2. Consultar métricas de ventas del periodo actual
+        current_metrics = await self.repo.get_financial_summary_metrics(
+            current_user.tenant_id, start_current, end_current
+        )
+
+        # 3. Consultar métricas previas si compare_previous es True para calcular variaciones
+        revenue_change_percent = None
+        margin_change_percent = None
+        if compare_previous:
+            prev_metrics = await self.repo.get_financial_summary_metrics(
+                current_user.tenant_id, start_prev, end_prev
+            )
+            prev_rev = prev_metrics["net_sales_mxn"]
+            curr_rev = current_metrics["net_sales_mxn"]
+            if prev_rev > Decimal("0.00"):
+                revenue_change_percent = (
+                    ((curr_rev - prev_rev) / prev_rev * Decimal("100.00")).quantize(Decimal("0.01"))
+                )
+
+            prev_profit = prev_metrics["gross_profit_mxn"]
+            curr_profit = current_metrics["gross_profit_mxn"]
+            if prev_profit > Decimal("0.00"):
+                margin_change_percent = (
+                    ((curr_profit - prev_profit) / prev_profit * Decimal("100.00")).quantize(Decimal("0.01"))
+                )
+
+        # 4. Obtener valuación y productos con stock crítico
+        val_data = await self.repo.get_inventory_valuation(current_user.tenant_id)
+        critical_stock_data = await self.repo.get_critical_stock_products(current_user.tenant_id)
+        critical_alerts = [CriticalStockProductResponse(**c) for c in critical_stock_data]
+
+        # 5. Obtener los 5 productos más vendidos
+        top_data = await self.repo.get_top_selling_products(
+            current_user.tenant_id, start_current, end_current, limit=5
+        )
+        top_products = [
+            DashboardTopProductItem(
+                product_name=t["product_name"],
+                units_sold=t["units_sold"],
+                revenue_mxn=t["revenue_mxn"],
+                profit_mxn=t["profit_mxn"],
+            )
+            for t in top_data
+        ]
+
+        # 6. Obtener alertas de órdenes de compra pendientes
+        pending_po_data = await self.repo.get_pending_purchase_orders_alerts(
+            current_user.tenant_id, limit=5
+        )
+        pending_purchases = [PendingPurchaseAlertSchema(**p) for p in pending_po_data]
+
+        # 7. Construir respuesta agregada unificada
+        return DashboardKPIResponse(
+            period_info=DashboardPeriodInfo(
+                period=period or "TODAY",
+                start_date=start_current.strftime("%Y-%m-%d"),
+                end_date=end_current.strftime("%Y-%m-%d"),
+            ),
+            sales_metrics=DashboardSalesMetrics(
+                total_revenue_mxn=current_metrics["net_sales_mxn"],
+                total_orders=current_metrics["total_transactions"],
+                average_ticket_mxn=current_metrics["average_ticket_mxn"],
+                revenue_change_percent=revenue_change_percent,
+            ),
+            profitability=DashboardProfitability(
+                gross_profit_mxn=current_metrics["gross_profit_mxn"],
+                gross_margin_percent=current_metrics["profit_margin_pct"],
+                margin_change_percent=margin_change_percent,
+            ),
+            inventory_metrics=DashboardInventoryMetrics(
+                total_products=val_data["total_active_skus"],
+                products_with_stock=max(0, val_data["total_active_skus"] - len(critical_alerts)),
+                low_stock_alerts=len(critical_alerts),
+                inventory_value_mxn=val_data["total_inventory_cost_mxn"],
+                turnover_rate=None,
+            ),
+            top_products=top_products,
+            critical_stock_alerts=critical_alerts,
+            pending_purchases=pending_purchases,
         )

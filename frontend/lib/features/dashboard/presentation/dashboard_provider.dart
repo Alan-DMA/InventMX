@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/data/auth_repository.dart'
+    show dioClientProvider, secureStorageProvider;
 import '../../sales_pos/data/sales_repository.dart';
 import '../../sales_pos/domain/sale_summary.dart';
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
@@ -10,10 +12,13 @@ import '../data/dashboard_repository.dart';
 import '../domain/daily_snapshot.dart';
 import '../domain/store_notification.dart';
 
-/// 100% mock en esta pasada (decisión de Eduardo, Sep 2026). El mapa de qué
-/// endpoint sustituirá cada dato está en [DashboardRepository].
+/// Proveedor del repositorio del Centro de Mando.
+/// Conectado en producción al endpoint real de analítica `GET /api/v1/analytics/dashboard`.
 final dashboardRepositoryProvider = Provider<DashboardRepository>(
-  (_) => DashboardRepositoryMock(),
+  (ref) => DashboardRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+    storage: ref.watch(secureStorageProvider),
+  ),
 );
 
 // ---------------------------------------------------------------------------

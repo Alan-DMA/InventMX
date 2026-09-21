@@ -24,6 +24,8 @@ import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
 import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
 import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
+import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
+import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart';
 
 /// Tarea 14.2.3 — CA-08 (puerta /admin), CA-09 (banner Soft Lock + guarda),
 /// CA-10 (Hard Lock: redirect, salida a pago, liberación al reactivar).
@@ -80,6 +82,9 @@ void main() {
           // Mismo motivo para Compras: `purchasesRepositoryProvider` apunta a
           // `PurchasesRepositoryImpl` desde la octava sesión (Sep 19).
           purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
+          // El Dashboard pide métricas al backend real — en tests de integración
+          // se usa el mock determinista.
+          dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock(now: now)),
         ],
         child: Consumer(
           builder: (_, ref, __) {

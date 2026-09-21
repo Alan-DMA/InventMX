@@ -41,14 +41,14 @@ class DashboardShell extends StatelessWidget {
       label: 'Ventas',
     ),
     _TabItem(
+      icon: Icons.local_shipping_outlined,
+      activeIcon: Icons.local_shipping_rounded,
+      label: 'Compras',
+    ),
+    _TabItem(
       icon: Icons.account_balance_wallet_outlined,
       activeIcon: Icons.account_balance_wallet_rounded,
       label: 'Caja',
-    ),
-    _TabItem(
-      icon: Icons.bar_chart_outlined,
-      activeIcon: Icons.bar_chart_rounded,
-      label: 'Reportes',
     ),
   ];
 

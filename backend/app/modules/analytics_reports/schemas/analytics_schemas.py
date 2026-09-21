@@ -120,3 +120,109 @@ class WorkingCapitalResponse(BaseModel):
     net_working_capital_mxn: Decimal = Field(..., description="Capital de trabajo neto en $ MXN (Caja + Por Cobrar - Por Pagar)")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardPeriodInfo(BaseModel):
+    """Información del periodo consultado para el Dashboard."""
+    # Nombre del periodo (TODAY, YESTERDAY, WEEK, MONTH, etc.)
+    period: str = Field(..., description="Periodo analizado")
+    # Fecha de inicio en formato ISO
+    start_date: str = Field(..., description="Fecha inicial del periodo")
+    # Fecha de término en formato ISO
+    end_date: str = Field(..., description="Fecha final del periodo")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardSalesMetrics(BaseModel):
+    """Métricas de ventas en tiempo real para el Dashboard principal."""
+    # Total de ingresos netos cobrados en Pesos Mexicanos
+    total_revenue_mxn: Decimal = Field(..., description="Venta total neta en Pesos Mexicanos ($ MXN)")
+    # Conteo de tickets de venta cobrados
+    total_orders: int = Field(..., description="Número total de transacciones completadas")
+    # Ticket promedio de compra
+    average_ticket_mxn: Decimal = Field(..., description="Ticket promedio en Pesos Mexicanos ($ MXN)")
+    # Variación porcentual contra el periodo anterior (ej. ayer)
+    revenue_change_percent: Optional[Decimal] = Field(None, description="Cambio porcentual vs periodo anterior")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardProfitability(BaseModel):
+    """Métricas de rentabilidad y margen en tiempo real."""
+    # Utilidad bruta en Pesos Mexicanos (Venta - COGS)
+    gross_profit_mxn: Decimal = Field(..., description="Utilidad bruta en Pesos Mexicanos ($ MXN)")
+    # Margen bruto porcentual sobre ventas netas
+    gross_margin_percent: Decimal = Field(..., description="Margen bruto porcentual")
+    # Variación porcentual del margen contra el periodo anterior (ej. ayer)
+    margin_change_percent: Optional[Decimal] = Field(None, description="Cambio porcentual de margen vs periodo anterior")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardInventoryMetrics(BaseModel):
+    """Métricas de salud del inventario para el Dashboard."""
+    # Total de SKUs activos
+    total_products: int = Field(..., description="Total de productos activos")
+    # SKUs con inventario positivo
+    products_with_stock: int = Field(..., description="Productos con stock disponible")
+    # Cantidad de productos en o por debajo del umbral mínimo de stock
+    low_stock_alerts: int = Field(..., description="Cantidad de productos con alerta de stock bajo")
+    # Valuación económica total del inventario físico
+    inventory_value_mxn: Decimal = Field(..., description="Valuación del inventario a precio de costo en $ MXN")
+    # Tasa de rotación opcional
+    turnover_rate: Optional[Decimal] = Field(None, description="Tasa de rotación estimada")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PendingPurchaseAlertSchema(BaseModel):
+    """Alerta de orden de compra pendiente de recepción o vencida."""
+    # Identificador único de la orden de compra
+    id: uuid.UUID = Field(..., description="Identificador único de la orden de compra")
+    # Folio comercial (ej. OC-00012)
+    folio: str = Field(..., description="Folio oficial de la orden de compra")
+    # Nombre del proveedor
+    supplier_name: str = Field(..., description="Nombre comercial del proveedor")
+    # Monto total comprometido
+    total_mxn: Decimal = Field(..., description="Monto total de la compra en $ MXN")
+    # Días transcurridos desde la emisión
+    days_pending: int = Field(..., description="Días transcurridos desde que se emitió la orden")
+    # Indica si ya superó la fecha prometida de entrega
+    is_overdue: bool = Field(..., description="Verdadero si la entrega prometida está vencida")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardTopProductItem(BaseModel):
+    """Producto destacado en el ranking del periodo."""
+    # Nombre del artículo
+    product_name: str = Field(..., description="Nombre del producto")
+    # Unidades vendidas en el periodo
+    units_sold: Decimal = Field(..., description="Cantidad de unidades vendidas")
+    # Ingreso total generado
+    revenue_mxn: Decimal = Field(..., description="Ingresos en Pesos Mexicanos ($ MXN)")
+    # Utilidad bruta generada
+    profit_mxn: Decimal = Field(..., description="Utilidad bruta en Pesos Mexicanos ($ MXN)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardKPIResponse(BaseModel):
+    """Respuesta unificada de KPIs del Dashboard principal (docs/api/analytics.yaml)."""
+    # Contexto del periodo evaluado
+    period_info: DashboardPeriodInfo = Field(..., description="Datos del periodo analizado")
+    # Indicadores de venta
+    sales_metrics: DashboardSalesMetrics = Field(..., description="Métricas de ventas")
+    # Indicadores de margen y utilidad
+    profitability: DashboardProfitability = Field(..., description="Métricas de rentabilidad")
+    # Indicadores de inventario
+    inventory_metrics: DashboardInventoryMetrics = Field(..., description="Métricas de existencias")
+    # Top 5 productos más vendidos del periodo
+    top_products: List[DashboardTopProductItem] = Field(default_factory=list, description="Top productos vendidos")
+    # Alertas de productos con stock bajo o agotado
+    critical_stock_alerts: List[CriticalStockProductResponse] = Field(default_factory=list, description="Alertas de stock bajo")
+    # Alertas de órdenes de compra pendientes o vencidas
+    pending_purchases: List[PendingPurchaseAlertSchema] = Field(default_factory=list, description="Órdenes de compra pendientes")
+
+    model_config = ConfigDict(from_attributes=True)

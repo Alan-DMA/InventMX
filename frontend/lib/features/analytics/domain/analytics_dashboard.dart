@@ -43,7 +43,7 @@ class DailySalesPoint extends Equatable {
   factory DailySalesPoint.fromJson(Map<dynamic, dynamic> json) => DailySalesPoint(
         date: DateTime.tryParse(json['period']?.toString() ?? '') ?? DateTime.now(),
         revenueMxn: _d(json['revenue_mxn']),
-        ordersCount: (json['orders_count'] as num?)?.toInt() ?? 0,
+        ordersCount: _i(json['orders_count']),
       );
 
   @override
@@ -66,7 +66,7 @@ class TopProduct extends Equatable {
 
   factory TopProduct.fromJson(Map<dynamic, dynamic> json) => TopProduct(
         name: (json['product_name'] ?? json['name'] ?? '').toString(),
-        unitsSold: (json['units_sold'] as num?)?.toInt() ?? 0,
+        unitsSold: _i(json['units_sold']),
         revenueMxn: _d(json['revenue_mxn']),
         profitMxn: _d(json['profit_mxn']),
       );
@@ -150,9 +150,10 @@ class AnalyticsDashboard extends Equatable {
     final start = DateTime.tryParse(info['start_date']?.toString() ?? '') ?? DateTime.now();
     final end = DateTime.tryParse(info['end_date']?.toString() ?? '') ?? DateTime.now();
     final current = _d(sales['total_revenue_mxn']);
-    final change = sales['revenue_change_percent'];
-    final previous = change is num && change != -100
-        ? current / (1 + change / 100)
+    final changeVal = _d(sales['revenue_change_percent']);
+    final hasChange = sales['revenue_change_percent'] != null;
+    final previous = hasChange && changeVal != -100
+        ? current / (1 + changeVal / 100)
         : 0.0;
 
     return AnalyticsDashboard(
@@ -160,7 +161,7 @@ class AnalyticsDashboard extends Equatable {
       periodStart: start,
       periodEnd: end,
       totalRevenueMxn: current,
-      totalOrders: (sales['total_orders'] as num?)?.toInt() ?? 0,
+      totalOrders: _i(sales['total_orders']),
       averageTicketMxn: _d(sales['average_ticket_mxn']),
       grossProfitMxn: _d(profit['gross_profit_mxn']),
       grossMarginPercent: _d(profit['gross_margin_percent']),
@@ -192,6 +193,14 @@ class AnalyticsDashboard extends Equatable {
 }
 
 double _d(dynamic v) {
+  if (v == null) return 0.0;
   if (v is num) return v.toDouble();
   return double.tryParse('$v') ?? 0.0;
+}
+
+int _i(dynamic v) {
+  if (v == null) return 0;
+  if (v is num) return v.toInt();
+  final s = v.toString().trim();
+  return int.tryParse(s) ?? double.tryParse(s)?.toInt() ?? 0;
 }
