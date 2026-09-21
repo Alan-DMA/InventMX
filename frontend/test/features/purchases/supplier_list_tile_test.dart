@@ -11,8 +11,9 @@ final _supplier = Supplier(
   id: 'sup-001',
   name: 'Distribuidora Bimbo Norte',
   phone: '+525512345678',
-  balanceDueMxn: 0,
+  status: SupplierStatus.active,
   createdAt: DateTime(2026, 1, 1),
+  updatedAt: DateTime(2026, 1, 1),
 );
 
 Widget _buildApp(List<Uri> launchedUris) {
@@ -59,8 +60,9 @@ void main() {
     final supplierNoPhone = Supplier(
       id: 'sup-002',
       name: 'Proveedor sin teléfono',
-      balanceDueMxn: 0,
+      status: SupplierStatus.active,
       createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
     );
 
     await tester.pumpWidget(

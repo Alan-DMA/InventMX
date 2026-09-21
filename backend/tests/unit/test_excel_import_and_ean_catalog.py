@@ -2,6 +2,7 @@
 import io
 # Importación del módulo json para serialización de mapeos
 import json
+from decimal import Decimal
 # Importación del módulo uuid para generación de datos únicos
 import uuid
 # Importación del framework pytest
@@ -356,3 +357,46 @@ async def test_multi_tenant_rls_during_excel_import(client: AsyncClient):
     kardex_b = await client.get("/api/v1/inventory/movements", headers=headers_b)
     assert kardex_b.status_code == 200
     assert len(kardex_b.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_import_without_stock_column_enters_zero_stock(client: AsyncClient):
+    """
+    RF-01 (Sep 2026, integración con el wizard de Flutter): la columna de existencias
+    es opcional en la UI, así que `stock_column` puede omitirse — los productos entran
+    con stock 0 y sin asiento inicial en Kardex.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Sin Stock {suffix}",
+            "slug": f"sin-stock-{suffix}",
+            "full_name": "Dueño Sin Stock",
+            "email": f"sinstock_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    csv_content = "Producto,Precio\nJabón Zote 200g,19.50\nPapel Pétalo 4 rollos,38.00\n"
+    files = {"file": ("lista.csv", csv_content.encode("utf-8"), "text/csv")}
+    data = {"mapping": json.dumps({"name_column": "Producto", "price_column": "Precio"})}
+
+    exec_resp = await client.post(
+        "/api/v1/inventory/import/execute", files=files, data=data, headers=headers
+    )
+    assert exec_resp.status_code == 200, exec_resp.text
+    result = exec_resp.json()
+    assert result["imported_count"] == 2
+    assert result["skipped_count"] == 0
+    assert result["status"] == "completed"
+
+    list_resp = await client.get("/api/v1/inventory/products", headers=headers)
+    assert list_resp.status_code == 200
+    body = list_resp.json()
+    items = body["items"] if isinstance(body, dict) else body
+    assert len(items) == 2
+    for item in items:
+        assert Decimal(str(item["total_stock"])) == Decimal("0.00")

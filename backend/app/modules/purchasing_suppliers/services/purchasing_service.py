@@ -39,11 +39,14 @@ from app.modules.purchasing_suppliers.repositories.supplier_repository import (
 )
 from app.modules.purchasing_suppliers.schemas.account_payable import AccountPayableResponse
 from app.modules.purchasing_suppliers.schemas.purchase_order import (
+    PurchaseOrderCancelRequest,
     PurchaseOrderCreateRequest,
+    PurchaseOrderItemCreateRequest,
     PurchaseOrderItemResponse,
     PurchaseOrderReceiveRequest,
     PurchaseOrderReceiveResponse,
     PurchaseOrderResponse,
+    PurchaseOrderUpdateRequest,
 )
 from app.modules.purchasing_suppliers.schemas.supplier import (
     SupplierCreateRequest,
@@ -87,6 +90,7 @@ class PurchasingService:
             notes=request.notes,
         )
         saved = await self.supplier_repo.create(supplier)
+        await self.session.commit()
         return SupplierResponse.model_validate(saved)
 
     async def update_supplier(
@@ -123,6 +127,7 @@ class PurchasingService:
             supplier.notes = request.notes
 
         updated = await self.supplier_repo.update(supplier)
+        await self.session.commit()
         return SupplierResponse.model_validate(updated)
 
     async def get_supplier(
@@ -171,6 +176,7 @@ class PurchasingService:
             )
         supplier.status = SupplierStatus.INACTIVE
         updated = await self.supplier_repo.update(supplier)
+        await self.session.commit()
         return SupplierResponse.model_validate(updated)
 
     # -------------------------------------------------------------------------
@@ -224,39 +230,9 @@ class PurchasingService:
         folio = await self.po_repo.generate_next_folio(current_user.tenant_id)
 
         # 4. Validar productos y calcular totales
-        po_items: List[PurchaseOrderItem] = []
-        subtotal_sum = Decimal("0.00")
-
-        for item_req in request.items:
-            # Validar existencia de producto
-            p_stmt = select(Product).where(
-                Product.id == item_req.product_id,
-                Product.tenant_id == current_user.tenant_id,
-            )
-            p_res = await self.session.execute(p_stmt)
-            product = p_res.scalar_one_or_none()
-            if not product:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Producto {item_req.product_id} no encontrado.",
-                )
-
-            # Costo unitario acordado (si viene 0, tomar el costo actual del producto)
-            unit_cost = item_req.unit_cost_mxn if item_req.unit_cost_mxn > Decimal("0.0000") else getattr(product, "cost_mxn", Decimal("0.0000"))
-            line_subtotal = (unit_cost * item_req.quantity_ordered).quantize(Decimal("0.01"))
-            subtotal_sum += line_subtotal
-
-            po_item = PurchaseOrderItem(
-                tenant_id=current_user.tenant_id,
-                product_id=product.id,
-                quantity_ordered=item_req.quantity_ordered,
-                quantity_received=Decimal("0.0000"),
-                unit_cost_mxn=unit_cost,
-                subtotal_mxn=line_subtotal,
-                lot_number=item_req.lot_number,
-                expiry_date=item_req.expiry_date,
-            )
-            po_items.append(po_item)
+        po_items, subtotal_sum = await self._build_order_items(
+            request.items, current_user.tenant_id
+        )
 
         tax_total = Decimal("0.00")
         total_order = subtotal_sum + tax_total
@@ -278,8 +254,186 @@ class PurchasingService:
         )
 
         saved_order = await self.po_repo.create(order)
+        await self.session.commit()
         # Recargar con relaciones
         full_order = await self.po_repo.get_by_id(saved_order.id, current_user.tenant_id)
+        return self._build_order_response(full_order)
+
+    def _ensure_order_not_started(self, order: PurchaseOrder, action: str) -> None:
+        """
+        Una orden que ya recibió mercancía no se edita ni se cancela.
+
+        En cuanto entra la primera pieza hay stock asentado en el almacén,
+        movimientos en el Kardex (append-only) y una cuenta por pagar creada:
+        revertir eso no es corregir una orden, es otra operación distinta.
+        Mantener la barrera aquí evita que el inventario y las cuentas queden
+        describiendo cosas que no pasaron.
+        """
+        if order.status == PurchaseOrderStatus.CANCELLED:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="La orden ya está cancelada.",
+            )
+
+        received = sum((item.quantity_received or Decimal("0")) for item in order.items)
+        if received > 0 or order.status in (
+            PurchaseOrderStatus.RECEIVED,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Esta orden ya recibió mercancía, así que no se puede {action}. "
+                    "El stock y la cuenta por pagar ya existen."
+                ),
+            )
+
+    async def _build_order_items(
+        self,
+        items_request: List[PurchaseOrderItemCreateRequest],
+        tenant_id: uuid.UUID,
+    ) -> Tuple[List[PurchaseOrderItem], Decimal]:
+        """
+        Valida los productos de los renglones y arma las líneas con su
+        subtotal. Compartido por la creación y la edición de una orden.
+        """
+        po_items: List[PurchaseOrderItem] = []
+        subtotal_sum = Decimal("0.00")
+
+        for item_req in items_request:
+            p_stmt = select(Product).where(
+                Product.id == item_req.product_id,
+                Product.tenant_id == tenant_id,
+            )
+            p_res = await self.session.execute(p_stmt)
+            product = p_res.scalar_one_or_none()
+            if not product:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Producto {item_req.product_id} no encontrado.",
+                )
+
+            # Costo unitario acordado (si viene 0, tomar el costo actual del producto)
+            unit_cost = (
+                item_req.unit_cost_mxn
+                if item_req.unit_cost_mxn > Decimal("0.0000")
+                else getattr(product, "cost_mxn", Decimal("0.0000"))
+            )
+            line_subtotal = (unit_cost * item_req.quantity_ordered).quantize(Decimal("0.01"))
+            subtotal_sum += line_subtotal
+
+            po_items.append(
+                PurchaseOrderItem(
+                    tenant_id=tenant_id,
+                    product_id=product.id,
+                    quantity_ordered=item_req.quantity_ordered,
+                    quantity_received=Decimal("0.0000"),
+                    unit_cost_mxn=unit_cost,
+                    subtotal_mxn=line_subtotal,
+                    lot_number=item_req.lot_number,
+                    expiry_date=item_req.expiry_date,
+                )
+            )
+
+        return po_items, subtotal_sum
+
+    async def update_purchase_order(
+        self,
+        order_id: uuid.UUID,
+        request: PurchaseOrderUpdateRequest,
+        current_user: User,
+    ) -> PurchaseOrderResponse:
+        """
+        Corrige una orden de compra que todavía no recibe mercancía (RF-15).
+
+        Sólo cambia lo que venga en la petición. Los renglones, si se mandan,
+        sustituyen por completo a los anteriores y los totales se recalculan.
+        """
+        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Orden de compra no encontrada.",
+            )
+        self._ensure_order_not_started(order, "editar")
+
+        if request.supplier_id is not None and request.supplier_id != order.supplier_id:
+            supplier = await self.supplier_repo.get_by_id(
+                request.supplier_id, current_user.tenant_id
+            )
+            if not supplier:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Proveedor especificado no existe.",
+                )
+            if supplier.status == SupplierStatus.INACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No se pueden emitir órdenes a un proveedor inactivo.",
+                )
+            order.supplier_id = supplier.id
+
+        if request.warehouse_id is not None:
+            stmt_wh = select(Warehouse).where(
+                Warehouse.id == request.warehouse_id,
+                Warehouse.tenant_id == current_user.tenant_id,
+            )
+            res_wh = await self.session.execute(stmt_wh)
+            if not res_wh.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Almacén especificado no existe.",
+                )
+            order.warehouse_id = request.warehouse_id
+
+        if request.items is not None:
+            po_items, subtotal_sum = await self._build_order_items(
+                request.items, current_user.tenant_id
+            )
+            # `cascade="all, delete-orphan"` borra los renglones anteriores.
+            order.items = po_items
+            order.subtotal_mxn = subtotal_sum
+            order.tax_mxn = Decimal("0.00")
+            order.total_mxn = subtotal_sum + order.tax_mxn
+
+        if request.expected_delivery_date is not None:
+            order.expected_delivery_date = request.expected_delivery_date
+        if request.notes is not None:
+            order.notes = request.notes
+
+        await self.po_repo.update(order)
+        await self.session.commit()
+        full_order = await self.po_repo.get_by_id(order.id, current_user.tenant_id)
+        return self._build_order_response(full_order)
+
+    async def cancel_purchase_order(
+        self,
+        order_id: uuid.UUID,
+        request: PurchaseOrderCancelRequest,
+        current_user: User,
+    ) -> PurchaseOrderResponse:
+        """
+        Cancela una orden de compra que todavía no recibe mercancía (RF-15).
+
+        No borra la orden: la deja en `CANCELLED` para que el historial siga
+        contando lo que pasó.
+        """
+        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Orden de compra no encontrada.",
+            )
+        self._ensure_order_not_started(order, "cancelar")
+
+        order.status = PurchaseOrderStatus.CANCELLED
+        if request.reason:
+            motive = f"Cancelada: {request.reason}"
+            order.notes = f"{order.notes} | {motive}".strip(" |") if order.notes else motive
+
+        await self.po_repo.update(order)
+        await self.session.commit()
+        full_order = await self.po_repo.get_by_id(order.id, current_user.tenant_id)
         return self._build_order_response(full_order)
 
     async def get_purchase_order(
@@ -469,6 +623,8 @@ class PurchasingService:
             ap_response = self._build_ap_response(ap_with_supplier)
         else:
             ap_response = self._build_ap_response(existing_ap)
+
+        await self.session.commit()
 
         # 7. Retornar respuesta consolidada
         full_order = await self.po_repo.get_by_id(order.id, current_user.tenant_id)

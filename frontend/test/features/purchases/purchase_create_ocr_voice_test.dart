@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/core/utils/ocr_helper.dart';
 import 'package:nexus_app/core/utils/voice_dictation_helper.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
+import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
+import 'package:nexus_app/features/inventory/domain/product.dart';
+import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
 import 'package:nexus_app/features/purchases/data/receipt_file_source.dart';
 import 'package:nexus_app/features/purchases/data/receipt_mapping_store.dart';
 import 'package:nexus_app/features/purchases/domain/receipt_scan.dart';
+import 'package:nexus_app/features/purchases/domain/supplier.dart';
 import 'package:nexus_app/features/purchases/presentation/purchase_create_screen.dart';
 import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
 import 'package:nexus_app/features/purchases/presentation/receipt_capture_screen.dart';
@@ -205,6 +212,8 @@ class _ThrowingFileSource implements ReceiptFileSource {
   Future<ReceiptCapture?> pick() async => throw StateError('sin selector');
 }
 
+class _MockInventoryRepository extends Mock implements InventoryRepository {}
+
 /// Mapeos por proveedor en memoria — Hive no está inicializado en
 /// `flutter test`.
 class _FakeMappingStore implements ReceiptMappingStore {
@@ -224,6 +233,7 @@ Future<void> _pumpReady(
   OcrTextRecognizer? recognizer,
   VoiceDictationService? voice,
   ReceiptMappingStore? mappingStore,
+  InventoryRepository? inventoryRepo,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -238,6 +248,16 @@ Future<void> _pumpReady(
           voiceDictationServiceProvider.overrideWithValue(voice),
         receiptMappingStoreProvider
             .overrideWithValue(mappingStore ?? _FakeMappingStore()),
+        if (inventoryRepo != null)
+          inventoryRepositoryProvider.overrideWithValue(inventoryRepo),
+        // `_submit()` ahora lee `maxMarginPercentProvider` (retome de
+        // Compras) — sin esto golpearía red real y colgaría el test.
+        authRepositoryProvider
+            .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+        // `purchasesRepositoryProvider` ya apunta al backend real — estos
+        // tests siguen ejercitando el mock a propósito.
+        purchasesRepositoryProvider
+            .overrideWithValue(PurchasesRepositoryMock()),
       ],
       child:
           MaterialApp(theme: AppTheme.dark, home: const PurchaseCreateScreen()),
@@ -245,6 +265,59 @@ Future<void> _pumpReady(
   );
   await tester.pump(const Duration(milliseconds: 600));
   await tester.pumpAndSettle();
+}
+
+/// Catálogo vacío — ningún renglón de OCR/dictado resuelve solo, así que
+/// todos quedan como `draft-` para `_MockInventoryRepository.createProduct`.
+InventoryRepository _emptyCatalogInventoryRepo({
+  required void Function(String name, double priceMxn, double? costMxn) onCreate,
+}) {
+  final mock = _MockInventoryRepository();
+  when(
+    () => mock.getProducts(
+      query: any(named: 'query'),
+      category: any(named: 'category'),
+      lowStock: any(named: 'lowStock'),
+      page: any(named: 'page'),
+      pageSize: any(named: 'pageSize'),
+    ),
+  ).thenAnswer((_) async => const PaginatedProducts(
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      ));
+  when(
+    () => mock.createProduct(
+      name: any(named: 'name'),
+      priceMxn: any(named: 'priceMxn'),
+      stock: any(named: 'stock'),
+      costMxn: any(named: 'costMxn'),
+    ),
+  ).thenAnswer((invocation) async {
+    final name = invocation.namedArguments[const Symbol('name')] as String;
+    final priceMxn =
+        invocation.namedArguments[const Symbol('priceMxn')] as double;
+    final costMxn =
+        invocation.namedArguments[const Symbol('costMxn')] as double?;
+    onCreate(name, priceMxn, costMxn);
+    return Product(
+      id: 'prod-$name',
+      sku: 'NEX-${name.hashCode}',
+      name: name,
+      category: 'General',
+      priceMxn: priceMxn,
+      costMxn: costMxn ?? 0,
+      stock: 0,
+      reservedStock: 0,
+      availableStock: 0,
+      isActive: true,
+      isOnCatalog: false,
+      createdAt: DateTime(2026, 1, 1),
+    );
+  });
+  return mock;
 }
 
 void main() {
@@ -692,6 +765,57 @@ void main() {
       // orden sigue sin productos — nunca se inventa un valor.
       expect(
           find.text('Aún no agregas productos a esta orden.'), findsOneWidget);
+    });
+  });
+
+  group('alta automática de productos al confirmar (retome de Compras)', () {
+    testWidgets(
+        'un renglón dictado sin resolver se da de alta con costo × margen antes de crear la orden',
+        (tester) async {
+      _setPhoneViewport(tester);
+      final created = <(String, double, double?)>[];
+      await _pumpReady(
+        tester,
+        voice: _FakeVoiceService(
+          transcript: '2 piezas de Producto Fantasma a 100 pesos',
+        ),
+        inventoryRepo: _emptyCatalogInventoryRepo(
+          onCreate: (name, priceMxn, costMxn) =>
+              created.add((name, priceMxn, costMxn)),
+        ),
+      );
+
+      // Catálogo vacío → el dictado no resuelve contra nada, entra como
+      // `draft-` (mismo camino que hoy para texto libre/OCR sin match).
+      await _openAndStartDictation(tester);
+      await _submitDictation(tester);
+      expect(find.text('Producto Fantasma'), findsOneWidget);
+
+      // Selecciona el proveedor — único paso de UI que faltaba para que
+      // `_isValid` habilite "Crear orden de compra".
+      await tester.tap(find.byType(DropdownButtonFormField<Supplier>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Distribuidora Bimbo Norte').last);
+      await tester.pumpAndSettle();
+
+      // El botón anuncia el alta antes del toque, no después.
+      final submit =
+          find.widgetWithText(ElevatedButton, 'Crear orden y 1 producto nuevo');
+      expect(submit, findsOneWidget);
+
+      // La fila del producto por crear trae su precio de venta, así que el
+      // botón queda por debajo del pliegue en un teléfono.
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      // `addProduct` se llamó con costo = 100 (dictado) y precio = costo ×
+      // (1 + margen) — el default (real y mock) es 40 % ⇒ 140.00.
+      expect(created, hasLength(1));
+      expect(created.single.$1, 'Producto Fantasma');
+      expect(created.single.$3, 100.0);
+      expect(created.single.$2, closeTo(140.0, 0.01));
     });
   });
 }

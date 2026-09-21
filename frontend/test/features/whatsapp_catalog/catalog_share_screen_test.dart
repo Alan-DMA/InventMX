@@ -69,7 +69,7 @@ class _FakeRepo implements WhatsappCatalogRepository {
       throw UnimplementedError();
 
   @override
-  Future<SavedOrder> fetchOrder(String slug, String folio) =>
+  Future<SavedOrder> fetchOrder(String slug, String folio, {String? accessKey}) =>
       throw UnimplementedError();
 }
 

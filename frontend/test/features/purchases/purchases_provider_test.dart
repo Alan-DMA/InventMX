@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
 import 'package:nexus_app/features/purchases/domain/account_payable.dart';
 import 'package:nexus_app/features/purchases/domain/purchase_order.dart';
 import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
@@ -8,11 +9,16 @@ import 'package:nexus_app/features/purchases/presentation/purchases_provider.dar
 // Se usa el `PurchasesRepositoryMock` real (no mocktail) — mismo criterio que
 // `cash_session_provider_test.dart`: los notifiers leen del mock semilla que
 // modela el hub de Compras/Proveedores/CxP tal como se ve en el Figma
-// referencial de la Tarea 11.2.
+// referencial de la Tarea 11.2. `purchasesRepositoryProvider` ya apunta al
+// backend real (retome de Compras) — se sobreescribe a propósito.
 // ---------------------------------------------------------------------------
 
 Future<ProviderContainer> _makeContainer() async {
-  final container = ProviderContainer();
+  final container = ProviderContainer(
+    overrides: [
+      purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
+    ],
+  );
   addTearDown(container.dispose);
   // Los notifiers disparan su carga inicial en un microtask (build());
   // `retry()` fuerza una carga awaited y determinista para el test.
@@ -76,7 +82,7 @@ void main() {
       final state = container.read(purchaseOrdersProvider);
       expect(state.allCount, before + 1);
       expect(state.orders.first.id, created.id);
-      expect(state.orders.first.status, PurchaseOrderStatus.sent);
+      expect(state.orders.first.status, PurchaseOrderStatus.confirmed);
       expect(created.totalMxn, 100);
     });
   });
@@ -95,7 +101,7 @@ void main() {
       final updated = await notifier.receiveOrder(purchaseOrderId: order.id, updatedItems: updatedItems);
 
       expect(updated.status, PurchaseOrderStatus.received);
-      expect(updated.receivedAt, isNotNull);
+      expect(updated.receivedDate, isNotNull);
 
       // La recepción de una orden a crédito genera una cuenta por pagar
       // nueva — `receiveOrder` invalida `accountsPayableProvider`, cuya
@@ -118,7 +124,7 @@ void main() {
       ];
 
       final updated = await notifier.receiveOrder(purchaseOrderId: order.id, updatedItems: updatedItems);
-      expect(updated.status, PurchaseOrderStatus.partialReceived);
+      expect(updated.status, PurchaseOrderStatus.partiallyReceived);
     });
   });
 

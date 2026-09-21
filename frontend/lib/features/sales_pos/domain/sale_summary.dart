@@ -87,6 +87,7 @@ class SaleSummary extends Equatable {
     required this.itemCount,
     required this.paymentKind,
     required this.isRefunded,
+    this.payments = const [],
   });
 
   factory SaleSummary.fromCheckout(CheckoutResult r) => SaleSummary(
@@ -98,6 +99,7 @@ class SaleSummary extends Equatable {
         itemCount: r.items.fold<int>(0, (a, i) => a + i.quantity),
         paymentKind: SalePaymentKind.fromPayments(r.payments),
         isRefunded: r.isRefunded,
+        payments: r.payments,
       );
 
   final String id;
@@ -115,6 +117,11 @@ class SaleSummary extends Equatable {
   final SalePaymentKind paymentKind;
   final bool isRefunded;
 
+  /// Desglose exacto de pagos de la venta (Sep 2026) — necesario para el
+  /// arqueo de caja: `paymentKind` sólo clasifica ("mixto"), no dice cuánto
+  /// de una venta mixta fue efectivo vs. tarjeta/SPEI/CoDi.
+  final List<PaymentEntry> payments;
+
   @override
   List<Object?> get props => [
         id,
@@ -125,5 +132,6 @@ class SaleSummary extends Equatable {
         itemCount,
         paymentKind,
         isRefunded,
+        payments,
       ];
 }

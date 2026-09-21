@@ -547,3 +547,161 @@ async def test_purchases_and_suppliers_multi_tenant_rls_isolation(client: AsyncC
     assert list_b.status_code == 200
     b_ids = [s["id"] for s in list_b.json()]
     assert supp_a_id not in b_ids
+
+
+async def _tenant_with_order(client: AsyncClient, label: str):
+    """Arma un inquilino con proveedor, producto y una orden de compra recién
+    creada. Devuelve (headers, order_id, product_id)."""
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda {label} {suffix}",
+            "slug": f"{label}-{suffix}",
+            "full_name": f"Dueño {label}",
+            "email": f"owner_{label}_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    headers = {"Authorization": f"Bearer {reg_resp.json()['access_token']}"}
+
+    supp_res = await client.post(
+        "/api/v1/suppliers",
+        json={"name": "Abarrotera Mayorista", "credit_days": 15},
+        headers=headers,
+    )
+    supplier_id = supp_res.json()["id"]
+
+    prod_res = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Aceite 1L", "price_mxn": 40.00, "cost_mxn": 30.00, "stock": 0.0},
+        headers=headers,
+    )
+    product_id = prod_res.json()["id"]
+
+    po_res = await client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "supplier_id": supplier_id,
+            "items": [{"product_id": product_id, "quantity_ordered": 10, "unit_cost_mxn": 30.00}],
+            "notes": "Pedido inicial",
+        },
+        headers=headers,
+    )
+    return headers, po_res.json()["id"], product_id
+
+
+@pytest.mark.asyncio
+async def test_update_purchase_order_replaces_items_and_recalculates_total(client: AsyncClient):
+    """
+    Editar una orden que aún no recibe mercancía sustituye sus renglones y
+    recalcula los totales (RF-15).
+    """
+    headers, order_id, product_id = await _tenant_with_order(client, "editable")
+
+    put_res = await client.put(
+        f"/api/v1/purchase-orders/{order_id}",
+        json={
+            "items": [{"product_id": product_id, "quantity_ordered": 4, "unit_cost_mxn": 32.50}],
+            "expected_delivery_date": str(date.today() + timedelta(days=3)),
+            "notes": "Se redujo el pedido por falta de espacio",
+        },
+        headers=headers,
+    )
+    assert put_res.status_code == 200
+    data = put_res.json()
+
+    # 4 × 32.50 = 130.00 — el renglón anterior (10 × 30.00) ya no existe.
+    assert len(data["items"]) == 1
+    assert Decimal(str(data["items"][0]["quantity_ordered"])) == Decimal("4")
+    assert Decimal(str(data["total_mxn"])) == Decimal("130.00")
+    assert data["notes"] == "Se redujo el pedido por falta de espacio"
+    assert data["status"] == "CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_cancel_purchase_order_keeps_history_with_reason(client: AsyncClient):
+    """
+    Cancelar no borra la orden: la deja en CANCELLED y anexa el motivo a las
+    notas para que el historial siga contando lo que pasó.
+    """
+    headers, order_id, _ = await _tenant_with_order(client, "cancelable")
+
+    cancel_res = await client.post(
+        f"/api/v1/purchase-orders/{order_id}/cancel",
+        json={"reason": "El proveedor ya no tiene existencias"},
+        headers=headers,
+    )
+    assert cancel_res.status_code == 200
+    data = cancel_res.json()
+    assert data["status"] == "CANCELLED"
+    assert "El proveedor ya no tiene existencias" in data["notes"]
+
+    # Sigue existiendo: no se borró.
+    get_res = await client.get(f"/api/v1/purchase-orders/{order_id}", headers=headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["status"] == "CANCELLED"
+
+    # Y no se puede cancelar dos veces.
+    again = await client.post(
+        f"/api/v1/purchase-orders/{order_id}/cancel", json={}, headers=headers
+    )
+    assert again.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_received_order_cannot_be_edited_or_cancelled(client: AsyncClient):
+    """
+    En cuanto entra mercancía hay stock asentado, movimientos de Kardex y una
+    CxP creada: editar o cancelar dejaría al inventario describiendo algo que
+    no pasó, así que el backend lo rechaza con 422.
+    """
+    headers, order_id, product_id = await _tenant_with_order(client, "recibida")
+
+    detail = await client.get(f"/api/v1/purchase-orders/{order_id}", headers=headers)
+    item_id = detail.json()["items"][0]["id"]
+
+    recv = await client.post(
+        f"/api/v1/purchase-orders/{order_id}/receive",
+        json={"items_received": [{"purchase_order_item_id": item_id, "quantity_received": 10}]},
+        headers=headers,
+    )
+    assert recv.status_code == 200
+
+    put_res = await client.put(
+        f"/api/v1/purchase-orders/{order_id}",
+        json={"items": [{"product_id": product_id, "quantity_ordered": 1, "unit_cost_mxn": 10.0}]},
+        headers=headers,
+    )
+    assert put_res.status_code == 422
+    assert "ya recibió mercancía" in put_res.json()["detail"]
+
+    cancel_res = await client.post(
+        f"/api/v1/purchase-orders/{order_id}/cancel", json={}, headers=headers
+    )
+    assert cancel_res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_partially_received_order_is_also_locked(client: AsyncClient):
+    """
+    Una entrega parcial ya movió stock y generó la CxP por el total: cuenta
+    como orden empezada, no como orden intacta.
+    """
+    headers, order_id, _ = await _tenant_with_order(client, "parcial")
+
+    detail = await client.get(f"/api/v1/purchase-orders/{order_id}", headers=headers)
+    item_id = detail.json()["items"][0]["id"]
+
+    recv = await client.post(
+        f"/api/v1/purchase-orders/{order_id}/receive",
+        json={"items_received": [{"purchase_order_item_id": item_id, "quantity_received": 3}]},
+        headers=headers,
+    )
+    assert recv.status_code == 200
+    assert recv.json()["purchase_order"]["status"] == "PARTIALLY_RECEIVED"
+
+    cancel_res = await client.post(
+        f"/api/v1/purchase-orders/{order_id}/cancel", json={}, headers=headers
+    )
+    assert cancel_res.status_code == 422

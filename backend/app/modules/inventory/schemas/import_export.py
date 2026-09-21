@@ -22,10 +22,11 @@ class ColumnMapping(BaseModel):
         description="Nombre o encabezado de la columna con el Precio de venta en $ MXN",
         examples=["PRECIO_PUBLICO", "Precio", "Venta"],
     )
-    # Columna obligatoria para Existencias iniciales (Campo Vital 3)
-    stock_column: str = Field(
-        ...,
-        description="Nombre o encabezado de la columna con las Existencias iniciales",
+    # Columna opcional para Existencias iniciales (Campo Vital 3). Si se omite,
+    # todos los productos entran con stock 0 (el comerciante lo ajusta después).
+    stock_column: Optional[str] = Field(
+        None,
+        description="Nombre o encabezado de la columna con las Existencias iniciales (opcional, 0 si se omite)",
         examples=["EXISTENCIAS", "Stock", "Cantidad"],
     )
     # Columna opcional para Costo de compra en MXN

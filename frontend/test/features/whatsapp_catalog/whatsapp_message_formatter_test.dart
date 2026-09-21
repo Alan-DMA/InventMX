@@ -277,4 +277,40 @@ _El detalle está en el ticket; este mensaje es solo el aviso._''');
       expect(a, matches(RegExp(r'^P-260914-[0-9A-F]{4}$')));
     });
   });
+
+  group('readyText — "Avisar al cliente" (QA 20 sep 2026)', () {
+    SavedOrder saved(DeliveryMethod method) => SavedOrder(
+          folio: 'P-260920-AB12',
+          slug: 'tiendita-nexus',
+          issuedAt: DateTime(2026, 9, 20, 12),
+          draft: WhatsAppOrderDraft(
+            customerName: 'Laura Jiménez',
+            deliveryMethod: method,
+            lines: const [],
+          ),
+          totals: WhatsAppOrderBuild(
+            waLink: Uri.parse('https://wa.me/'),
+            formattedText: '',
+            subtotalMxn: 1234.5,
+            totalMxn: 1234.5,
+            itemCount: 0,
+          ),
+        );
+
+    test('recoger: nombre de pila, folio, total y tienda', () {
+      final text = WhatsAppMessageFormatter.readyText(
+          order: saved(DeliveryMethod.pickup), storeName: 'Tiendita Nexus');
+      expect(text, contains('Hola Laura'));
+      expect(text, contains('*P-260920-AB12*'));
+      expect(text, contains('listo para recoger'));
+      expect(text, contains('\$1,234.50 MXN'));
+      expect(text, endsWith('— Tiendita Nexus'));
+    });
+
+    test('a domicilio: "va en camino"', () {
+      final text = WhatsAppMessageFormatter.readyText(
+          order: saved(DeliveryMethod.delivery), storeName: 'T');
+      expect(text, contains('va en camino'));
+    });
+  });
 }

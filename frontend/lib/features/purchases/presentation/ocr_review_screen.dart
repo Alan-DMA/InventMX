@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../inventory/domain/product.dart';
+import '../../inventory/presentation/inventory_provider.dart';
+import '../data/product_name_matcher.dart';
 import '../domain/purchase_order.dart';
 import '../domain/receipt_scan.dart';
+import 'widgets/product_field.dart';
 
 /// Lo que `OcrReviewScreen` devuelve al cerrarse.
 ///
@@ -36,20 +41,53 @@ class OcrReviewOutcome {
 ///   · Edición directa en la fila: en la escena real se corrigen una o dos
 ///     cifras con prisa, y un modal por renglón cuesta más toques.
 ///   · Nada entra a la orden hasta confirmar; el botón de atrás descarta.
-class OcrReviewScreen extends StatefulWidget {
+class OcrReviewScreen extends ConsumerStatefulWidget {
   const OcrReviewScreen({super.key, required this.result});
 
   final ReceiptParseResult result;
 
   @override
-  State<OcrReviewScreen> createState() => _OcrReviewScreenState();
+  ConsumerState<OcrReviewScreen> createState() => _OcrReviewScreenState();
 }
 
-class _OcrReviewScreenState extends State<OcrReviewScreen> {
+class _OcrReviewScreenState extends ConsumerState<OcrReviewScreen> {
+  static const _matcher = ProductNameMatcher();
+
   late final List<_EditableLine> _lines = [
     for (var i = 0; i < widget.result.items.length; i++)
       _EditableLine(id: 'ocr-${i + 1}', source: widget.result.items[i]),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _autoMatch(ref.read(inventoryProvider).products, notify: false);
+    // El inventario puede seguir cargando cuando se abre la revisión (la
+    // pantalla se alcanza desde la cámara, no desde el listado), así que el
+    // emparejamiento se reintenta cuando el catálogo llega.
+    ref.listenManual(
+      inventoryProvider,
+      (_, next) => _autoMatch(next.products),
+    );
+  }
+
+  /// Sólo la coincidencia exacta normalizada se resuelve sola, y sólo una vez
+  /// por renglón: a partir de ahí manda el usuario y la búsqueda en vivo de
+  /// `ProductField`. Un parecido nunca se auto-asigna.
+  void _autoMatch(List<Product> catalog, {bool notify = true}) {
+    if (catalog.isEmpty) return;
+    var changed = false;
+    for (final line in _lines) {
+      if (line.autoMatched) continue;
+      line.autoMatched = true;
+      final exact = _matcher.match(line.source.name, catalog).exact;
+      if (exact == null) continue;
+      line.resolvedProduct = exact;
+      line.nameCtrl.text = exact.name; // Nombre canónico, no el del OCR.
+      changed = true;
+    }
+    if (changed && notify && mounted) setState(() {});
+  }
 
   @override
   void dispose() {
@@ -82,6 +120,11 @@ class _OcrReviewScreenState extends State<OcrReviewScreen> {
 
   int get _needsAttentionCount =>
       _lines.where((l) => !l.isComplete || l.source.isLowConfidence).length;
+
+  /// Cuántos renglones ya resolvieron a un producto real del catálogo
+  /// (exacto o por chip tocado) — el resto se dará de alta como producto
+  /// nuevo al confirmar la orden.
+  int get _resolvedCount => _lines.where((l) => l.resolvedProduct != null).length;
 
   // ── Acciones ──────────────────────────────────────────────────────────────
 
@@ -123,6 +166,7 @@ class _OcrReviewScreenState extends State<OcrReviewScreen> {
                           supplier: widget.result.detectedSupplier,
                           lineCount: _lines.length,
                           needsAttention: _needsAttentionCount,
+                          resolvedCount: _resolvedCount,
                         ),
                         const SizedBox(height: 12),
                         _BalanceStrip(
@@ -165,11 +209,13 @@ class _ScanSummary extends StatelessWidget {
     required this.supplier,
     required this.lineCount,
     required this.needsAttention,
+    required this.resolvedCount,
   });
 
   final String? supplier;
   final int lineCount;
   final int needsAttention;
+  final int resolvedCount;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +224,14 @@ class _ScanSummary extends StatelessWidget {
         : needsAttention == 1
             ? '1 renglón necesita tu revisión.'
             : '$needsAttention renglones necesitan tu revisión.';
+    final toCreate = lineCount - resolvedCount;
+    // Cuenta contra el catálogo — independiente de si el renglón quedó
+    // completo o no (una señal distinta, ver `_LineEditor`).
+    final matchDetail = lineCount == 0
+        ? null
+        : '$resolvedCount ya ${resolvedCount == 1 ? 'está' : 'están'} en tu '
+            'inventario · $toCreate ${toCreate == 1 ? 'se creará' : 'se crearán'} como '
+            '${toCreate == 1 ? 'nuevo' : 'nuevos'}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,6 +251,14 @@ class _ScanSummary extends StatelessWidget {
           supplier == null ? detail : '$supplier · $detail',
           style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted),
         ),
+        if (matchDetail != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            matchDetail,
+            key: const Key('ocrReviewMatchSummary'),
+            style: const TextStyle(fontSize: 12, color: AppColors.onSurfaceMuted),
+          ),
+        ],
         const SizedBox(height: 6),
         // El OCR también lee lo que no es mercancía; lo que el filtro no
         // atrapó se quita aquí con un toque — Tarea 12.2, QA de ruido.
@@ -320,44 +382,41 @@ class _LineEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     final flag = line.attentionLabel;
     final highlighted = flag != null;
+    final resolved = line.resolvedProduct != null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 6, 12),
       decoration: BoxDecoration(
         color: highlighted
             ? AppColors.warning.withValues(alpha: 0.06)
-            : AppColors.surface,
+            : resolved
+                ? AppColors.emerald.withValues(alpha: 0.05)
+                : AppColors.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: highlighted
               ? AppColors.warning.withValues(alpha: 0.35)
-              : AppColors.border,
+              : resolved
+                  ? AppColors.emerald.withValues(alpha: 0.30)
+                  : AppColors.border,
         ),
       ),
       child: Column(
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: TextField(
+                child: ProductField(
+                  key: Key('ocrLineProductField-${line.id}'),
                   controller: line.nameCtrl,
-                  onChanged: (_) => onChanged(),
-                  textCapitalization: TextCapitalization.sentences,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.onSurface,
-                  ),
-                  decoration: const InputDecoration(
-                    filled: false,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    hintText: 'Nombre del producto',
-                  ),
+                  resolved: line.resolvedProduct,
+                  onResolvedChanged: (product) {
+                    line.resolvedProduct = product;
+                    onChanged();
+                  },
+                  dense: true,
+                  onChanged: onChanged,
                 ),
               ),
               // 48 dp de área táctil — mínimo de Material en Android.
@@ -374,7 +433,7 @@ class _LineEditor extends StatelessWidget {
             ],
           ),
           if (flag != null) ...[
-            const SizedBox(height: 2),
+            const SizedBox(height: 6),
             Align(
               alignment: Alignment.centerLeft,
               child: Container(
@@ -629,8 +688,10 @@ class _EmptyScanState extends StatelessWidget {
 /// **vacíos**, nunca en `0` ni en `1`: un valor inventado que parece leído es
 /// peor que un campo en blanco cuando lo que entra es el costo del inventario.
 class _EditableLine {
-  _EditableLine({required this.id, required this.source})
-      : nameCtrl = TextEditingController(text: source.name),
+  _EditableLine({required this.id, required this.source, this.resolvedProduct})
+      : nameCtrl = TextEditingController(
+          text: resolvedProduct?.name ?? source.name,
+        ),
         qtyCtrl =
             TextEditingController(text: source.quantity?.toString() ?? ''),
         priceCtrl = TextEditingController(
@@ -641,9 +702,20 @@ class _EditableLine {
 
   final String id;
   final DetectedReceiptItem source;
+
   final TextEditingController nameCtrl;
   final TextEditingController qtyCtrl;
   final TextEditingController priceCtrl;
+
+  /// Producto del catálogo al que está amarrado el renglón — por coincidencia
+  /// exacta al abrir la pantalla, o porque el usuario tocó una sugerencia.
+  /// Nunca se asigna solo desde un parecido.
+  Product? resolvedProduct;
+
+  /// El intento de emparejar automáticamente ya corrió para este renglón. Sin
+  /// esto, soltar un producto a mano volvería a amarrarlo en cuanto el
+  /// catálogo se recargara.
+  bool autoMatched = false;
 
   int get quantity => int.tryParse(qtyCtrl.text.trim()) ?? 0;
   double get unitPrice => double.tryParse(priceCtrl.text.trim()) ?? 0;
@@ -662,12 +734,19 @@ class _EditableLine {
     return null;
   }
 
-  PurchaseOrderItem toItem() => PurchaseOrderItem(
-        productId: id,
-        productName: nameCtrl.text.trim(),
-        quantity: quantity,
-        unitCostMxn: unitPrice,
-      );
+  /// Resuelto → `productId` real del catálogo, listo para crear la orden
+  /// directo. Sin resolver → conserva el placeholder `id` (`'ocr-N'`), que
+  /// `purchase_create_screen.dart` reconoce como "sin resolver" y reasigna a
+  /// `'draft-N'` para que `_submit()` lo dé de alta automáticamente.
+  PurchaseOrderItem toItem() {
+    final product = resolvedProduct;
+    return PurchaseOrderItem(
+      productId: product?.id ?? id,
+      productName: product?.name ?? nameCtrl.text.trim(),
+      quantity: quantity,
+      unitCostMxn: unitPrice,
+    );
+  }
 
   void dispose() {
     nameCtrl.dispose();

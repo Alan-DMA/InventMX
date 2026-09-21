@@ -5,7 +5,9 @@ AccountPayable _makePayable({
   required DateTime dueDate,
   double originalAmountMxn = 1000,
   double paidAmountMxn = 0,
+  AccountPayableStatus status = AccountPayableStatus.pending,
 }) {
+  final now = DateTime.now();
   return AccountPayable(
     id: 'ap-1',
     supplierId: 'sup-1',
@@ -13,8 +15,10 @@ AccountPayable _makePayable({
     purchaseOrderId: 'po-1',
     originalAmountMxn: originalAmountMxn,
     paidAmountMxn: paidAmountMxn,
+    status: status,
     dueDate: dueDate,
-    createdAt: DateTime.now().subtract(const Duration(days: 10)),
+    createdAt: now.subtract(const Duration(days: 10)),
+    updatedAt: now.subtract(const Duration(days: 10)),
   );
 }
 
@@ -34,38 +38,37 @@ void main() {
       final payable = _makePayable(dueDate: DateTime.now().subtract(const Duration(days: 1)));
       expect(payable.urgency, PayableUrgency.overdue);
     });
+
+    test('status OVERDUE del backend manda aunque la fecha aún no venza', () {
+      // El backend es la fuente de verdad del estado — el cliente ya no
+      // deriva OVERDUE sólo de la fecha (Sep 2026, integración real).
+      final payable = _makePayable(
+        dueDate: DateTime.now().add(const Duration(days: 10)),
+        status: AccountPayableStatus.overdue,
+      );
+      expect(payable.urgency, PayableUrgency.overdue);
+    });
   });
 
-  group('AccountPayable — status calculado', () {
-    test('sin abonos y a tiempo → pending', () {
-      final payable = _makePayable(dueDate: DateTime.now().add(const Duration(days: 10)));
-      expect(payable.status, AccountPayableStatus.pending);
-    });
-
-    test('con abono parcial y a tiempo → partial', () {
+  group('AccountPayable — saldo', () {
+    test('balanceMxn resta lo abonado del monto original', () {
       final payable = _makePayable(
         dueDate: DateTime.now().add(const Duration(days: 10)),
         paidAmountMxn: 400,
       );
-      expect(payable.status, AccountPayableStatus.partial);
       expect(payable.balanceMxn, 600);
     });
 
-    test('saldo liquidado por completo → paid, sin importar la fecha', () {
-      final payable = _makePayable(
-        dueDate: DateTime.now().subtract(const Duration(days: 5)),
+    test('copyWith actualiza abono y estado sin tocar el resto', () {
+      final payable = _makePayable(dueDate: DateTime.now().add(const Duration(days: 10)));
+      final updated = payable.copyWith(
         paidAmountMxn: 1000,
+        status: AccountPayableStatus.paid,
       );
-      expect(payable.status, AccountPayableStatus.paid);
-    });
-
-    test('vencida (con o sin abono parcial) → overdue', () {
-      final payable = _makePayable(
-        dueDate: DateTime.now().subtract(const Duration(days: 5)),
-        paidAmountMxn: 300,
-      );
-      expect(payable.status, AccountPayableStatus.overdue);
-      expect(payable.balanceMxn, 700);
+      expect(updated.status, AccountPayableStatus.paid);
+      expect(updated.balanceMxn, 0);
+      expect(updated.id, payable.id);
+      expect(updated.dueDate, payable.dueDate);
     });
   });
 }

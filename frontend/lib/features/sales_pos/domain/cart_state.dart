@@ -103,12 +103,18 @@ class CartState {
     this.error,
     this.lastCheckoutResult,
     this.searchQuery = '',
+    this.originOrderFolio,
   });
 
   final List<CartItem> items;
   final bool isProcessing;
   final String? error;
   final CheckoutResult? lastCheckoutResult;
+
+  /// Folio del pedido web que cargó este carrito ("Cobrar en caja"). Al
+  /// terminar el cobro, la venta se liga al pedido y éste queda Entregado.
+  /// Vaciar el carrito lo olvida.
+  final String? originOrderFolio;
 
   /// Texto de búsqueda activo en la barra superior.
   final String searchQuery;
@@ -133,6 +139,7 @@ class CartState {
     Object? error = _keep,
     Object? lastCheckoutResult = _keep,
     String? searchQuery,
+    Object? originOrderFolio = _keep,
   }) {
     return CartState(
       items: items ?? this.items,
@@ -142,6 +149,9 @@ class CartState {
           ? this.lastCheckoutResult
           : lastCheckoutResult as CheckoutResult?,
       searchQuery: searchQuery ?? this.searchQuery,
+      originOrderFolio: identical(originOrderFolio, _keep)
+          ? this.originOrderFolio
+          : originOrderFolio as String?,
     );
   }
 }

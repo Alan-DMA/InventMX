@@ -1,5 +1,6 @@
 import 'dart:math' show max;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/supplier.dart';
@@ -60,10 +61,12 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _rfcController = TextEditingController();
+  final _creditDaysController = TextEditingController();
 
   final _nameFocus = FocusNode();
   final _phoneFocus = FocusNode();
   final _rfcFocus = FocusNode();
+  final _creditDaysFocus = FocusNode();
 
   String _countryCode = _kCountryCodes.first.dialCode;
 
@@ -78,6 +81,11 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
     if (initial != null) {
       _nameController.text = initial.name;
       _rfcController.text = initial.rfc ?? '';
+      // 0 = de contado; se deja el campo vacío en vez de escribir un "0" que
+      // parezca un dato capturado.
+      if (initial.creditDays > 0) {
+        _creditDaysController.text = '${initial.creditDays}';
+      }
       // El teléfono se guarda con lada: se separa para el selector.
       final phone = initial.phone ?? '';
       final code = _kCountryCodes
@@ -103,9 +111,11 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
     _nameController.dispose();
     _phoneController.dispose();
     _rfcController.dispose();
+    _creditDaysController.dispose();
     _nameFocus.dispose();
     _phoneFocus.dispose();
     _rfcFocus.dispose();
+    _creditDaysFocus.dispose();
     super.dispose();
   }
 
@@ -127,6 +137,8 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
     try {
       final phone = '$_countryCode${_phoneController.text.trim()}';
       final rfc = _rfcController.text.trim().isEmpty ? null : _rfcController.text.trim();
+      // Campo vacío = de contado (0 días), que es el default del backend.
+      final creditDays = int.tryParse(_creditDaysController.text.trim()) ?? 0;
       final notifier = ref.read(suppliersProvider.notifier);
       if (widget.isEditing) {
         await notifier.updateSupplier(
@@ -134,9 +146,15 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
           name: name,
           phone: phone,
           rfc: rfc,
+          creditDays: creditDays,
         );
       } else {
-        await notifier.createSupplier(name: name, phone: phone, rfc: rfc);
+        await notifier.createSupplier(
+          name: name,
+          phone: phone,
+          rfc: rfc,
+          creditDays: creditDays,
+        );
       }
       if (mounted) Navigator.of(context).pop(name);
     } catch (e) {
@@ -158,25 +176,32 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildHandle(),
-          _buildHeader(),
-          const SizedBox(height: 24),
-          _buildNameField(),
-          const SizedBox(height: 16),
-          _buildPhoneField(),
-          const SizedBox(height: 16),
-          _buildRfcField(),
-          if (_errorMessage != null) ...[
-            const SizedBox(height: 12),
-            _buildErrorBanner(),
+      // Con el teclado abierto en un teléfono chico el formulario ya no cabe
+      // de un jalón (son cuatro campos + botón): se desplaza en vez de
+      // desbordar.
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHandle(),
+            _buildHeader(),
+            const SizedBox(height: 24),
+            _buildNameField(),
+            const SizedBox(height: 16),
+            _buildPhoneField(),
+            const SizedBox(height: 16),
+            _buildCreditDaysField(),
+            const SizedBox(height: 16),
+            _buildRfcField(),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              _buildErrorBanner(),
+            ],
+            const SizedBox(height: 24),
+            _buildSubmitButton(),
           ],
-          const SizedBox(height: 24),
-          _buildSubmitButton(),
-        ],
+        ),
       ),
     );
   }
@@ -280,7 +305,7 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
                   hintText: 'Ej: 5512345678',
                   prefixIcon: Icon(Icons.call_outlined, size: 18),
                 ),
-                onFieldSubmitted: (_) => _rfcFocus.requestFocus(),
+                onFieldSubmitted: (_) => _creditDaysFocus.requestFocus(),
               ),
             ),
           ],
@@ -288,6 +313,43 @@ class _AddSupplierModalState extends ConsumerState<AddSupplierModal> {
         const SizedBox(height: 4),
         const Text(
           'Se usa para el botón de llamada/WhatsApp del directorio.',
+          style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+        ),
+      ],
+    );
+  }
+
+  /// Días de crédito — el backend los usa para calcular el vencimiento de la
+  /// cuenta por pagar (`fecha de recepción + días`). Sin este campo todo
+  /// proveedor nacía de contado y su CxP vencía el mismo día que llegaba la
+  /// mercancía (hallazgo de QA, Sep 19).
+  Widget _buildCreditDaysField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel('Días de crédito'),
+        const SizedBox(height: 6),
+        TextFormField(
+          key: const Key('supplierCreditDaysField'),
+          controller: _creditDaysController,
+          focusNode: _creditDaysFocus,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: const TextStyle(color: AppColors.onSurface, fontSize: 15),
+          decoration: const InputDecoration(
+            hintText: '0 (de contado)',
+            prefixIcon: Icon(Icons.event_available_outlined, size: 18),
+            suffixText: 'días',
+            suffixStyle:
+                TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted),
+          ),
+          onFieldSubmitted: (_) => _rfcFocus.requestFocus(),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Plazo para pagarle después de recibir la mercancía. Define cuándo '
+          'vence la cuenta por pagar.',
           style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
         ),
       ],

@@ -1,3 +1,4 @@
+from decimal import Decimal
 import uuid
 from typing import Optional, List
 from sqlalchemy import select
@@ -38,6 +39,14 @@ class TenantRepository:
             legal_name=legal_name,
             enable_usd_secondary=enable_usd_secondary,
         )
+        self.db.add(tenant)
+        await self.db.flush()
+        return tenant
+
+    async def update_max_margin_percent(
+        self, tenant: Tenant, max_margin_percent: Decimal
+    ) -> Tenant:
+        tenant.max_margin_percent = max_margin_percent
         self.db.add(tenant)
         await self.db.flush()
         return tenant

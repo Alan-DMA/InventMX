@@ -512,3 +512,166 @@ async def test_public_catalog_disabled_suspension(client: AsyncClient):
     resp = await client.get(f"/api/v1/public/catalog/{slug}")
     assert resp.status_code == 403
     assert "suspendido" in resp.json()["detail"].lower()
+
+
+async def _register_store(client: AsyncClient, prefix: str):
+    """Registra un comercio y devuelve (slug, headers, nombre)."""
+    suffix = uuid.uuid4().hex[:6]
+    slug = f"{prefix}-{suffix}"
+    name = f"Tienda {prefix.title()} {suffix}"
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": name,
+            "slug": slug,
+            "full_name": "Dueño Pedidos",
+            "email": f"{prefix}_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    assert reg_resp.status_code == 201, reg_resp.text
+    headers = {"Authorization": f"Bearer {reg_resp.json()['access_token']}"}
+    return slug, headers, name
+
+
+@pytest.mark.asyncio
+async def test_catalog_settings_expose_store_slug_and_clear_text_fields(client: AsyncClient):
+    """
+    Integración con "Mi catálogo" (Flutter, Sep 2026): la configuración trae el nombre y
+    el slug del comercio para armar el enlace público, y un texto vacío borra el campo
+    (así se quita el número de WhatsApp desde la app).
+    """
+    slug, headers, name = await _register_store(client, "slugsett")
+
+    get_resp = await client.get("/api/v1/catalog-settings", headers=headers)
+    assert get_resp.status_code == 200
+    body = get_resp.json()
+    assert body["store_slug"] == slug
+    assert body["store_name"] == name
+
+    put_resp = await client.put(
+        "/api/v1/catalog-settings",
+        json={"whatsapp_number": "5512345678"},
+        headers=headers,
+    )
+    assert put_resp.status_code == 200
+    assert put_resp.json()["whatsapp_number"] == "5512345678"
+
+    clear_resp = await client.put(
+        "/api/v1/catalog-settings",
+        json={"whatsapp_number": "   "},
+        headers=headers,
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["whatsapp_number"] is None
+    assert clear_resp.json()["store_slug"] == slug
+
+    # Lo que se guardó es lo que se lee después
+    again = await client.get("/api/v1/catalog-settings", headers=headers)
+    assert again.json()["whatsapp_number"] is None
+
+
+@pytest.mark.asyncio
+async def test_submit_catalog_order_assigns_folio_and_ticket_is_public(client: AsyncClient):
+    """
+    RF-24 (iteración 3 de QA de la Tarea 13.2): el pedido se registra con folio
+    `P-YYMMDD-XXXX`, el ticket se consulta sin sesión y trae la instantánea de
+    los renglones con los mismos totales que la vista previa.
+    """
+    slug, headers, name = await _register_store(client, "pedidos")
+
+    p_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={
+            "name": "Leche Lala 1L",
+            "sku": f"LAL-1L-{slug[-6:]}",
+            "price_mxn": 28.50,
+            "cost_mxn": 22.00,
+            "initial_stock": 30,
+        },
+        headers=headers,
+    )
+    assert p_resp.status_code == 201, p_resp.text
+    product_id = p_resp.json()["id"]
+
+    set_resp = await client.put(
+        "/api/v1/catalog-settings",
+        json={"whatsapp_number": "5511112222", "delivery_fee_mxn": 15.00},
+        headers=headers,
+    )
+    assert set_resp.status_code == 200
+
+    payload = {
+        "customer_name": "Ana López",
+        "customer_phone": "5533334444",
+        "delivery_method": "DELIVERY",
+        "delivery_address": "Calle Sol 12, Col. Centro",
+        "payment_method": "CASH",
+        "cash_tendered_mxn": 100.00,
+        "items": [{"product_id": product_id, "quantity": 2, "notes": "bien fría"}],
+        "order_notes": "Tocar el timbre",
+    }
+
+    preview = await client.post(f"/api/v1/public/catalog/{slug}/build-whatsapp-order", json=payload)
+    assert preview.status_code == 200, preview.text
+
+    submit = await client.post(f"/api/v1/public/catalog/{slug}/orders", json=payload)
+    assert submit.status_code == 201, submit.text
+    order = submit.json()
+    assert order["folio"].startswith("P-") and len(order["folio"]) == 13
+    assert order["store_slug"] == slug
+    assert order["store_name"] == name
+    assert Decimal(str(order["subtotal_mxn"])) == Decimal("57.00")
+    assert Decimal(str(order["delivery_fee_mxn"])) == Decimal("15.00")
+    assert Decimal(str(order["total_mxn"])) == Decimal("72.00")
+    assert Decimal(str(order["change_mxn"])) == Decimal("28.00")
+    assert order["formatted_text"] == preview.json()["formatted_text"]
+    assert order["wa_link"].startswith("https://wa.me/525511112222?text=")
+    assert len(order["items"]) == 1
+    item = order["items"][0]
+    assert item["product_id"] == product_id
+    assert item["name"] == "Leche Lala 1L"
+    assert Decimal(str(item["quantity"])) == Decimal("2")
+    assert item["notes"] == "bien fría"
+
+    # El ticket se abre sin token pero con la clave del enlace (folio + ?k=),
+    # que sólo recibe quien registró el pedido. Sin clave o con otra → 404
+    # (no se revela si el folio existe: sería adivinable).
+    key = order["access_key"]
+    assert key and len(key) >= 10
+    ticket = await client.get(f"/api/v1/public/catalog/{slug}/orders/{order['folio'].lower()}?k={key}")
+    assert ticket.status_code == 200, ticket.text
+    assert ticket.json()["folio"] == order["folio"]
+    assert ticket.json()["customer_name"] == "Ana López"
+    assert ticket.json()["delivery_address"] == "Calle Sol 12, Col. Centro"
+    assert ticket.json()["access_key"] is None  # el GET público no la devuelve
+
+    no_key = await client.get(f"/api/v1/public/catalog/{slug}/orders/{order['folio']}")
+    assert no_key.status_code == 404
+    bad_key = await client.get(f"/api/v1/public/catalog/{slug}/orders/{order['folio']}?k=nope")
+    assert bad_key.status_code == 404
+    missing = await client.get(f"/api/v1/public/catalog/{slug}/orders/P-000000-ZZZZ?k={key}")
+    assert missing.status_code == 404
+    no_store = await client.get(f"/api/v1/public/catalog/no-existe-{slug}/orders/{order['folio']}?k={key}")
+    assert no_store.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_submit_catalog_order_respects_store_rules(client: AsyncClient):
+    """El registro con folio aplica las mismas reglas que la vista previa (pedido mínimo)."""
+    slug, headers, _ = await _register_store(client, "reglas")
+
+    p_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Chicle Trident", "sku": f"TRI-{slug[-6:]}", "price_mxn": 12.00, "cost_mxn": 8.00, "initial_stock": 50},
+        headers=headers,
+    )
+    product_id = p_resp.json()["id"]
+    await client.put("/api/v1/catalog-settings", json={"min_order_amount_mxn": 100.00}, headers=headers)
+
+    submit = await client.post(
+        f"/api/v1/public/catalog/{slug}/orders",
+        json={"customer_name": "Luis", "items": [{"product_id": product_id, "quantity": 1}]},
+    )
+    assert submit.status_code == 400
+    assert "pedido mínimo" in submit.json()["detail"]

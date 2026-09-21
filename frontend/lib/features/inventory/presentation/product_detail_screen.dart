@@ -19,7 +19,7 @@ import 'widgets/transfer_stock_modal.dart';
 /// Casos de uso implementados:
 ///   CU-06.4.1 Carga (caché primero → fallback FutureProvider.family)
 ///   CU-06.4.2 Margen de ganancia con semáforo
-///   CU-06.4.3 Tarjetas de stock DISPONIBLE / RESERVADO
+///   CU-06.4.3 Tarjeta de stock DISPONIBLE (RESERVADO retirado — ver decisión)
 ///   CU-06.4.4 Cuadrícula 2×2 de acciones (placeholders Tarea 4.2)
 ///   CU-06.4.5 Botón editar en AppBar (placeholder Tarea 3.2.3+)
 ///   CU-06.4.6 Banner fotográfico / placeholder sin imagen
@@ -136,22 +136,10 @@ class _DetailBody extends ConsumerWidget {
 
           const _SectionDivider(),
 
-          // ── Tarjetas de stock ─────────────────────────────────────────
+          // ── Tarjeta de stock disponible ────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Row(
-              children: [
-                StockCard(
-                  product: product,
-                  variant: StockCardVariant.available,
-                ),
-                const SizedBox(width: 10),
-                StockCard(
-                  product: product,
-                  variant: StockCardVariant.reserved,
-                ),
-              ],
-            ),
+            child: StockCard(product: product),
           ),
 
           const SizedBox(height: 20),
@@ -573,9 +561,16 @@ class _AdditionalInfoState extends State<_AdditionalInfo> {
                       ? '${p.minStockAlert} pzs'
                       : 'No configurado',
                 ),
-                const _InfoRow(
+                _InfoRow(
                   label: 'Precio máximo sugerido',
-                  value: '—',
+                  value: p.suggestedMaxPriceMxn != null
+                      ? '\$${p.suggestedMaxPriceMxn!.toStringAsFixed(2)}'
+                      : '—',
+                  caption: switch (p.suggestedMaxPriceSource) {
+                    'historical' => 'según tu historial de ventas',
+                    'margin_fallback' => 'según margen máximo configurado',
+                    _ => null,
+                  },
                 ),
                 const _InfoRow(
                   label: 'Unidad de medida',
@@ -617,11 +612,16 @@ class _InfoRow extends StatelessWidget {
   const _InfoRow({
     required this.label,
     required this.value,
+    this.caption,
     this.isLast = false,
   });
 
   final String label;
   final String value;
+
+  /// Leyenda chica bajo el valor — de dónde salió, cuando no es obvio a
+  /// simple vista (ej. "según tu historial de ventas").
+  final String? caption;
   final bool isLast;
 
   @override
@@ -645,14 +645,30 @@ class _InfoRow extends StatelessWidget {
               ),
               Expanded(
                 flex: 5,
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.onSurface,
-                  ),
-                  textAlign: TextAlign.end,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.onSurface,
+                      ),
+                      textAlign: TextAlign.end,
+                    ),
+                    if (caption != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        caption!,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.onSurfaceMuted.withValues(alpha: 0.8),
+                        ),
+                        textAlign: TextAlign.end,
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],

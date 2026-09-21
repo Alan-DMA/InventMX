@@ -6,16 +6,18 @@ import 'package:nexus_app/features/cash_treasury/domain/banxico_denomination.dar
 import 'package:nexus_app/features/cash_treasury/domain/cash_movement.dart';
 import 'package:nexus_app/features/cash_treasury/domain/cash_session.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
+import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Helper — monta un ProviderContainer con un turno ya abierto.
 //
-// Se usa el `CashRepositoryMock` real (no mocktail): tanto
-// `CashMovementsNotifier.build()` como `_computeExpectedCashMxn` leen los
-// movimientos vía `CashRepositoryMock.movementsFor` (acceso estático directo
-// — ver decisión técnica en `cash_session_provider.dart`), así que un doble
-// mockeado del repositorio dejaría esa lectura desincronizada del mock
-// inyectado.
+// `expectedCashMxnProvider`/`digitalPaymentTotalsProvider` ahora piden
+// `GET /sales` y `GET /cash/sessions/{id}/movements` de verdad (Sep 2026 —
+// antes leían `SalesRepositoryMock.todaysSales`/`CashRepositoryMock.
+// movementsFor` estático). Se usa `SalesRepositoryMock`/`CashRepositoryMock`
+// reales (no mocktail) inyectados vía provider — 'Ana García' no coincide
+// con ningún cajero de la semilla de `SalesRepositoryMock`, así que el
+// filtro por cajero deja estas pruebas limpias de esa semilla.
 // ---------------------------------------------------------------------------
 
 Future<ProviderContainer> _makeOpenContainer() async {
@@ -23,6 +25,7 @@ Future<ProviderContainer> _makeOpenContainer() async {
     overrides: [
       currentUserNameProvider.overrideWith((ref) => 'Ana García'),
       cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+      salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
     ],
   );
   addTearDown(container.dispose);
@@ -35,7 +38,7 @@ void main() {
     final container = await _makeOpenContainer();
 
     expect(container.read(cashMovementsProvider), isEmpty);
-    expect(container.read(expectedCashMxnProvider), 500.0);
+    expect(await container.read(expectedCashMxnProvider.future), 500.0);
   });
 
   test('un depósito suma al efectivo esperado y queda primero en la lista', () async {
@@ -47,7 +50,7 @@ void main() {
           description: 'Entrada de cambio',
         );
 
-    expect(container.read(expectedCashMxnProvider), 600.0);
+    expect(await container.read(expectedCashMxnProvider.future), 600.0);
     final movements = container.read(cashMovementsProvider);
     expect(movements, hasLength(1));
     expect(movements.first.description, 'Entrada de cambio');
@@ -63,7 +66,7 @@ void main() {
           description: 'Pago de hielo al proveedor',
         );
 
-    expect(container.read(expectedCashMxnProvider), 450.0);
+    expect(await container.read(expectedCashMxnProvider.future), 450.0);
   });
 
   test('un retiro que excede el efectivo disponible lanza y no registra el movimiento', () async {
@@ -79,7 +82,7 @@ void main() {
     );
 
     expect(container.read(cashMovementsProvider), isEmpty);
-    expect(container.read(expectedCashMxnProvider), 500.0);
+    expect(await container.read(expectedCashMxnProvider.future), 500.0);
   });
 
   test('el movimiento más reciente se inserta primero (segundo movimiento)', () async {
@@ -113,7 +116,7 @@ void main() {
     await container.read(cashSessionProvider.notifier).startNewSession();
 
     expect(container.read(cashMovementsProvider), isEmpty);
-    expect(container.read(expectedCashMxnProvider), 500.0);
+    expect(await container.read(expectedCashMxnProvider.future), 500.0);
   });
 
   test('closeSession calcula expectedCashMxn incluyendo movimientos del turno', () async {
@@ -124,9 +127,10 @@ void main() {
           description: 'Pago proveedor',
         );
 
-    final closed = await container
-        .read(cashSessionProvider.notifier)
-        .closeSession(const BanxicoCount({'bills_100': 4}));
+    final closed = await container.read(cashSessionProvider.notifier).closeSession(
+          const BanxicoCount({'bills_100': 4}),
+          movements: container.read(cashMovementsProvider),
+        );
 
     // Fondo 500 - retiro 100 = 400 esperado; físico 400 (4 billetes de 100) → cuadre exacto.
     expect(closed.expectedCashMxn, 400.0);

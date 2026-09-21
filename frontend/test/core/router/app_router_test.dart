@@ -14,9 +14,13 @@ import 'package:nexus_app/features/inventory/presentation/inventory_provider.dar
     show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_wizard_screen.dart';
+import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/whatsapp_catalog/data/whatsapp_catalog_repository.dart';
 import 'package:nexus_app/features/whatsapp_catalog/presentation/public_catalog_screen.dart';
 import 'package:nexus_app/features/whatsapp_catalog/presentation/whatsapp_catalog_provider.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
 
 /// app_router_redirect_test — CA-04, CA-05, CA-08, CA-09
 ///
@@ -31,6 +35,11 @@ void main() {
   }) {
     return ProviderScope(
       overrides: [
+        // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+        // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+        orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+        storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
         sessionProvider.overrideWith((ref) => hasSession),
         onboardingCompleteProvider.overrideWith((ref) => onboardingDone),
         inventoryRepositoryProvider.overrideWithValue(InventoryRepositoryMock()),
@@ -45,6 +54,10 @@ void main() {
               WarehouseOption(
                   id: 'wh-001', name: 'Almacén Principal', isDefault: true),
             ]),
+        // El Dashboard también pide "Últimas ventas" — sin esto golpearía la
+        // red real desde Sep 2026 (salesRepositoryProvider ya no es Mock
+        // por defecto).
+        salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
       ],
       child: Consumer(
         builder: (_, ref, __) {
@@ -103,6 +116,11 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+            // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+            orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+            storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
             sessionProvider.overrideWith((ref) => false),
             onboardingCompleteProvider.overrideWith((ref) => false),
             catalogStoreNameProvider

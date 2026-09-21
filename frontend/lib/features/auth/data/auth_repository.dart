@@ -25,6 +25,15 @@ abstract class AuthRepository {
   /// PATCH /api/v1/auth/me/warehouse — cambia el almacén operativo del
   /// usuario en sesión (configurable desde su perfil, Doc. Maestro D6).
   Future<void> setDefaultWarehouseId(String warehouseId);
+
+  /// GET /api/v1/tenants/me/pricing-settings — margen máximo sugerido (%)
+  /// del comercio, usado como piso del "precio máximo sugerido" por
+  /// producto mientras no haya suficiente historial de ventas (Sep 2026).
+  Future<double> fetchMaxMarginPercent();
+
+  /// PATCH /api/v1/tenants/me/pricing-settings — actualiza el margen máximo
+  /// sugerido del comercio. Requiere permiso `settings.manage_store`.
+  Future<void> setMaxMarginPercent(double percent);
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +104,32 @@ class AuthRepositoryImpl implements AuthRepository {
       await client.patch(
         '/api/v1/auth/me/warehouse',
         data: {'warehouse_id': warehouseId},
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
+  @override
+  Future<double> fetchMaxMarginPercent() async {
+    try {
+      final response = await client.get('/api/v1/tenants/me/pricing-settings');
+      final dynamic data = response.data;
+      if (data is Map && data['max_margin_percent'] != null) {
+        return double.tryParse(data['max_margin_percent'].toString()) ?? 40.0;
+      }
+      return 40.0;
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
+  @override
+  Future<void> setMaxMarginPercent(double percent) async {
+    try {
+      await client.patch(
+        '/api/v1/tenants/me/pricing-settings',
+        data: {'max_margin_percent': percent},
       );
     } on DioException catch (e) {
       throw _mapDioError(e);
@@ -182,6 +217,16 @@ class AuthRepositoryMock implements AuthRepository {
   @override
   Future<void> setDefaultWarehouseId(String warehouseId) async {
     _defaultWarehouseId = warehouseId;
+  }
+
+  double _maxMarginPercent = 40.0;
+
+  @override
+  Future<double> fetchMaxMarginPercent() async => _maxMarginPercent;
+
+  @override
+  Future<void> setMaxMarginPercent(double percent) async {
+    _maxMarginPercent = percent;
   }
 }
 

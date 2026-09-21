@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 # Importación de UUID para identificación de entidades
 import uuid
 # Importación de la sesión asíncrona de SQLAlchemy
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -53,6 +53,9 @@ from app.modules.inventory.repositories.seed_product_repository import (
     SeedProductRepository,
 )
 from app.modules.inventory.repositories.warehouse_repository import WarehouseRepository
+# Importación de modelos de ventas para el cálculo de precio máximo sugerido
+# (elasticidad histórica de la demanda, RF-XX / decisión de Eduardo Sep 2026)
+from app.modules.sales_pos.domain.sale import Sale, SaleItem, SaleStatus
 
 # Importación de esquemas Pydantic
 from app.modules.inventory.schemas.category import CategoryCreate, CategoryResponse
@@ -112,7 +115,12 @@ class InventoryService:
         self.reservation_repo = ReservationRepository(db)
         self.seed_product_repo = SeedProductRepository(db)
 
-    def _build_product_response(self, product: Product) -> ProductResponse:
+    def _build_product_response(
+        self,
+        product: Product,
+        suggested_max_price_mxn: Optional[Decimal] = None,
+        suggested_max_price_source: Optional[str] = None,
+    ) -> ProductResponse:
         """
         Método auxiliar para construir la respuesta completa de un Producto
         calculando existencias acumuladas, alertas de stock bajo y margen comercial en MXN.
@@ -155,6 +163,8 @@ class InventoryService:
             total_stock=total_stock,
             is_low_stock=is_low_stock,
             margin_percentage=margin_percentage,
+            suggested_max_price_mxn=suggested_max_price_mxn,
+            suggested_max_price_source=suggested_max_price_source,
             stocks=stocks_response,
             created_at=product.created_at,
             updated_at=product.updated_at,
@@ -341,7 +351,93 @@ class InventoryService:
         if not product or product.tenant_id != tenant_id:
             raise NotFoundException(f"Producto con ID '{product_id}' no encontrado.")
 
-        return self._build_product_response(product)
+        suggested_price, suggested_source = await self._compute_suggested_max_price(
+            product, current_user
+        )
+        return self._build_product_response(
+            product,
+            suggested_max_price_mxn=suggested_price,
+            suggested_max_price_source=suggested_source,
+        )
+
+    async def _compute_suggested_max_price(
+        self, product: Product, current_user: User
+    ) -> Tuple[Decimal, str]:
+        """
+        Precio máximo sugerido (decisión de Eduardo, Sep 2026): usa un modelo
+        simple de elasticidad de la demanda cuando hay suficiente historial de
+        ventas a distintos precios; si no, cae al margen máximo configurado
+        del comercio sobre el costo del producto.
+
+        No es una recomendación de tocar cada venta — sólo se calcula al
+        consultar el detalle del producto (`get_product_by_id`), nunca en el
+        listado, para no correr una regresión por producto en cada carga.
+        """
+        tenant_id = current_user.tenant_id
+
+        stmt = (
+            select(SaleItem.unit_price_mxn, func.sum(SaleItem.quantity))
+            .join(Sale, Sale.id == SaleItem.sale_id)
+            .where(
+                SaleItem.product_id == product.id,
+                SaleItem.tenant_id == tenant_id,
+                Sale.status != SaleStatus.CANCELLED,
+            )
+            .group_by(SaleItem.unit_price_mxn)
+        )
+        result = await self.db.execute(stmt)
+        price_quantity_pairs = [
+            (float(price), float(quantity)) for price, quantity in result.all()
+        ]
+
+        if len(price_quantity_pairs) >= 2:
+            historical_price = self._fit_demand_curve(price_quantity_pairs)
+            if historical_price is not None:
+                return historical_price.quantize(Decimal("0.01")), "historical"
+
+        tenant = current_user.tenant
+        margin_percent = tenant.max_margin_percent if tenant else Decimal("40.00")
+        fallback_price = (
+            product.cost_mxn * (Decimal("1") + margin_percent / Decimal("100"))
+        ).quantize(Decimal("0.01"))
+        return fallback_price, "margin_fallback"
+
+    @staticmethod
+    def _fit_demand_curve(points: List[Tuple[float, float]]) -> Optional[Decimal]:
+        """
+        Ajusta una curva de demanda lineal Q = a - b·P por mínimos cuadrados
+        sobre los puntos históricos (precio, cantidad vendida) y retorna el
+        precio que maximiza el ingreso total (P* = a / (2b)) — el "techo": no
+        deberías subir el precio más de ahí porque, según tu propio
+        historial, venderías tan poco que ingresarías menos, no más.
+
+        Retorna `None` cuando el ajuste no tiene sentido económico (pendiente
+        no negativa, es decir la muestra no muestra que a mayor precio se
+        venda menos) o cuando los datos son degenerados (todos los precios
+        iguales), en vez de forzar un número engañoso.
+        """
+        n = len(points)
+        sum_p = sum(p for p, _ in points)
+        sum_q = sum(q for _, q in points)
+        mean_p = sum_p / n
+        mean_q = sum_q / n
+
+        denominator = sum((p - mean_p) ** 2 for p, _ in points)
+        if denominator == 0:
+            return None
+
+        numerator = sum((p - mean_p) * (q - mean_q) for p, q in points)
+        slope = numerator / denominator  # dQ/dP
+        if slope >= 0:
+            return None
+
+        b = -slope
+        intercept = mean_q - slope * mean_p  # a
+        optimal_price = intercept / (2 * b)
+        if optimal_price <= 0:
+            return None
+
+        return Decimal(str(round(optimal_price, 2)))
 
     async def update_product(
         self, product_id: uuid.UUID, data: ProductUpdate, current_user: User
@@ -1278,7 +1374,7 @@ class InventoryService:
             raise BadRequestException(f"La columna de Nombre '{mapping.name_column}' no existe en el archivo.")
         if mapping.price_column not in headers:
             raise BadRequestException(f"La columna de Precio '{mapping.price_column}' no existe en el archivo.")
-        if mapping.stock_column not in headers:
+        if mapping.stock_column and mapping.stock_column not in headers:
             raise BadRequestException(f"La columna de Existencias '{mapping.stock_column}' no existe en el archivo.")
 
         # 3. Obtener almacén principal predeterminado
@@ -1312,8 +1408,8 @@ class InventoryService:
                 errors.append(ImportRowError(row_number=idx, reason=f"Precio inválido o negativo: '{raw_price}'"))
                 continue
 
-            # 5.3 Validar Existencias Iniciales (Campo Vital 3)
-            raw_stock = row.get(mapping.stock_column)
+            # 5.3 Validar Existencias Iniciales (Campo Vital 3) — sin columna mapeada entra en 0
+            raw_stock = row.get(mapping.stock_column) if mapping.stock_column else None
             stock_qty = self._clean_numeric(raw_stock)
             if stock_qty is None or stock_qty < Decimal("0.00"):
                 stock_qty = Decimal("0.00")

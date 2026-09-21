@@ -6,12 +6,14 @@ import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_screen.dart';
+import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 
 Widget _buildApp() {
   return ProviderScope(
     overrides: [
       currentUserNameProvider.overrideWith((ref) => 'Ana García'),
       cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+      salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
     ],
     child: MaterialApp(
       theme: AppTheme.dark,
@@ -31,12 +33,24 @@ void _setPhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+/// El mock responde con retardo (`SalesRepositoryMock`/`CashRepositoryMock`):
+/// se avanza el reloj a mano antes de asentar — `pumpAndSettle` puede darse
+/// por "estable" y dejar el timer de 400ms de `getSales()` pendiente si
+/// nada más pide otro frame mientras tanto (mismo criterio que
+/// `management_screens_test.dart`).
+Future<void> _settle(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(seconds: 1));
+  await tester.pump(const Duration(seconds: 1));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('abre una sesión automáticamente y muestra el turno activo',
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     expect(find.text('TURNO ABIERTO'), findsOneWidget);
     expect(find.text('Ana García'), findsOneWidget);
@@ -48,7 +62,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await tester.tap(find.widgetWithText(ElevatedButton, 'Cerrar turno'));
     await tester.pumpAndSettle();
@@ -63,7 +77,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await tester.tap(find.widgetWithText(ElevatedButton, 'Cerrar turno'));
     await tester.pumpAndSettle();
@@ -90,7 +104,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await tester.tap(find.widgetWithText(ElevatedButton, 'Cerrar turno'));
     await tester.pumpAndSettle();
@@ -120,7 +134,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await tester.tap(find.widgetWithText(ElevatedButton, 'Cerrar turno'));
     await tester.pumpAndSettle();

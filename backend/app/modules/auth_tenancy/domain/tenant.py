@@ -1,8 +1,9 @@
+from decimal import Decimal
 import enum
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import Boolean, DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID, ENUM as PG_ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database.base import Base, SCHEMA
@@ -66,6 +67,16 @@ class Tenant(Base):
         Boolean,
         default=False,
         nullable=False,
+    )
+    max_margin_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2),
+        default=Decimal("40.00"),
+        nullable=False,
+        doc=(
+            "Margen máximo sugerido (%) sobre costo, usado como piso del "
+            "'precio máximo sugerido' de un producto mientras no haya "
+            "suficiente historial de ventas para estimarlo por elasticidad."
+        ),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

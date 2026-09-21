@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
-import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
+import '../../auth/data/auth_repository.dart' show dioClientProvider;
 import '../domain/cart_item.dart';
 import '../domain/cart_state.dart';
 import '../domain/payment_entry.dart';
@@ -18,6 +18,26 @@ double? _toDouble(dynamic value) {
   if (value is num) return value.toDouble();
   if (value is String) return double.tryParse(value);
   return null;
+}
+
+int _toQuantity(dynamic value) => (_toDouble(value) ?? 0).round();
+
+/// Réplica del `apiValue` de [PaymentMethodMxn] en sentido inverso —
+/// el backend nunca manda un método fuera de este catálogo.
+PaymentMethodMxn _paymentMethodFromApi(String value) {
+  for (final m in PaymentMethodMxn.values) {
+    if (m.apiValue == value) return m;
+  }
+  return PaymentMethodMxn.other;
+}
+
+/// El backend no persiste el motivo del reembolso como campo propio — viaja
+/// concatenado en `notes` como "... [REEMBOLSO: motivo]" (ver
+/// `SalesService.refund_sale`). Se extrae para no perder el dato en el detalle.
+String _extractRefundReason(String? notes) {
+  if (notes == null) return '';
+  final match = RegExp(r'\[REEMBOLSO:\s*(.+?)\]\s*$').firstMatch(notes);
+  return match?.group(1)?.trim() ?? '';
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +303,25 @@ class SalesRepositoryImpl implements SalesRepository {
           return SalesException(data['detail']['message'].toString());
         }
         if (data['error'] is Map && data['error']['message'] != null) {
-          return SalesException(data['error']['message'].toString());
+          // Un 422 de Pydantic trae `details: [{loc, msg}]` — sin eso el
+          // mensaje "Error de validación en los datos enviados" no dice qué
+          // campo falló (QA 20 sep: imposible diagnosticar desde el teléfono).
+          final details = data['error']['details'];
+          final fields = details is List
+              ? details
+                  .whereType<Map>()
+                  .map((d) {
+                    final loc = (d['loc'] as List?)
+                            ?.where((l) => l != 'body')
+                            .join('.') ??
+                        '';
+                    return loc.isEmpty ? '${d['msg']}' : '$loc: ${d['msg']}';
+                  })
+                  .join(' · ')
+              : '';
+          final message = data['error']['message'].toString();
+          return SalesException(
+              fields.isEmpty ? message : '$message ($fields)');
         }
         if (data['detail'] != null && data['detail'] is String) {
           return SalesException(data['detail'].toString());
@@ -327,29 +365,226 @@ class SalesRepositoryImpl implements SalesRepository {
     }
   }
 
-  // TODO(integración real): Kardex de ventas (Fase 2) — pendiente de
-  // reconciliar contra `GET /sales`, `GET /sales/{id}` y `POST /{id}/cancel`
-  // del backend modular. El contrato real no calza tal cual: cajero
-  // filtrado por `cashier_id` (UUID) en vez de nombre, listado sin
-  // total/suma agregada, y sólo cancelación total (no reembolso parcial por
-  // renglón, que sí existe hoy en el mock). Mientras tanto,
-  // `salesRepositoryProvider` sigue en `SalesRepositoryMock`.
+  // ── Listado ───────────────────────────────────────────────────────────
+
   @override
   Future<PaginatedSales> getSales({
     SalesQuery query = const SalesQuery(),
     int page = 1,
     int pageSize = 20,
-  }) =>
-      throw UnimplementedError(
-          'SalesRepositoryImpl.getSales: pendiente de integración real (Kardex).');
+  }) async {
+    try {
+      String? cashierId;
+      if (query.cashierName != null) {
+        cashierId = await _resolveCashierId(query.cashierName!);
+        if (cashierId == null) {
+          // El nombre no corresponde a ningún empleado real — no hay nada
+          // que listar (evita mostrar el recorte completo sin filtrar).
+          return PaginatedSales(
+            items: const [],
+            total: 0,
+            totalAmountMxn: 0,
+            page: page,
+            pageSize: pageSize,
+            totalPages: 1,
+          );
+        }
+      }
+
+      final queryParams = <String, dynamic>{
+        'skip': (page - 1) * pageSize,
+        'limit': pageSize,
+      };
+      if (query.dateFrom != null) {
+        queryParams['start_date'] = query.dateFrom!.toIso8601String();
+      }
+      if (query.dateTo != null) {
+        final endOfDay = DateTime(query.dateTo!.year, query.dateTo!.month,
+            query.dateTo!.day, 23, 59, 59);
+        queryParams['end_date'] = endOfDay.toIso8601String();
+      }
+      if (cashierId != null) {
+        queryParams['cashier_id'] = cashierId;
+      }
+
+      final response = await client.get<dynamic>(
+        '/api/v1/sales',
+        queryParameters: queryParams,
+      );
+
+      final list = (response.data as List).cast<Map>();
+      var items = list.map(_saleSummaryFromSaleJson).toList();
+
+      // El backend no expone un filtro `payment_method` funcional todavía
+      // (docs/api/sales.yaml lo documenta, pero el endpoint real no lo
+      // implementa) — se filtra en cliente sobre la página recibida. Esto
+      // hace que `total`/`totalPages` puedan no cuadrar exactamente con lo
+      // mostrado cuando el filtro está activo; documentado como limitación
+      // conocida hasta que el backend lo soporte.
+      if (query.paymentKind != null) {
+        items = items.where((s) => s.paymentKind == query.paymentKind).toList();
+      }
+
+      final totalHeader = response.headers.value('x-total-count');
+      final total = int.tryParse(totalHeader ?? '') ?? items.length;
+      final totalPages = total == 0 ? 1 : (total / pageSize).ceil();
+
+      return PaginatedSales(
+        items: items,
+        total: total,
+        // Sólo de la página actual — el contrato real no expone una suma
+        // agregada del recorte completo (ver docs/architecture/integrations.md).
+        totalAmountMxn: items.fold<double>(0, (a, s) => a + s.totalMxn),
+        page: page,
+        pageSize: pageSize,
+        totalPages: totalPages,
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
 
   @override
-  Future<CheckoutResult> getSaleById(String id) => throw UnimplementedError(
-      'SalesRepositoryImpl.getSaleById: pendiente de integración real (Kardex).');
+  Future<CheckoutResult> getSaleById(String id) async {
+    try {
+      final response = await client.get<dynamic>('/api/v1/sales/$id');
+      return _checkoutResultFromSaleJson(response.data as Map);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw SaleNotFoundException(id);
+      throw _mapDioError(e);
+    }
+  }
 
   @override
-  Future<List<String>> getCashiers() => throw UnimplementedError(
-      'SalesRepositoryImpl.getCashiers: pendiente de integración real (Kardex).');
+  Future<List<String>> getCashiers() async {
+    try {
+      final response = await client.get<dynamic>('/api/v1/users');
+      final list = (response.data as List).cast<Map>();
+      final names = <String>{
+        for (final u in list)
+          if ((u['full_name'] as String?)?.isNotEmpty ?? false) u['full_name'] as String,
+      }.toList()
+        ..sort();
+      return names;
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
+  /// Resuelve el nombre de cajero del filtro al `cashier_id` (UUID) real que
+  /// espera `GET /sales` — el contrato real filtra por id, el Kardex por
+  /// nombre (N-04, sin identidad de usuario resuelta en la UI todavía).
+  /// `null` si ningún empleado del comercio tiene ese nombre.
+  Future<String?> _resolveCashierId(String cashierName) async {
+    final response = await client.get<dynamic>('/api/v1/users');
+    final list = (response.data as List).cast<Map>();
+    for (final u in list) {
+      if (u['full_name'] == cashierName) return u['id']?.toString();
+    }
+    return null;
+  }
+
+  SaleSummary _saleSummaryFromSaleJson(Map json) {
+    final createdAtStr = json['created_at']?.toString();
+    final completedAt = createdAtStr != null
+        ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
+        : DateTime.now();
+    final itemsJson = (json['items'] as List?) ?? const [];
+    final itemCount = itemsJson.fold<int>(
+        0, (a, i) => a + _toQuantity((i as Map)['quantity']));
+    final paymentsJson = (json['payments'] as List?) ?? const [];
+    final payments = paymentsJson
+        .map((p) => PaymentEntry(
+              id: (p as Map)['id']?.toString() ?? '',
+              method: _paymentMethodFromApi(p['payment_method']?.toString() ?? ''),
+              amountMxn: _toDouble(p['amount_paid_mxn']) ?? 0,
+              referenceCode: p['reference_code']?.toString(),
+            ))
+        .toList();
+
+    return SaleSummary(
+      id: json['id'].toString(),
+      folio: json['folio']?.toString() ?? '',
+      completedAt: completedAt,
+      cashierName: json['cashier_name']?.toString() ?? 'Sin asignar',
+      totalMxn: _toDouble(json['total_mxn']) ?? 0,
+      itemCount: itemCount,
+      paymentKind: SalePaymentKind.fromPayments(payments),
+      isRefunded: json['status']?.toString() == 'REFUNDED',
+      payments: payments,
+    );
+  }
+
+  CheckoutResult _checkoutResultFromSaleJson(Map json) {
+    final createdAtStr = json['created_at']?.toString();
+    final completedAt = createdAtStr != null
+        ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
+        : DateTime.now();
+
+    final itemsJson = (json['items'] as List?) ?? const [];
+    final items = itemsJson
+        .map((i) => CartItem(
+              id: (i as Map)['id'].toString(),
+              productId: i['product_id']?.toString(),
+              name: i['product_name']?.toString() ?? '',
+              unitPriceMxn: _toDouble(i['unit_price_mxn']) ?? 0,
+              quantity: _toQuantity(i['quantity']),
+              isOnTheFly: i['is_on_the_fly'] == true,
+            ))
+        .toList();
+
+    final paymentsJson = (json['payments'] as List?) ?? const [];
+    final payments = paymentsJson
+        .map((p) => PaymentEntry(
+              id: (p as Map)['id']?.toString() ?? '',
+              method: _paymentMethodFromApi(p['payment_method']?.toString() ?? ''),
+              amountMxn: _toDouble(p['amount_paid_mxn']) ?? 0,
+              referenceCode: p['reference_code']?.toString(),
+            ))
+        .toList();
+
+    final status = json['status']?.toString();
+    SaleRefund? refund;
+    if (status == 'REFUNDED') {
+      final updatedAtStr = json['updated_at']?.toString();
+      final refundedAt = updatedAtStr != null
+          ? DateTime.tryParse(updatedAtStr) ?? completedAt
+          : completedAt;
+      final lines = <RefundedLine>[
+        for (final i in itemsJson)
+          if (_toQuantity((i as Map)['refunded_quantity']) > 0)
+            RefundedLine(
+              cartItemId: i['id'].toString(),
+              quantity: _toQuantity(i['refunded_quantity']),
+            ),
+      ];
+      refund = SaleRefund(
+        refundedAt: refundedAt,
+        reason: _extractRefundReason(json['notes']?.toString()),
+        refundAmountMxn: _toDouble(json['refunded_amount_mxn']) ?? 0,
+        // No persistido en el backend real (sólo se usa transitoriamente
+        // para decidir si se repone el Kardex) — se asume que sí regresó
+        // al inventario, el caso más común.
+        refundToStock: true,
+        lines: lines,
+      );
+    }
+
+    return CheckoutResult(
+      saleId: json['id'].toString(),
+      folio: json['folio']?.toString() ?? '',
+      totalMxn: _toDouble(json['total_mxn']) ?? 0,
+      totalPaidMxn: _toDouble(json['amount_paid_mxn']) ?? 0,
+      changeGivenMxn: _toDouble(json['change_returned_mxn']) ?? 0,
+      items: items,
+      payments: payments,
+      cashierName: json['cashier_name']?.toString() ?? 'Sin asignar',
+      completedAt: completedAt,
+      refund: refund,
+    );
+  }
+
+  // ── Reembolso ────────────────────────────────────────────────────────────
 
   @override
   Future<CheckoutResult> refundSale({
@@ -357,9 +592,34 @@ class SalesRepositoryImpl implements SalesRepository {
     required String reason,
     required bool refundToStock,
     List<RefundedLine>? itemsToRefund,
-  }) =>
-      throw UnimplementedError(
-          'SalesRepositoryImpl.refundSale: el backend real sólo tiene cancelación total (POST /{id}/cancel), sin reembolso parcial por renglón — pendiente de decidir con Alan.');
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'reason': reason,
+        'refund_to_stock': refundToStock,
+      };
+      if (itemsToRefund != null) {
+        payload['items'] = itemsToRefund
+            .map((l) => {
+                  'sale_item_id': l.cartItemId,
+                  'quantity': l.quantity,
+                })
+            .toList();
+      }
+
+      final response = await client.post<dynamic>(
+        '/api/v1/sales/$saleId/refund',
+        data: payload,
+      );
+      return _checkoutResultFromSaleJson(response.data as Map);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) throw SaleNotFoundException(saleId);
+      if (e.response?.statusCode == 422) {
+        throw SaleAlreadyRefundedException(saleId);
+      }
+      throw _mapDioError(e);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -726,13 +986,14 @@ class SalesRepositoryMock implements SalesRepository {
 // Provider conectado al Repositorio Real de Ventas
 // ---------------------------------------------------------------------------
 
-// Sigue en Mock por decisión de Eduardo (Sep 2026): `SalesRepositoryImpl`
-// (de Alan) sólo cubre `checkout()` contra el backend real — `getSales`,
-// `getSaleById`, `getCashiers` y `refundSale` (Kardex, Fase 2) están
-// pendientes de una integración aparte, porque su contrato real no calza
-// tal cual (cancelación total vs. reembolso parcial por renglón, cajero
-// filtrado por `cashier_id` en vez de nombre, listado sin total/suma).
+// Real desde Sep 2026: los tres consumidores que leían
+// `SalesRepositoryMock.todaysSales` estático directo ya se desacoplaron —
+// `cash_session_provider.dart` pide `getSales()` real (cacheado por turno,
+// ver `_shiftSalesProvider`), `commissions_repository.dart` ya no tiene
+// clase Mock (código muerto eliminado, `CommissionsRepositoryImpl` es lo
+// único que se usaba), y `analytics_dashboard_repository.dart` sólo toca el
+// mock estático dentro de su propio modo mock (`ANALYTICS_MOCK`, aparte).
 final salesRepositoryProvider = Provider<SalesRepository>(
-  (ref) => SalesRepositoryMock(clock: ref.watch(clockProvider)),
+  (ref) => SalesRepositoryImpl(client: ref.watch(dioClientProvider)),
 );
 

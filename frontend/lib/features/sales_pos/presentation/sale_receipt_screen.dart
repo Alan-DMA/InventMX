@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../management/domain/app_permission.dart' show Permissions;
+import '../../inventory/presentation/inventory_provider.dart';
 import '../../management/presentation/management_provider.dart'
     show hasPermissionProvider;
 import '../../onboarding/presentation/onboarding_provider.dart';
@@ -228,6 +229,11 @@ class _SaleReceiptScreenState extends ConsumerState<SaleReceiptScreen> {
     setState(() => _updatedResult = updated);
     ref.invalidate(saleDetailProvider(updated.saleId));
     ref.invalidate(salesKardexProvider);
+    // Mismo bug que en checkout (Sep 2026): un reembolso con reposición a
+    // stock cambia `current_stock` en el backend, pero Inventario/Detalle de
+    // producto seguían mostrando la lista cacheada de `inventoryProvider` si
+    // no se invalida también aquí.
+    ref.invalidate(inventoryProvider);
   }
 
   void _showPrintBlocker(BuildContext context) {

@@ -121,7 +121,7 @@ class _FakeRepo implements WhatsappCatalogRepository {
   }
 
   @override
-  Future<SavedOrder> fetchOrder(String slug, String folio) async =>
+  Future<SavedOrder> fetchOrder(String slug, String folio, {String? accessKey}) async =>
       submitted.firstWhere((o) => o.folio == folio,
           orElse: () => throw OrderNotFound(folio));
 

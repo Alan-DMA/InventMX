@@ -1,5 +1,14 @@
 # Exportación de esquemas del Catálogo Digital de WhatsApp
 from app.modules.whatsapp_catalog.schemas.public_catalog import (
+    CancelReason,
+    CatalogOrderItemResponse,
+    CatalogOrderResponse,
+    CatalogOrderStatus,
+    OrderRevisionResponse,
+    StoreOrderEditRequest,
+    StoreOrderListResponse,
+    StoreOrderResponse,
+    StoreOrderStatusUpdate,
     CatalogSettingsResponse,
     CatalogSettingsUpdateRequest,
     DeliveryMethod,
@@ -16,6 +25,15 @@ from app.modules.whatsapp_catalog.schemas.public_catalog import (
 )
 
 __all__ = [
+    "CancelReason",
+    "CatalogOrderItemResponse",
+    "CatalogOrderResponse",
+    "CatalogOrderStatus",
+    "OrderRevisionResponse",
+    "StoreOrderEditRequest",
+    "StoreOrderListResponse",
+    "StoreOrderResponse",
+    "StoreOrderStatusUpdate",
     "CatalogSettingsResponse",
     "CatalogSettingsUpdateRequest",
     "DeliveryMethod",

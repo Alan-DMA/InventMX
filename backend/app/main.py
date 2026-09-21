@@ -122,3 +122,29 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "environment": settings.ENVIRONMENT,
     }
 
+
+# -----------------------------------------------------------------------------
+# 6. Vitrina web (Flutter Web) servida por el propio backend — sólo desarrollo
+# -----------------------------------------------------------------------------
+# La vitrina pública es la app Flutter compilada a web (`frontend/build/web`).
+# En producción la entrega un servidor de estáticos (nginx/CDN con `try_files`);
+# para QA en LAN se sirve desde aquí y así hay un solo proceso en el :8000 y el
+# enlace del chat es `http://<host>:8000/tienda/<slug>/pedido/<folio>` (sin `#`,
+# que WhatsApp no linkifica). Cualquier ruta que no sea API ni archivo devuelve
+# index.html (routing del lado del cliente).
+_WEB_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "build", "web")
+)
+if settings.ENVIRONMENT != "production" and os.path.isfile(os.path.join(_WEB_DIR, "index.html")):
+    from fastapi.responses import FileResponse
+
+    @app.get("/{web_path:path}", include_in_schema=False)
+    async def serve_flutter_web(web_path: str):
+        """Archivo estático si existe; si no, la app (SPA fallback)."""
+        if web_path.startswith(("api/", "uploads/", "docs", "redoc", "openapi.json")):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        candidate = os.path.normpath(os.path.join(_WEB_DIR, web_path))
+        if candidate.startswith(_WEB_DIR) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(os.path.join(_WEB_DIR, "index.html"))

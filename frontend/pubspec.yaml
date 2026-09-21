@@ -9,6 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Rutas limpias en web (`/tienda/...` sin `#`): WhatsApp no linkifica URLs
+  # con fragmento. Paquete del propio SDK, no es dependencia externa.
+  flutter_web_plugins:
+    sdk: flutter
 
   # --- Estado ---
   flutter_riverpod: ^2.5.1
@@ -19,6 +23,9 @@ dependencies:
 
   # --- Red / HTTP ---
   dio: ^5.4.3
+  # Canal en vivo de pedidos web (WS /ws/orders) — paquete oficial de Dart,
+  # ya venía como transitiva; cubre móvil y web con la misma API.
+  web_socket_channel: ^3.0.0
 
   # --- Almacenamiento local ---
   hive: ^2.2.3
@@ -35,6 +42,10 @@ dependencies:
 
   # --- Importación de archivos ---
   file_picker: ^8.1.2           # Selector de archivos Excel/CSV (Android/iOS/Web)
+
+  # --- Foto de producto tomada con la cámara nativa (sin salir de la app) ---
+  image_picker: ^1.1.2
+  flutter_image_compress: ^2.3.0 # Comprime foto/archivo antes de subir (Sep 2026)
 
   # --- Escaneo de códigos de barras ---
   mobile_scanner: ^6.0.0        # Escaneo continuo EAN/QR/Code128 (Tarea 5.2)

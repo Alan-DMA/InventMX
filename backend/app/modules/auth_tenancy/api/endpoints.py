@@ -17,6 +17,10 @@ from app.modules.auth_tenancy.domain.user import User
 from app.modules.auth_tenancy.repositories.role_repository import RoleRepository
 # Importación de esquemas Pydantic
 from app.modules.auth_tenancy.schemas.role import PermissionRead, RoleRead
+from app.modules.auth_tenancy.schemas.tenant import (
+    PricingSettingsResponse,
+    PricingSettingsUpdateRequest,
+)
 from app.modules.auth_tenancy.schemas.token import (
     RefreshTokenRequest,
     RegisterTenantRequest,
@@ -31,6 +35,7 @@ from app.modules.auth_tenancy.schemas.user import (
 )
 # Importación de servicios de lógica de negocio
 from app.modules.auth_tenancy.services.auth_service import AuthService
+from app.modules.auth_tenancy.services.tenant_service import TenantService
 from app.modules.auth_tenancy.services.user_service import UserService
 
 # Creación del router principal de autenticación y empleados
@@ -123,6 +128,44 @@ async def update_my_warehouse(
     """
     service = UserService(db)
     return await service.update_operating_warehouse(data.warehouse_id, current_user)
+
+
+# =============================================================================
+# ENDPOINTS DE CONFIGURACIÓN DE PRECIOS DEL COMERCIO (/tenants/me)
+# =============================================================================
+
+@router.get(
+    "/tenants/me/pricing-settings",
+    response_model=PricingSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Consultar configuración de precios del comercio",
+)
+async def get_pricing_settings(
+    current_user: User = Depends(require_permission("settings.manage_store")),
+):
+    """
+    Retorna el margen máximo sugerido configurado para el comercio, usado
+    como piso del "precio máximo sugerido" por producto.
+    """
+    return current_user.tenant
+
+
+@router.patch(
+    "/tenants/me/pricing-settings",
+    response_model=PricingSettingsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Actualizar margen máximo sugerido del comercio",
+)
+async def update_pricing_settings(
+    data: PricingSettingsUpdateRequest,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Actualiza el margen máximo sugerido (%) sobre costo del comercio en sesión.
+    """
+    service = TenantService(db)
+    return await service.update_pricing_settings(data.max_margin_percent, current_user)
 
 
 # =============================================================================

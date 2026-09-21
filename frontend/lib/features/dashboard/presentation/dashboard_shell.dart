@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../saas_admin/presentation/subscription_lock_banner.dart';
+import '../../whatsapp_catalog/presentation/widgets/new_order_banner.dart';
 
 /// Shell de navegación principal — sustituye al _DashboardPlaceholder.
 ///
@@ -59,6 +60,8 @@ class DashboardShell extends StatelessWidget {
         children: [
           // Solo lectura por morosidad — visible en todas las pestañas (14.2.3)
           const SubscriptionLockBanner(),
+          // Pedido web nuevo: se ve en cualquier tab y mantiene vivo el socket.
+          const NewOrderBanner(),
           Expanded(child: navigationShell),
         ],
       ),

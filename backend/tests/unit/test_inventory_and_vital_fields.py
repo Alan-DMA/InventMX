@@ -398,3 +398,185 @@ async def test_soft_lock_prevents_inventory_mutations(client: AsyncClient):
         headers=headers,
     )
     assert create_resp.status_code == 403
+
+
+# =============================================================================
+# PRECIO MÁXIMO SUGERIDO (Sep 2026) — decisión de Eduardo: elasticidad
+# histórica de la demanda cuando hay suficiente historial, margen máximo
+# configurable del comercio como piso cuando no lo hay.
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_pricing_settings_default_and_update(client: AsyncClient):
+    """
+    `GET/PATCH /tenants/me/pricing-settings`: el margen máximo por defecto es
+    40.00%, el dueño (OWNER, permiso `settings.manage_store`) puede
+    actualizarlo, y el cambio persiste en consultas posteriores.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Margen {suffix}",
+            "slug": f"margen-{suffix}",
+            "full_name": "Dueño Margen",
+            "email": f"margen_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res_get = await client.get("/api/v1/tenants/me/pricing-settings", headers=headers)
+    assert res_get.status_code == 200, res_get.text
+    assert Decimal(str(res_get.json()["max_margin_percent"])) == Decimal("40.00")
+
+    res_patch = await client.patch(
+        "/api/v1/tenants/me/pricing-settings",
+        json={"max_margin_percent": 25.00},
+        headers=headers,
+    )
+    assert res_patch.status_code == 200, res_patch.text
+    assert Decimal(str(res_patch.json()["max_margin_percent"])) == Decimal("25.00")
+
+    res_get_again = await client.get("/api/v1/tenants/me/pricing-settings", headers=headers)
+    assert Decimal(str(res_get_again.json()["max_margin_percent"])) == Decimal("25.00")
+
+
+@pytest.mark.asyncio
+async def test_pricing_settings_denied_without_permission(client: AsyncClient):
+    """
+    Un Cajero (sin `settings.manage_store`) no puede consultar ni modificar
+    el margen máximo del comercio.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Margen RBAC {suffix}",
+            "slug": f"margen-rbac-{suffix}",
+            "full_name": "Dueño Margen RBAC",
+            "email": f"margenrbac_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    owner_headers = {"Authorization": f"Bearer {reg_resp.json()['access_token']}"}
+
+    roles_resp = await client.get("/api/v1/roles", headers=owner_headers)
+    cashier_role_id = next(r["id"] for r in roles_resp.json() if r["name"] == "CASHIER")
+
+    await client.post(
+        "/api/v1/users",
+        json={
+            "email": f"cajeromargen_{suffix}@tienda.mx",
+            "password": "cajeropassword123",
+            "full_name": "Cajero Margen",
+            "role_id": cashier_role_id,
+        },
+        headers=owner_headers,
+    )
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": f"cajeromargen_{suffix}@tienda.mx", "password": "cajeropassword123"},
+    )
+    cashier_headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+    res_get = await client.get("/api/v1/tenants/me/pricing-settings", headers=cashier_headers)
+    assert res_get.status_code == 403
+
+    res_patch = await client.patch(
+        "/api/v1/tenants/me/pricing-settings",
+        json={"max_margin_percent": 10.00},
+        headers=cashier_headers,
+    )
+    assert res_patch.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_suggested_max_price_margin_fallback_without_sales_history(client: AsyncClient):
+    """
+    Sin historial de ventas a distintos precios, el precio máximo sugerido
+    cae al margen máximo del comercio sobre el costo (`margin_fallback`).
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Sugerido {suffix}",
+            "slug": f"sugerido-{suffix}",
+            "full_name": "Dueño Sugerido",
+            "email": f"sugerido_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    headers = {"Authorization": f"Bearer {reg_resp.json()['access_token']}"}
+
+    # Margen personalizado (25%) para no depender del default.
+    await client.patch(
+        "/api/v1/tenants/me/pricing-settings",
+        json={"max_margin_percent": 25.00},
+        headers=headers,
+    )
+
+    prod_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Producto Sin Historial", "price_mxn": 20.00, "cost_mxn": 10.00, "initial_stock": 10.0},
+        headers=headers,
+    )
+    product_id = prod_resp.json()["id"]
+
+    res_detail = await client.get(f"/api/v1/inventory/products/{product_id}", headers=headers)
+    assert res_detail.status_code == 200, res_detail.text
+    data = res_detail.json()
+    assert data["suggested_max_price_source"] == "margin_fallback"
+    # costo 10.00 × (1 + 25/100) = 12.50
+    assert Decimal(str(data["suggested_max_price_mxn"])) == Decimal("12.50")
+
+
+@pytest.mark.asyncio
+async def test_suggested_max_price_historical_with_enough_price_variation(client: AsyncClient):
+    """
+    Con al menos 2 precios históricos distintos y una demanda que baja al
+    subir el precio, el precio máximo sugerido usa el modelo de elasticidad
+    (`historical`) en vez del margen de respaldo.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Elasticidad {suffix}",
+            "slug": f"elastic-{suffix}",
+            "full_name": "Dueño Elasticidad",
+            "email": f"elastic_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    headers = {"Authorization": f"Bearer {reg_resp.json()['access_token']}"}
+
+    prod_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Producto Elástico", "price_mxn": 20.00, "cost_mxn": 8.00, "initial_stock": 100.0},
+        headers=headers,
+    )
+    product_id = prod_resp.json()["id"]
+    warehouse_id = prod_resp.json()["stocks"][0]["warehouse_id"]
+
+    # Tres precios distintos con demanda decreciente: (20, 10), (25, 6), (30, 2).
+    for price, qty in [(20.00, 10.0), (25.00, 6.0), (30.00, 2.0)]:
+        res = await client.post(
+            "/api/v1/sales/checkout",
+            json={
+                "warehouse_id": warehouse_id,
+                "items": [{"product_id": product_id, "quantity": qty, "unit_price_mxn": price}],
+            },
+            headers=headers,
+        )
+        assert res.status_code == 201, res.text
+
+    res_detail = await client.get(f"/api/v1/inventory/products/{product_id}", headers=headers)
+    assert res_detail.status_code == 200, res_detail.text
+    data = res_detail.json()
+    assert data["suggested_max_price_source"] == "historical"
+    # Regresión lineal Q = a - bP sobre (20,10),(25,6),(30,2): pendiente -0.8,
+    # intercepto 26 -> P* = 26 / (2*0.8) = 16.25
+    assert Decimal(str(data["suggested_max_price_mxn"])) == Decimal("16.25")

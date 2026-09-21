@@ -411,7 +411,11 @@ void main() {
     await tester.tap(find.text('Cambiar foto'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Subir imagen desde archivo'), findsWidgets);
+    // La sección "IMAGEN DEL PRODUCTO" (duplicada) se retiró — Sep 2026;
+    // ahora sólo existe una vía de acceso, el modal de opciones.
+    // "Tomar foto" (Sep 2026): la cámara nativa sin salir de la app.
+    expect(find.text('Tomar foto'), findsOneWidget);
+    expect(find.text('Subir imagen desde archivo'), findsOneWidget);
     expect(find.text('Ingresar URL de imagen'), findsOneWidget);
   });
 

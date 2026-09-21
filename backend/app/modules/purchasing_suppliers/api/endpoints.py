@@ -29,10 +29,12 @@ from app.modules.purchasing_suppliers.schemas.ocr_receipt import (
     VoiceDictationParseResponse,
 )
 from app.modules.purchasing_suppliers.schemas.purchase_order import (
+    PurchaseOrderCancelRequest,
     PurchaseOrderCreateRequest,
     PurchaseOrderReceiveRequest,
     PurchaseOrderReceiveResponse,
     PurchaseOrderResponse,
+    PurchaseOrderUpdateRequest,
 )
 from app.modules.purchasing_suppliers.schemas.supplier import (
     SupplierCreateRequest,
@@ -215,6 +217,47 @@ async def get_purchase_order(
     """Retorna los datos de la orden y sus renglones."""
     service = PurchasingService(db)
     return await service.get_purchase_order(order_id, current_user)
+
+
+@router.put(
+    "/purchase-orders/{order_id}",
+    response_model=PurchaseOrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Corregir una orden de compra que aún no recibe mercancía",
+)
+async def update_purchase_order(
+    order_id: uuid.UUID,
+    request: PurchaseOrderUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PurchaseOrderResponse:
+    """
+    Cambia proveedor, almacén, fecha esperada, notas o renglones de una orden
+    (RF-15). Responde 422 si la orden ya recibió mercancía: a partir de ahí el
+    stock y la cuenta por pagar ya existen.
+    """
+    service = PurchasingService(db)
+    return await service.update_purchase_order(order_id, request, current_user)
+
+
+@router.post(
+    "/purchase-orders/{order_id}/cancel",
+    response_model=PurchaseOrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancelar una orden de compra que aún no recibe mercancía",
+)
+async def cancel_purchase_order(
+    order_id: uuid.UUID,
+    request: PurchaseOrderCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PurchaseOrderResponse:
+    """
+    Deja la orden en `CANCELLED` sin borrarla, para que el historial siga
+    contando lo que pasó (RF-15). Responde 422 si ya recibió mercancía.
+    """
+    service = PurchasingService(db)
+    return await service.cancel_purchase_order(order_id, request, current_user)
 
 
 @router.post(

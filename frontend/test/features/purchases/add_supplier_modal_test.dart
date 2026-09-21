@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
 import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
 import 'package:nexus_app/features/purchases/presentation/widgets/add_supplier_modal.dart';
 
@@ -12,6 +13,12 @@ Future<ProviderContainer> _pumpModal(WidgetTester tester) async {
   late ProviderContainer container;
   await tester.pumpWidget(
     ProviderScope(
+      // `purchasesRepositoryProvider` ya apunta al backend real (retome de
+      // Compras) — este test sigue ejercitando el mock a propósito.
+      overrides: [
+        purchasesRepositoryProvider
+            .overrideWithValue(PurchasesRepositoryMock()),
+      ],
       child: MaterialApp(
         theme: AppTheme.dark,
         home: Consumer(builder: (context, ref, _) {
@@ -64,5 +71,42 @@ void main() {
 
     final created = container.read(suppliersProvider).suppliers.first;
     expect(created.phone, '+525512345678');
+  });
+
+  group('días de crédito (hallazgo de QA, Sep 19)', () {
+    testWidgets('el plazo capturado llega al proveedor creado', (tester) async {
+      final container = await _pumpModal(tester);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ej: Distribuidora Bimbo Norte'),
+          'Proveedor a crédito');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ej: 5512345678'), '5512345678');
+      await tester.enterText(
+          find.byKey(const Key('supplierCreditDaysField')), '30');
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Agregar proveedor'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(suppliersProvider).suppliers.first.creditDays, 30);
+    });
+
+    testWidgets('dejarlo vacío es de contado (0 días), no un valor inventado',
+        (tester) async {
+      final container = await _pumpModal(tester);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ej: Distribuidora Bimbo Norte'),
+          'Proveedor de contado');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Ej: 5512345678'), '5512345678');
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Agregar proveedor'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(suppliersProvider).suppliers.first.creditDays, 0);
+    });
   });
 }

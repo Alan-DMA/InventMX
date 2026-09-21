@@ -1,14 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/data/auth_repository.dart';
 import '../../onboarding/data/onboarding_repository.dart';
 import '../data/whatsapp_catalog_repository.dart';
+import '../data/whatsapp_catalog_repository_impl.dart';
 import '../domain/catalog_settings.dart';
 import '../domain/public_catalog.dart';
 import '../domain/whatsapp_order.dart';
 
-/// Nombre del negocio para sembrar el mock — el del onboarding (Hive) o, en
-/// una pestaña sin sesión (la vitrina se abre por enlace), el de la demo.
-/// Con backend real el slug llega del tenant y este provider desaparece.
+/// Nombre del negocio para sembrar el **mock** en tests y demos — el del
+/// onboarding (Hive) o el de la demo. Con el backend real conectado (Sep
+/// 2026) el slug y el nombre llegan en `GET /catalog-settings` y en la
+/// vitrina pública; la app ya no lee este provider, sólo los tests que
+/// montan `WhatsappCatalogRepositoryMock`.
 final catalogStoreNameProvider = FutureProvider<String>((ref) async {
   try {
     final data = await ref.read(onboardingRepositoryProvider).load();
@@ -21,12 +25,11 @@ final catalogStoreNameProvider = FutureProvider<String>((ref) async {
 
 const kDemoStoreName = 'Abarrotes Don Pepe';
 
-/// Repositorio del catálogo — mock mientras ningún módulo instancia
-/// `DioClient`. Se construye una vez por nombre de tienda.
+/// Repositorio del catálogo contra el backend real (`whatsapp_catalog`,
+/// 13.1). Los tests lo sustituyen por `WhatsappCatalogRepositoryMock`.
 final whatsappCatalogRepositoryProvider =
     Provider<WhatsappCatalogRepository>((ref) {
-  final name = ref.watch(catalogStoreNameProvider).value ?? kDemoStoreName;
-  return WhatsappCatalogRepositoryMock(storeName: name);
+  return WhatsappCatalogRepositoryImpl(client: ref.watch(dioClientProvider));
 });
 
 // ---------------------------------------------------------------------------
@@ -69,8 +72,6 @@ class PublicCatalogQueryNotifier extends Notifier<PublicCatalogQuery> {
 /// El catálogo de la tienda `slug` con los filtros activos.
 final publicCatalogProvider =
     FutureProvider.family<PublicCatalog, String>((ref, slug) async {
-  // Espera el nombre real antes de resolver el slug del mock.
-  await ref.watch(catalogStoreNameProvider.future);
   final query = ref.watch(publicCatalogQueryProvider);
   return ref.watch(whatsappCatalogRepositoryProvider).fetchPublicCatalog(
         slug,
@@ -80,13 +81,11 @@ final publicCatalogProvider =
 });
 
 /// El pedido registrado que abre la tienda desde el enlace del chat.
-final savedOrderProvider =
-    FutureProvider.family<SavedOrder, ({String slug, String folio})>(
-        (ref, key) async {
-  await ref.watch(catalogStoreNameProvider.future);
+final savedOrderProvider = FutureProvider.family<SavedOrder,
+    ({String slug, String folio, String? accessKey})>((ref, key) async {
   return ref
       .watch(whatsappCatalogRepositoryProvider)
-      .fetchOrder(key.slug, key.folio);
+      .fetchOrder(key.slug, key.folio, accessKey: key.accessKey);
 });
 
 // ---------------------------------------------------------------------------
@@ -165,7 +164,6 @@ final catalogSettingsProvider =
 class CatalogSettingsNotifier extends AsyncNotifier<CatalogSettings> {
   @override
   Future<CatalogSettings> build() async {
-    await ref.watch(catalogStoreNameProvider.future);
     return ref.watch(whatsappCatalogRepositoryProvider).getSettings();
   }
 

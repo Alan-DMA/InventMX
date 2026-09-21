@@ -2,50 +2,26 @@ import 'package:flutter/material.dart';
 import '../../../../../../core/theme/app_colors.dart';
 import '../../domain/product.dart';
 
-/// Tarjeta de stock para la ficha de detalle.
-///
-/// Variantes:
-///   [StockCardVariant.available]  — stock disponible con semáforo StockStatus
-///   [StockCardVariant.reserved]   — stock reservado (warning si > 0, muted si == 0)
-///
-/// Referencia visual: dos tarjetas en fila con ícono, label, cantidad y subtexto.
-enum StockCardVariant { available, reserved }
-
+/// Tarjeta de stock disponible para la ficha de detalle — ícono, label,
+/// cantidad y subtexto con semáforo según [StockStatus].
 class StockCard extends StatelessWidget {
   const StockCard({
     super.key,
     required this.product,
-    required this.variant,
   });
 
   final Product product;
-  final StockCardVariant variant;
 
   @override
   Widget build(BuildContext context) {
-    final isAvailable = variant == StockCardVariant.available;
+    final quantity = product.availableStock;
+    const label = 'DISPONIBLE';
+    final subtitle = _availableSubtitle(product);
+    final color = _availableColor(product.stockStatus);
+    const icon = Icons.inventory_rounded;
 
-    final int quantity;
-    final String label;
-    final String subtitle;
-    final Color color;
-    final IconData icon;
-
-    if (isAvailable) {
-      quantity = product.availableStock;
-      label = 'DISPONIBLE';
-      subtitle = _availableSubtitle(product);
-      color = _availableColor(product.stockStatus);
-      icon = Icons.inventory_rounded;
-    } else {
-      quantity = product.reservedStock;
-      label = 'RESERVADO';
-      subtitle = 'Pedidos pendientes';
-      color = quantity > 0 ? AppColors.warning : AppColors.onSurfaceMuted;
-      icon = Icons.lock_clock_rounded;
-    }
-
-    return Expanded(
+    return SizedBox(
+      width: double.infinity,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(

@@ -14,6 +14,7 @@ import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
 import '../../saas_admin/domain/subscription.dart' show mxn;
 import '../domain/daily_snapshot.dart';
 import '../domain/stock_alert.dart';
+import '../../whatsapp_catalog/presentation/store_orders_provider.dart';
 import 'dashboard_provider.dart';
 import 'widgets/quick_stock_adjust_sheet.dart';
 
@@ -62,6 +63,8 @@ class HomeDashboardScreen extends ConsumerWidget {
             const _SectionLabel('Acciones rápidas'),
             const SizedBox(height: 10),
             const _QuickActions(),
+            const SizedBox(height: 12),
+            const _WebOrdersCard(),
             const SizedBox(height: 26),
             const _SectionLabel('Alertas'),
             const SizedBox(height: 10),
@@ -898,4 +901,75 @@ class _SectionError extends StatelessWidget {
           style: const TextStyle(color: AppColors.onSurfaceMuted),
         ),
       );
+}
+
+/// "Pedidos web · N nuevos" — la puerta a lo que llegó por el catálogo. El
+/// conteo sale del servidor (vía `storeOrdersProvider`), no de la memoria.
+class _WebOrdersCard extends ConsumerWidget {
+  const _WebOrdersCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final newCount = ref.watch(newOrdersCountProvider);
+    final activeCount = ref.watch(activeOrdersCountProvider);
+    final hasNew = newCount > 0;
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        key: const Key('homeWebOrdersCard'),
+        onTap: () => context.push(AppRoutes.storeOrders),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: hasNew
+                  ? AppColors.skyBlue.withValues(alpha: 0.55)
+                  : AppColors.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.shopping_bag_outlined,
+                size: 20,
+                color: hasNew ? AppColors.skyBlue : AppColors.onSurfaceMuted,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hasNew
+                          ? 'Pedidos web · $newCount nuevo${newCount == 1 ? '' : 's'}'
+                          : 'Pedidos web',
+                      key: const Key('homeWebOrdersTitle'),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      activeCount == 0
+                          ? 'Nada pendiente de tu catálogo'
+                          : '$activeCount por atender',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.onSurfaceMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppColors.onSurfaceMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -179,12 +179,17 @@ class SupplierDetailModal extends ConsumerWidget {
                             fontWeight: FontWeight.w800,
                             color: AppColors.onSurface),
                       ),
-                      if (supplier.contactName != null) ...[
-                        const SizedBox(height: 2),
-                        Text(supplier.contactName!,
-                            style: const TextStyle(
-                                fontSize: 13, color: AppColors.onSurfaceMuted)),
-                      ],
+                      const SizedBox(height: 2),
+                      // El plazo decide cuándo vence la CxP de cada recepción;
+                      // se captura en el alta y se lee aquí, sin tener que
+                      // abrir el formulario de edición para recordarlo.
+                      Text(
+                        supplier.creditDays > 0
+                            ? '${supplier.creditDays} días de crédito'
+                            : 'De contado',
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.onSurfaceMuted),
+                      ),
                     ],
                   ),
                 ),

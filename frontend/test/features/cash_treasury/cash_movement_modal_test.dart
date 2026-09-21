@@ -6,12 +6,14 @@ import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_screen.dart';
+import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 
 Widget _buildApp() {
   return ProviderScope(
     overrides: [
       currentUserNameProvider.overrideWith((ref) => 'Ana García'),
       cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+      salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
     ],
     child: MaterialApp(
       theme: AppTheme.dark,
@@ -35,11 +37,23 @@ Future<void> _openModal(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// El mock responde con retardo (`SalesRepositoryMock`/`CashRepositoryMock`):
+/// se avanza el reloj a mano antes de asentar — `pumpAndSettle` puede darse
+/// por "estable" y dejar el timer de 400ms de `getSales()` pendiente si
+/// nada más pide otro frame mientras tanto (mismo criterio que
+/// `management_screens_test.dart`).
+Future<void> _settle(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(seconds: 1));
+  await tester.pump(const Duration(seconds: 1));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('sin movimientos muestra el estado vacío', (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     expect(find.text('Movimientos de caja menor'), findsOneWidget);
     expect(find.text('Sin movimientos registrados en este turno.'), findsOneWidget);
@@ -49,7 +63,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await _openModal(tester);
 
@@ -67,7 +81,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     // Fondo inicial mock: $500.00 — efectivo esperado inicial.
     expect(find.textContaining('500.00'), findsWidgets);
@@ -94,7 +108,7 @@ void main() {
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await _openModal(tester);
 
@@ -116,7 +130,7 @@ void main() {
   testWidgets('registrar una entrada suma al efectivo esperado', (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
-    await tester.pumpAndSettle();
+    await _settle(tester);
 
     await _openModal(tester);
     await tester.tap(find.text('Entrada'));

@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../features/account/presentation/account_provider.dart';
 import '../../../features/auth/presentation/login_provider.dart';
 import '../../../features/inventory/domain/product.dart';
+import '../../../features/inventory/presentation/inventory_provider.dart';
+import '../../../features/whatsapp_catalog/domain/store_order.dart';
+import '../../../features/whatsapp_catalog/presentation/store_orders_provider.dart';
 import '../data/sales_repository.dart';
 import '../domain/cart_item.dart';
 import '../domain/cart_state.dart';
@@ -66,6 +69,24 @@ class CartNotifier extends Notifier<CartState> {
   }
 
   /// Añade un producto al vuelo (sin ID de inventario).
+  /// "Cobrar en caja" desde un pedido web: el carrito queda exactamente con
+  /// los renglones del pedido (precio de la instantánea, el que se le
+  /// prometió al cliente) y recuerda el folio para ligar la venta al cobrar.
+  void loadFromStoreOrder(StoreOrder order) {
+    final items = [
+      for (final line in order.order.draft.lines)
+        CartItem(
+          id: _generateId(),
+          productId: line.product.id,
+          name: line.product.name,
+          unitPriceMxn: line.product.priceMxn,
+          quantity: line.quantity,
+          imageUrl: line.product.imageUrl,
+        ),
+    ];
+    state = CartState(items: items, originOrderFolio: order.folio);
+  }
+
   void addOnTheFly({
     required String name,
     required double priceMxn,
@@ -134,7 +155,14 @@ class CartNotifier extends Notifier<CartState> {
 
     try {
       final cashierName = ref.read(currentUserNameProvider) ?? 'Cajero';
-      final warehouse = ref.read(operatingWarehouseProvider).valueOrNull;
+      // `await` real, no `.valueOrNull` sobre un snapshot síncrono: si el
+      // cajero cobra apenas abierta la pantalla, `operatingWarehouseProvider`
+      // puede seguir en `AsyncLoading` (todavía esperando `GET /inventory/
+      // warehouses` + `/auth/me`) — leerlo síncrono en ese instante da `null`
+      // aunque el almacén sí exista, y aborta el cobro con un error falso
+      // ("selecciona un almacén") con el carrito ya armado. Bug real
+      // encontrado y corregido Sep 2026.
+      final warehouse = await ref.read(operatingWarehouseProvider.future);
       if (warehouse == null) {
         throw Exception(
             'Selecciona un almacén operativo en tu cuenta antes de cobrar.');
@@ -146,8 +174,23 @@ class CartNotifier extends Notifier<CartState> {
         warehouseId: warehouse.id,
       );
 
-      // Checkout exitoso: guarda el resultado y vacía el carrito
+      // Checkout exitoso: guarda el resultado y vacía el carrito.
+      // Invalida `inventoryProvider` para que Inventario/Detalle de producto
+      // dejen de mostrar el stock cacheado de antes de la venta — sin esto,
+      // `productDetailProvider` seguía devolviendo la copia vieja porque la
+      // resuelve primero desde esa lista cacheada (bug real reportado en QA
+      // de dispositivo, Sep 2026: "al vender no se descuenta el stock" era
+      // un problema de refresco de UI, el backend sí descontaba).
+      final originFolio = state.originOrderFolio;
       state = CartState(lastCheckoutResult: result);
+      ref.invalidate(inventoryProvider);
+      // El pedido web que originó este cobro queda Entregado con su venta.
+      // Nunca falla hacia afuera: la venta ya existe.
+      if (originFolio != null) {
+        unawaited(ref
+            .read(storeOrdersProvider.notifier)
+            .linkSale(originFolio, result.saleId));
+      }
       return result;
     } catch (e) {
       state = state.copyWith(

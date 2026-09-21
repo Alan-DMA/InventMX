@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,19 +18,80 @@ import 'widgets/order_ticket.dart';
 /// del chat es solo el aviso (folio, total, enlace); el pedido de verdad está
 /// aquí, tal como el cliente lo confirmó. Sin sesión, tema claro de la
 /// vitrina.
-class OrderTicketScreen extends ConsumerWidget {
+class OrderTicketScreen extends ConsumerStatefulWidget {
   const OrderTicketScreen({
     super.key,
     required this.slug,
     required this.folio,
+    this.accessKey,
+    this.pollEvery = const Duration(seconds: 10),
+    this.slowPollAfter = const Duration(minutes: 5),
+    this.slowPollEvery = const Duration(seconds: 30),
   });
 
   final String slug;
   final String folio;
 
+  /// `?k=` del enlace del chat. Sin ella el backend responde 404.
+  final String? accessKey;
+
+  /// Cada cuánto se vuelve a leer el pedido mientras la página está abierta:
+  /// el cliente no tiene sesión ni socket, pero "Listo" debe verse solo.
+  /// Pasados [slowPollAfter] baja a [slowPollEvery] y se detiene cuando el
+  /// pedido ya está entregado o cancelado (una pestaña olvidada no debe
+  /// seguir pegándole al servidor).
+  final Duration pollEvery;
+  final Duration slowPollAfter;
+  final Duration slowPollEvery;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final order = ref.watch(savedOrderProvider((slug: slug, folio: folio)));
+  ConsumerState<OrderTicketScreen> createState() => _OrderTicketScreenState();
+}
+
+class _OrderTicketScreenState extends ConsumerState<OrderTicketScreen> {
+  Timer? _poll;
+  late final DateTime _openedAt = DateTime.now();
+
+  ({String slug, String folio, String? accessKey}) get _key =>
+      (slug: widget.slug, folio: widget.folio, accessKey: widget.accessKey);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pollEvery > Duration.zero) _schedule(widget.pollEvery);
+  }
+
+  void _schedule(Duration every) {
+    _poll?.cancel();
+    _poll = Timer(every, _tick);
+  }
+
+  void _tick() {
+    if (!mounted) return;
+    final current = ref.read(savedOrderProvider(_key)).valueOrNull;
+    if (current != null && current.status.isClosed) return; // ya no cambia
+    // `refresh` (no `invalidate`) conserva el ticket en pantalla mientras
+    // llega el nuevo; un fallo de red pasajero no tira la página.
+    unawaited(ref
+        .refresh(savedOrderProvider(_key).future)
+        .then<void>((_) {}, onError: (_) {}));
+    final elapsed = DateTime.now().difference(_openedAt);
+    _schedule(elapsed >= widget.slowPollAfter
+        ? widget.slowPollEvery
+        : widget.pollEvery);
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slug = widget.slug;
+    final folio = widget.folio;
+    final order = ref.watch(savedOrderProvider(_key));
 
     return Theme(
       data: CatalogTheme.light,
@@ -54,9 +117,13 @@ class OrderTicketScreen extends ConsumerWidget {
             folio: folio,
             onCatalog: () => context.go(AppRoutes.publicCatalogPath(slug)),
             onRetry: () =>
-                ref.invalidate(savedOrderProvider((slug: slug, folio: folio))),
+                ref.invalidate(savedOrderProvider(_key)),
           ),
-          data: (saved) => _OrderBody(order: saved, slug: slug),
+          data: (saved) => RefreshIndicator(
+            color: CatalogColors.accent,
+            onRefresh: () => ref.refresh(savedOrderProvider(_key).future),
+            child: _OrderBody(order: saved, slug: slug),
+          ),
         ),
       ),
     );
@@ -75,9 +142,14 @@ class _OrderBody extends ConsumerWidget {
         PublicStoreInfo(name: _storeNameFallback(order), slug: slug);
 
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
       child: Column(
         children: [
+          // Estado del pedido — lo que la tienda marcó en su app. Es el único
+          // feedback que este enlace da al cliente; el resto va por el chat.
+          _StatusBanner(order: order, store: store),
+          const SizedBox(height: 14),
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
@@ -196,6 +268,112 @@ class _OrderFailure extends StatelessWidget {
                   onPressed: onCatalog, child: const Text('Ver el catálogo')),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "Listo para recoger", "Entregado", "Cancelado" o "Recibido" + la marca de
+/// "Actualizado por la tienda" cuando hubo una edición tras el chat. Sin esto
+/// el enlace mentiría después de que la tienda cambiara el pedido.
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({required this.order, required this.store});
+
+  final SavedOrder order;
+  final PublicStoreInfo store;
+
+  @override
+  Widget build(BuildContext context) {
+    final delivery = order.draft.deliveryMethod == DeliveryMethod.delivery;
+    final (icon, title, body, color, soft) = switch (order.status) {
+      OrderStatus.newOrder => (
+          Icons.schedule_rounded,
+          'Pedido recibido',
+          '${store.name} lo verá en su app y te contesta por el chat.',
+          CatalogColors.inkMuted,
+          CatalogColors.tile,
+        ),
+      OrderStatus.ready => (
+          delivery ? Icons.delivery_dining_rounded : Icons.shopping_bag_rounded,
+          delivery ? 'Tu pedido va en camino' : 'Listo para recoger',
+          delivery
+              ? 'La tienda ya lo tiene preparado y sale a tu dirección.'
+              : 'Ya puedes pasar por él a ${store.name}.',
+          CatalogColors.accent,
+          CatalogColors.accentSoft,
+        ),
+      OrderStatus.delivered => (
+          Icons.check_circle_rounded,
+          'Entregado',
+          '¡Gracias por tu compra!',
+          CatalogColors.accent,
+          CatalogColors.accentSoft,
+        ),
+      OrderStatus.cancelled => (
+          Icons.cancel_rounded,
+          'Pedido cancelado',
+          'Si no fuiste tú, escríbele a la tienda por el chat.',
+          CatalogColors.danger,
+          CatalogColors.dangerSoft,
+        ),
+    };
+    final edited = order.storeEditedAt;
+
+    return Container(
+      key: const Key('orderStatusBanner'),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: soft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            body,
+            style: const TextStyle(
+                fontSize: 12.5, height: 1.35, color: CatalogColors.ink),
+          ),
+          if (edited != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.edit_note_rounded,
+                    size: 16, color: CatalogColors.inkMuted),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Actualizado por la tienda a las '
+                    '${edited.hour.toString().padLeft(2, '0')}:'
+                    '${edited.minute.toString().padLeft(2, '0')} — '
+                    'esto es lo que acordaron por el chat.',
+                    key: const Key('orderEditedNote'),
+                    style: const TextStyle(
+                        fontSize: 11.5, color: CatalogColors.inkMuted),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

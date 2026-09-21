@@ -2,19 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
 import 'package:nexus_app/features/purchases/domain/supplier.dart';
+import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
 import 'package:nexus_app/features/purchases/presentation/supplier_detail_modal.dart';
 
 final _supplier = Supplier(
   id: 'sup-001',
   name: 'Distribuidora Bimbo Norte',
   phone: '+525512345678',
-  balanceDueMxn: 0,
+  status: SupplierStatus.active,
   createdAt: DateTime(2026, 1, 1),
+  updatedAt: DateTime(2026, 1, 1),
 );
 
 Widget _buildApp() {
   return ProviderScope(
+    // `purchasesRepositoryProvider` ya apunta al backend real (retome de
+    // Compras) — este test sigue ejercitando el mock a propósito.
+    overrides: [
+      purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
+    ],
     child: MaterialApp(
       theme: AppTheme.dark,
       home: Scaffold(

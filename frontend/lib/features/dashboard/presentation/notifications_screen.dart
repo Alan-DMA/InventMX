@@ -191,17 +191,14 @@ class _NotificationTile extends ConsumerWidget {
   String? get _actionLabel => switch (item.kind) {
         NotificationKind.lowStock => 'Ver producto',
         NotificationKind.salesMilestone => 'Ver reportes',
-        NotificationKind.whatsappOrder => 'Abrir el chat',
+        NotificationKind.whatsappOrder => 'Ver el pedido',
         NotificationKind.payableDue => 'Ver cuentas',
       };
 
   /// Abrir un aviso lo marca leído y lleva a donde se resuelve.
   Future<void> _open(BuildContext context, WidgetRef ref) async {
-    // El aviso de pedido sale de la app (abre WhatsApp), así que no necesita
-    // router; los demás sí, y se toma antes del `await` de marcar leído.
-    final router = item.kind == NotificationKind.whatsappOrder
-        ? null
-        : GoRouter.of(context);
+    // El router se toma antes del `await` de marcar leído.
+    final router = GoRouter.maybeOf(context);
     final messenger = ScaffoldMessenger.of(context);
     final launch = ref.read(urlLauncherProvider);
     final notifier = ref.read(notificationsProvider.notifier);
@@ -210,6 +207,12 @@ class _NotificationTile extends ConsumerWidget {
 
     switch (item.kind) {
       case NotificationKind.whatsappOrder:
+        // Pedido real (20 sep 2026): se atiende en la app, no en el chat.
+        final folio = item.orderFolio;
+        if (folio != null) {
+          router?.push(AppRoutes.storeOrderPath(folio));
+          return;
+        }
         final phone = item.customerPhone;
         if (phone == null) return;
         final ok = await launch(

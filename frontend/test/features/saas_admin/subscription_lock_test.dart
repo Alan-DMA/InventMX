@@ -18,6 +18,12 @@ import 'package:nexus_app/features/saas_admin/presentation/founder_admin_dashboa
 import 'package:nexus_app/features/saas_admin/presentation/hard_lock_screen.dart';
 import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart';
 import 'package:nexus_app/features/saas_admin/presentation/subscription_checkout_screen.dart';
+import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
+import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
+import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
 
 /// Tarea 14.2.3 — CA-08 (puerta /admin), CA-09 (banner Soft Lock + guarda),
 /// CA-10 (Hard Lock: redirect, salida a pago, liberación al reactivar).
@@ -45,6 +51,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+          // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+          orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+          storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
           sessionProvider.overrideWith((ref) => true),
           onboardingCompleteProvider.overrideWith((ref) => true),
           currentUserNameProvider.overrideWith((ref) => email),
@@ -62,6 +73,13 @@ void main() {
                 WarehouseOption(
                     id: 'wh-001', name: 'Almacén Principal', isDefault: true),
               ]),
+          // El Dashboard también pide "Últimas ventas" — sin esto golpearía
+          // la red real desde Sep 2026 (salesRepositoryProvider ya no es
+          // Mock por defecto).
+          salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock(clock: () => now)),
+          // Mismo motivo para Compras: `purchasesRepositoryProvider` apunta a
+          // `PurchasesRepositoryImpl` desde la octava sesión (Sep 19).
+          purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
         ],
         child: Consumer(
           builder: (_, ref, __) {

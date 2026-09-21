@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
+import 'package:nexus_app/features/inventory/domain/product.dart';
 import 'package:nexus_app/features/purchases/presentation/purchase_create_screen.dart';
+
+class _MockInventoryRepository extends Mock implements InventoryRepository {}
 
 void _setPhoneViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(412 * 3, 915 * 3);
@@ -11,19 +16,75 @@ void _setPhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+Product _product(String id, String name) => Product(
+      id: id,
+      sku: id.toUpperCase(),
+      name: name,
+      category: 'General',
+      priceMxn: 20,
+      costMxn: 10,
+      stock: 5,
+      reservedStock: 0,
+      availableStock: 5,
+      isActive: true,
+      isOnCatalog: false,
+      createdAt: DateTime(2026, 1, 1),
+    );
+
+/// `ProductPickerField` (Compras) busca contra `inventoryProvider.products` —
+/// se necesita un catálogo fake para que "Pan de caja"/"Producto A"/
+/// "Producto B" sean resolvables en vez de texto libre (ver retome de la
+/// Tarea 11.2/12.2 en `registro_implementacion.md`).
+final _catalog = [
+  _product('p-pan', 'Pan de caja'),
+  _product('p-a', 'Producto A'),
+  _product('p-b', 'Producto B'),
+];
+
 /// Monta `PurchaseCreateScreen` y avanza el reloj falso más allá del
 /// `_fakeDelay` (500 ms) del mock ANTES de cualquier `pumpAndSettle()` — la
 /// pantalla no muestra un spinner indeterminado mientras carga proveedores,
 /// así que `pumpAndSettle()` podría "asentarse" antes de que el Timer del
 /// mock llegue a disparar, dejándolo pendiente al terminar el test.
 Future<void> _pumpReady(WidgetTester tester) async {
+  final mockInventory = _MockInventoryRepository();
+  when(
+    () => mockInventory.getProducts(
+      query: any(named: 'query'),
+      category: any(named: 'category'),
+      lowStock: any(named: 'lowStock'),
+      page: any(named: 'page'),
+      pageSize: any(named: 'pageSize'),
+    ),
+  ).thenAnswer((_) async => PaginatedProducts(
+        items: _catalog,
+        total: _catalog.length,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      ));
+
   await tester.pumpWidget(
     ProviderScope(
+      overrides: [inventoryRepositoryProvider.overrideWithValue(mockInventory)],
       child:
           MaterialApp(theme: AppTheme.dark, home: const PurchaseCreateScreen()),
     ),
   );
   await tester.pump(const Duration(milliseconds: 600));
+  await tester.pumpAndSettle();
+}
+
+/// Busca [name] en `ProductField` y toca el resultado del catálogo fake para
+/// amarrar la línea a un producto real.
+///
+/// `pumpAndSettle` y no `pump`: el panel de resultados entra con `AnimatedSize`
+/// (180 ms) y a un solo frame todavía no tiene alto — el toque caería fuera.
+Future<void> _pickProduct(
+    WidgetTester tester, String productId, String name) async {
+  await tester.enterText(find.byKey(const Key('purchaseEntryNameField')), name);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('productFieldResult_$productId')));
   await tester.pumpAndSettle();
 }
 
@@ -41,13 +102,52 @@ void main() {
   });
 
   testWidgets(
-      '"Agregar" con datos válidos añade la línea a la tabla de resumen y limpia el formulario',
+      'un producto que no existe entra como "Se creará", sin abrir ningún formulario',
       (tester) async {
     _setPhoneViewport(tester);
     await _pumpReady(tester);
 
     await tester.enterText(
-        find.byKey(const Key('purchaseEntryNameField')), 'Pan de caja');
+        find.byKey(const Key('purchaseEntryQtyField')), '10');
+    await tester.enterText(
+        find.byKey(const Key('purchaseEntryCostField')), '25');
+    // Texto libre, sin tocar ningún resultado del catálogo.
+    await tester.enterText(
+        find.byKey(const Key('purchaseEntryNameField')), 'Chiles en vinagre');
+    await tester.pump();
+
+    final btn = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'Agregar'),
+    );
+    expect(btn.onPressed, isNotNull);
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Agregar'));
+    await tester.pumpAndSettle();
+
+    // Queda en la tabla marcado como producto por crear, con su precio de
+    // venta sugerido (25 × 1.4) — y el botón de confirmar lo anuncia.
+    expect(find.byKey(const Key('purchaseItemWillCreateTag')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+              find.byKey(const Key('purchaseItemSalePrice-draft-1')))
+          .controller!
+          .text,
+      '35.00',
+    );
+    expect(
+      find.widgetWithText(ElevatedButton, 'Crear orden y 1 producto nuevo'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      '"Agregar" con un producto del catálogo lo añade resuelto y limpia el formulario',
+      (tester) async {
+    _setPhoneViewport(tester);
+    await _pumpReady(tester);
+
+    await _pickProduct(tester, 'p-pan', 'Pan de caja');
     await tester.enterText(
         find.byKey(const Key('purchaseEntryQtyField')), '10');
     await tester.enterText(
@@ -63,14 +163,7 @@ void main() {
     expect(find.text('Pan de caja'), findsOneWidget);
     expect(find.text('10 × \$25.00'), findsOneWidget);
     // ...y el formulario de captura queda limpio, listo para otra línea.
-    expect(
-      tester
-          .widget<TextFormField>(
-              find.byKey(const Key('purchaseEntryNameField')))
-          .controller!
-          .text,
-      isEmpty,
-    );
+    expect(find.byKey(const Key('productFieldUnlinkButton')), findsNothing);
     expect(find.text('Aún no agregas productos a esta orden.'), findsNothing);
   });
 
@@ -79,8 +172,7 @@ void main() {
     _setPhoneViewport(tester);
     await _pumpReady(tester);
 
-    await tester.enterText(
-        find.byKey(const Key('purchaseEntryNameField')), 'Pan de caja');
+    await _pickProduct(tester, 'p-pan', 'Pan de caja');
     await tester.enterText(
         find.byKey(const Key('purchaseEntryQtyField')), '10');
     await tester.enterText(
@@ -103,9 +195,8 @@ void main() {
     _setPhoneViewport(tester);
     await _pumpReady(tester);
 
-    Future<void> addLine(String name, String qty, String cost) async {
-      await tester.enterText(
-          find.byKey(const Key('purchaseEntryNameField')), name);
+    Future<void> addLine(String productId, String name, String qty, String cost) async {
+      await _pickProduct(tester, productId, name);
       await tester.enterText(
           find.byKey(const Key('purchaseEntryQtyField')), qty);
       await tester.enterText(
@@ -115,8 +206,8 @@ void main() {
       await tester.pump();
     }
 
-    await addLine('Producto A', '1', '10');
-    await addLine('Producto B', '1', '10');
+    await addLine('p-a', 'Producto A', '1', '10');
+    await addLine('p-b', 'Producto B', '1', '10');
 
     // "Producto B" (agregado después) debe quedar arriba de "Producto A".
     final yA = tester.getTopLeft(find.text('Producto A')).dy;
@@ -132,11 +223,9 @@ void main() {
 
     await tester.enterText(
         find.byKey(const Key('purchaseEntryQtyField')), '10');
-    await tester.enterText(
-        find.byKey(const Key('purchaseEntryCostField')), '25');
     // `enterText` deja el campo enfocado — simula el teclado abierto.
     await tester.enterText(
-        find.byKey(const Key('purchaseEntryNameField')), 'Pan de caja');
+        find.byKey(const Key('purchaseEntryCostField')), '25');
     await tester.pump();
     expect(
       tester
@@ -144,6 +233,8 @@ void main() {
           .any((e) => e.focusNode.hasFocus),
       isTrue,
     );
+
+    await _pickProduct(tester, 'p-pan', 'Pan de caja');
 
     await tester.tap(find.widgetWithText(ElevatedButton, 'Agregar'));
     await tester.pumpAndSettle();
@@ -163,8 +254,7 @@ void main() {
     _setPhoneViewport(tester);
     await _pumpReady(tester);
 
-    await tester.enterText(
-        find.byKey(const Key('purchaseEntryNameField')), 'Pan de caja');
+    await _pickProduct(tester, 'p-pan', 'Pan de caja');
     await tester.enterText(
         find.byKey(const Key('purchaseEntryQtyField')), '10');
     await tester.enterText(

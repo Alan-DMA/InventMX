@@ -17,8 +17,9 @@ final _existing = Supplier(
   name: 'Distribuidora La Central',
   phone: '+525512345678',
   rfc: 'DLC010203AB1',
-  balanceDueMxn: 0,
+  status: SupplierStatus.active,
   createdAt: DateTime(2026, 9, 1),
+  updatedAt: DateTime(2026, 9, 1),
 );
 
 Widget _app(Widget home) => ProviderScope(
@@ -37,7 +38,7 @@ void main() {
       expect(updated.name, 'Nuevo nombre');
       expect(updated.phone, before.phone);
       expect(updated.rfc, before.rfc);
-      expect(updated.balanceDueMxn, before.balanceDueMxn);
+      expect(updated.creditDays, before.creditDays);
       final after = (await repo.listSuppliers()).firstWhere((s) => s.id == 'sup-002');
       expect(after.name, 'Nuevo nombre');
     });
@@ -121,8 +122,9 @@ void main() {
       id: 'sup-001',
       name: 'Abarrotes del Norte',
       phone: '+525500000000',
-      balanceDueMxn: 0,
+      status: SupplierStatus.active,
       createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
     );
     await tester.pumpWidget(_app(Builder(
       builder: (context) => Scaffold(

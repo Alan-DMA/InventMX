@@ -8,28 +8,104 @@ import '../../auth/data/auth_repository.dart';
 // Modelos de dominio
 // ---------------------------------------------------------------------------
 
+/// Qué columna del archivo alimenta cada campo — `ColumnMapping` del backend
+/// (`inventory/schemas/import_export.py`). Nombre y precio son obligatorios;
+/// stock, costo, código de barras y categoría son opcionales. El SKU no se
+/// mapea a propósito: es el código interno que asigna la app (`NEX-XXXXX`).
+class ColumnMapping {
+  const ColumnMapping({
+    required this.name,
+    required this.price,
+    this.stock,
+    this.cost,
+    this.barcode,
+    this.category,
+  });
+
+  final String name;
+  final String price;
+  final String? stock;
+  final String? cost;
+  final String? barcode;
+  final String? category;
+
+  Map<String, dynamic> toJson() => {
+        'name_column': name,
+        'price_column': price,
+        if (_has(stock)) 'stock_column': stock,
+        if (_has(cost)) 'cost_column': cost,
+        if (_has(barcode)) 'barcode_column': barcode,
+        if (_has(category)) 'category_column': category,
+      };
+
+  static bool _has(String? v) => v != null && v.isNotEmpty;
+}
+
+/// Mapeo sugerido por el backend a partir de los encabezados
+/// (`suggested_mapping` de `/import/preview`). Todo opcional: el wizard lo
+/// usa para pre-llenar los dropdowns, nunca para importar sin confirmación.
+class SuggestedMapping {
+  const SuggestedMapping({
+    this.name,
+    this.price,
+    this.stock,
+    this.cost,
+    this.barcode,
+    this.category,
+  });
+
+  factory SuggestedMapping.fromJson(Map<dynamic, dynamic>? json) {
+    String? pick(String key) {
+      final v = json?[key]?.toString();
+      return v == null || v.isEmpty ? null : v;
+    }
+
+    return SuggestedMapping(
+      name: pick('name_column'),
+      price: pick('price_column'),
+      stock: pick('stock_column'),
+      cost: pick('cost_column'),
+      barcode: pick('barcode_column'),
+      category: pick('category_column'),
+    );
+  }
+
+  final String? name;
+  final String? price;
+  final String? stock;
+  final String? cost;
+  final String? barcode;
+  final String? category;
+}
+
 /// Resultado del endpoint POST /api/v1/inventory/import/execute
+/// (`ImportExecutionResponse`). El backend sólo da de alta — no actualiza
+/// productos existentes — así que no hay conteo de "actualizados".
 class ImportResult {
   const ImportResult({
     required this.totalRows,
     required this.imported,
-    required this.updated,
     required this.skipped,
     required this.errors,
+    this.status = 'completed',
   });
 
   final int totalRows;
   final int imported;
-  final int updated;
   final int skipped;
   final List<ImportRowError> errors;
+
+  /// `completed` sin omitidos, `partial` si alguna fila se saltó.
+  final String status;
 
   bool get hasErrors => errors.isNotEmpty;
 }
 
-/// Error por fila reportado por el backend
+/// Error por fila reportado por el backend (`ImportRowError`).
 class ImportRowError {
   const ImportRowError({required this.row, required this.issue});
+
+  /// Número de fila física en la hoja (la 1 es el encabezado).
   final int row;
   final String issue;
 }
@@ -58,18 +134,24 @@ class EanLookupResult {
 }
 
 /// Metadatos de previsualización extraídos del archivo antes de importar
+/// (`ImportPreviewResponse`: `headers`, `sample_rows`, `total_detected_rows`,
+/// `suggested_mapping`).
 class FilePreview {
   const FilePreview({
     required this.fileName,
     required this.headers,
     required this.previewRows,
     required this.totalRows,
+    this.suggestedMapping = const SuggestedMapping(),
   });
 
   final String fileName;
   final List<String> headers;
+
+  /// Primeras filas (máx. 5) en el mismo orden que `headers`.
   final List<List<String>> previewRows;
   final int totalRows;
+  final SuggestedMapping suggestedMapping;
 }
 
 /// Excepción específica del módulo de importación
@@ -92,9 +174,7 @@ abstract class ImportRepository {
   /// Ejecución de la ingesta masiva con mapeo de columnas
   Future<ImportResult> importFile({
     required String filePath,
-    required String colName,
-    required String colPrice,
-    required String colStock,
+    required ColumnMapping mapping,
     List<int>? fileBytes,
     String? fileName,
   });
@@ -138,7 +218,9 @@ class ImportRepositoryImpl implements ImportRepository {
       }
 
       final headers = (data['headers'] as List? ?? []).map((e) => e.toString()).toList();
-      final rawPreviewRows = data['preview_rows'] as List? ?? [];
+      // `sample_rows` viene como lista de {encabezado: valor}; se aplana al
+      // orden de `headers` para que la tabla de vista previa sea posicional.
+      final rawPreviewRows = data['sample_rows'] as List? ?? [];
       final List<List<String>> previewRows = [];
 
       for (final row in rawPreviewRows) {
@@ -154,7 +236,10 @@ class ImportRepositoryImpl implements ImportRepository {
         fileName: data['filename']?.toString() ?? name,
         headers: headers,
         previewRows: previewRows,
-        totalRows: (data['total_rows'] as num? ?? 0).toInt(),
+        totalRows: (data['total_detected_rows'] as num? ?? 0).toInt(),
+        suggestedMapping: SuggestedMapping.fromJson(
+          data['suggested_mapping'] is Map ? data['suggested_mapping'] as Map : null,
+        ),
       );
     } on DioException catch (e) {
       throw _mapDioError(e);
@@ -167,22 +252,15 @@ class ImportRepositoryImpl implements ImportRepository {
   @override
   Future<ImportResult> importFile({
     required String filePath,
-    required String colName,
-    required String colPrice,
-    required String colStock,
+    required ColumnMapping mapping,
     List<int>? fileBytes,
     String? fileName,
   }) async {
     try {
       final name = fileName ?? filePath.split('/').last.split('\\').last;
-      final mappingMap = <String, dynamic>{
-        'col_name': colName,
-        'col_price_mxn': colPrice,
-      };
-      if (colStock.isNotEmpty) {
-        mappingMap['col_stock'] = colStock;
-      }
-      final mappingJson = jsonEncode(mappingMap);
+      // El backend recibe el mapeo como JSON serializado en un campo de
+      // formulario (`mapping: str = Form(...)`), no como JSON body.
+      final mappingJson = jsonEncode(mapping.toJson());
 
       final FormData formData;
       if (fileBytes != null && fileBytes.isNotEmpty) {
@@ -209,15 +287,14 @@ class ImportRepositoryImpl implements ImportRepository {
 
       final totalRows = (data['total_rows'] as num? ?? 0).toInt();
       final imported = (data['imported_count'] as num? ?? 0).toInt();
-      final updated = (data['updated_count'] as num? ?? 0).toInt();
-      final errorCount = (data['error_count'] as num? ?? 0).toInt();
+      final skipped = (data['skipped_count'] as num? ?? 0).toInt();
       final rawErrors = data['errors'] as List? ?? [];
 
       final errors = rawErrors.map((e) {
         if (e is Map) {
           return ImportRowError(
-            row: (e['row_index'] as num? ?? 0).toInt(),
-            issue: e['error_message']?.toString() ?? 'Error en la fila del archivo',
+            row: (e['row_number'] as num? ?? 0).toInt(),
+            issue: e['reason']?.toString() ?? 'Error en la fila del archivo',
           );
         }
         return ImportRowError(row: 0, issue: e.toString());
@@ -226,9 +303,9 @@ class ImportRepositoryImpl implements ImportRepository {
       return ImportResult(
         totalRows: totalRows,
         imported: imported,
-        updated: updated,
-        skipped: errorCount,
+        skipped: skipped,
         errors: errors,
+        status: data['status']?.toString() ?? (skipped == 0 ? 'completed' : 'partial'),
       );
     } on DioException catch (e) {
       throw _mapDioError(e);
@@ -365,21 +442,25 @@ class ImportRepositoryMock implements ImportRepository {
     final name = fileName ?? filePath.split('/').last.split('\\').last;
     return FilePreview(
       fileName: name,
-      headers: const ['A', 'B', 'C', 'D'],
+      headers: const ['Producto', 'Codigo', 'Precio', 'Existencia'],
       previewRows: const [
         ['Coca-Cola 600ml', '7501055300018', '18.00', '48'],
         ['Sabritas Original 45g', '7501000310957', '16.50', '30'],
       ],
       totalRows: 2,
+      suggestedMapping: const SuggestedMapping(
+        name: 'Producto',
+        price: 'Precio',
+        stock: 'Existencia',
+        barcode: 'Codigo',
+      ),
     );
   }
 
   @override
   Future<ImportResult> importFile({
     required String filePath,
-    required String colName,
-    required String colPrice,
-    required String colStock,
+    required ColumnMapping mapping,
     List<int>? fileBytes,
     String? fileName,
   }) async {
@@ -387,7 +468,6 @@ class ImportRepositoryMock implements ImportRepository {
     return const ImportResult(
       totalRows: 10,
       imported: 10,
-      updated: 0,
       skipped: 0,
       errors: [],
     );

@@ -3,6 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/ocr_helper.dart';
+import '../../account/presentation/account_provider.dart';
+import '../../inventory/domain/product.dart';
+import '../../inventory/presentation/inventory_provider.dart'
+    hide suppliersProvider;
+import '../data/purchases_repository.dart' show PurchasesException;
 import '../data/receipt_line_parser.dart';
 import '../domain/purchase_order.dart';
 import '../domain/receipt_scan.dart';
@@ -11,6 +16,7 @@ import 'ocr_column_mapping_screen.dart';
 import 'ocr_review_screen.dart';
 import 'purchases_provider.dart';
 import 'widgets/dictation_modal.dart';
+import 'widgets/product_field.dart';
 import 'widgets/purchase_items_summary_table.dart';
 
 /// `PurchaseCreateScreen` — Subtarea 11.2.1 (Pantalla de Registro de Compras
@@ -21,12 +27,17 @@ import 'widgets/purchase_items_summary_table.dart';
 /// acotada — mismo patrón ya usado en el resto de la app para listas que
 /// pueden crecer (`PurchaseItemsSummaryTable`, ver `CashMovementsListBox`).
 ///
-/// Decisión de alcance: el nombre del producto es un campo libre (no un
-/// buscador contra `inventoryProvider`) — mantiene la pantalla dentro de las
-/// 2h estimadas; una integración con el catálogo existente queda para una
-/// iteración posterior si Eduardo la pide en QA.
+/// Con [initial] abre en **modo edición** (mismo criterio que
+/// `AddSupplierModal`): mismos campos y las mismas herramientas de captura,
+/// prellenados con la orden, y `PUT /purchase-orders/{id}` al guardar. El
+/// backend sólo lo permite mientras la orden no haya recibido mercancía.
 class PurchaseCreateScreen extends ConsumerStatefulWidget {
-  const PurchaseCreateScreen({super.key});
+  const PurchaseCreateScreen({super.key, this.initial});
+
+  /// Orden a corregir; `null` = alta.
+  final PurchaseOrder? initial;
+
+  bool get isEditing => initial != null;
 
   @override
   ConsumerState<PurchaseCreateScreen> createState() =>
@@ -43,8 +54,27 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
   final _qtyCtrl = TextEditingController(text: '1');
   final _costCtrl = TextEditingController();
 
+  /// Producto del catálogo al que quedó amarrada la línea que se captura, o
+  /// `null` si se dará de alta con el texto tal cual — ese es el camino
+  /// normal, no el excepcional (ver `ProductField`).
+  Product? _selectedProduct;
+
   final List<PurchaseOrderItem> _items = [];
   int _lineCounter = 0;
+
+  /// Producto del catálogo al que está amarrado cada renglón, por llave local.
+  /// Un renglón ausente de este mapa es uno que se va a crear.
+  final Map<String, Product> _resolvedRows = {};
+
+  /// Precio de venta con el que se dará de alta cada renglón sin resolver:
+  /// sugerido como costo × (1 + margen) y editable en la tabla de resumen.
+  /// Vive aquí y no en `PurchaseOrderItem` porque no viaja al backend — la
+  /// orden de compra sólo manda producto, cantidad y costo.
+  final Map<String, double> _salePrices = {};
+
+  /// Renglones cuyo precio de venta ya tocó el usuario: dejan de seguir al
+  /// costo cuando éste se corrige.
+  final Set<String> _touchedPrices = {};
 
   /// ID de la línea recién agregada — dispara el destello de confirmación en
   /// `PurchaseItemsSummaryTable` (ajuste de QA: la acción de "Agregar" no se
@@ -56,6 +86,19 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
 
   /// Escaneo de factura — Subtareas 12.2.1 / 12.2.2.
   bool _isScanning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initial;
+    if (initial == null) return;
+    // Los renglones de una orden existente ya traen `product_id` real, así
+    // que conservan su llave: `_materializeLines()` los deja pasar tal cual y
+    // no intenta darlos de alta otra vez.
+    _items.addAll(initial.items);
+    _expectedDeliveryDate = initial.expectedDeliveryDate;
+    _notesCtrl.text = initial.notes ?? '';
+  }
 
   @override
   void dispose() {
@@ -78,23 +121,54 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
       _entryQuantity > 0 &&
       _entryUnitCost > 0;
 
+  /// Precio de venta sugerido para un producto que aún no existe: el costo de
+  /// esta compra más el margen máximo configurado en Preferencias.
+  double _suggestedSalePrice(double unitCost) =>
+      unitCost * (1 + _marginPercent / 100);
+
+  double get _marginPercent =>
+      ref.read(maxMarginPercentProvider).valueOrNull ?? 40.0;
+
+  /// Inserta un renglón con una llave local estable (`draft-N`) — se mantiene
+  /// aunque después se amarre o se suelte del catálogo, y sólo se traduce a
+  /// `product_id` real al confirmar la orden.
+  void _insertLine({
+    required String name,
+    required int quantity,
+    required double unitCostMxn,
+    Product? resolved,
+  }) {
+    final id = 'draft-${++_lineCounter}';
+    // Al inicio — misma convención UX que `CashMovementsNotifier`: el ítem
+    // tocado por la acción aparece primero, sin depender de que el usuario
+    // haga scroll para notar que la acción tuvo efecto.
+    _items.insert(
+      0,
+      PurchaseOrderItem(
+        productId: id,
+        productName: resolved?.name ?? name,
+        quantity: quantity,
+        unitCostMxn: unitCostMxn,
+      ),
+    );
+    if (resolved != null) {
+      _resolvedRows[id] = resolved;
+    } else if (unitCostMxn > 0) {
+      _salePrices[id] = _suggestedSalePrice(unitCostMxn);
+    }
+    _justAddedId = id;
+  }
+
   void _addEntry() {
     if (!_canAddEntry) return;
-    final id = 'draft-${++_lineCounter}';
     setState(() {
-      // Al inicio — misma convención UX que `CashMovementsNotifier`: el
-      // ítem tocado por la acción aparece primero, sin depender de que el
-      // usuario haga scroll para notar que la acción tuvo efecto.
-      _items.insert(
-        0,
-        PurchaseOrderItem(
-          productId: id,
-          productName: _nameCtrl.text.trim(),
-          quantity: _entryQuantity,
-          unitCostMxn: _entryUnitCost,
-        ),
+      _insertLine(
+        name: _nameCtrl.text.trim(),
+        quantity: _entryQuantity,
+        unitCostMxn: _entryUnitCost,
+        resolved: _selectedProduct,
       );
-      _justAddedId = id;
+      _selectedProduct = null;
       _nameCtrl.clear();
       _qtyCtrl.text = '1';
       _costCtrl.clear();
@@ -108,8 +182,56 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
     FocusScope.of(context).requestFocus(FocusNode());
   }
 
-  void _removeItem(PurchaseOrderItem item) =>
-      setState(() => _items.remove(item));
+  void _removeLine(String id) {
+    setState(() {
+      _items.removeWhere((it) => it.productId == id);
+      _resolvedRows.remove(id);
+      _salePrices.remove(id);
+      _touchedPrices.remove(id);
+    });
+  }
+
+  /// Nombre, cantidad o costo corregidos desde la tabla. La llave local no
+  /// cambia; el precio sugerido sigue al costo mientras el usuario no lo haya
+  /// tocado a mano.
+  void _editLine(String id, PurchaseOrderItem updated) {
+    setState(() {
+      final i = _items.indexWhere((it) => it.productId == id);
+      if (i == -1) return;
+      _items[i] = updated;
+      if (!_resolvedRows.containsKey(id) &&
+          !_touchedPrices.contains(id) &&
+          updated.unitCostMxn > 0) {
+        _salePrices[id] = _suggestedSalePrice(updated.unitCostMxn);
+      }
+    });
+  }
+
+  /// El renglón se amarró a un producto del catálogo (o se soltó). Al
+  /// amarrarlo toma el nombre canónico; al soltarlo recupera su precio
+  /// sugerido, porque vuelve a ser un producto por crear.
+  void _resolveLine(String id, Product? product) {
+    setState(() {
+      final i = _items.indexWhere((it) => it.productId == id);
+      if (i == -1) return;
+      if (product == null) {
+        _resolvedRows.remove(id);
+        if (!_touchedPrices.contains(id) && _items[i].unitCostMxn > 0) {
+          _salePrices[id] = _suggestedSalePrice(_items[i].unitCostMxn);
+        }
+        return;
+      }
+      _resolvedRows[id] = product;
+      _salePrices.remove(id);
+      _touchedPrices.remove(id);
+      _items[i] = _items[i].copyWith(productName: product.name);
+    });
+  }
+
+  void _setSalePrice(String id, double price) {
+    _touchedPrices.add(id);
+    _salePrices[id] = price;
+  }
 
   // ── Escaneo de factura — Subtareas 12.2.1 y 12.2.2 (+ Q-01 / Q-03) ──────
 
@@ -238,19 +360,21 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
       }
       if (outcome.items.isEmpty) return;
 
+      // `OcrReviewScreen` ya resolvió lo que pudo contra el catálogo: un
+      // renglón resuelto trae el `product_id` real y aquí se convierte en el
+      // producto amarrado de la línea; el resto entra como producto por crear.
+      final catalog = {
+        for (final p in ref.read(inventoryProvider).products) p.id: p,
+      };
       setState(() {
         for (final item in outcome.items) {
-          _items.insert(
-            0,
-            PurchaseOrderItem(
-              productId: 'draft-${++_lineCounter}',
-              productName: item.productName,
-              quantity: item.quantity,
-              unitCostMxn: item.unitCostMxn,
-            ),
+          _insertLine(
+            name: item.productName,
+            quantity: item.quantity,
+            unitCostMxn: item.unitCostMxn,
+            resolved: catalog[item.productId],
           );
         }
-        _justAddedId = _items.first.productId;
       });
       messenger.showSnackBar(
         SnackBar(
@@ -287,20 +411,15 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
 
     setState(() {
       for (final parsed in parsedItems) {
-        _items.insert(
-          0,
-          PurchaseOrderItem(
-            productId: 'draft-${++_lineCounter}',
-            // "" / 0 son la señal explícita de "falta revisar" — nunca se
-            // inventa un valor; PurchaseItemsSummaryTable las muestra con
-            // el chip de advertencia correspondiente.
-            productName: parsed.name ?? '',
-            quantity: parsed.quantity ?? 0,
-            unitCostMxn: parsed.priceMxn ?? 0,
-          ),
+        // "" / 0 son la señal explícita de "falta revisar" — nunca se inventa
+        // un valor; PurchaseItemsSummaryTable las muestra con el chip de
+        // advertencia correspondiente.
+        _insertLine(
+          name: parsed.name ?? '',
+          quantity: parsed.quantity ?? 0,
+          unitCostMxn: parsed.priceMxn ?? 0,
         );
       }
-      _justAddedId = _items.first.productId;
     });
 
     if (mounted) {
@@ -315,14 +434,44 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
     }
   }
 
-  void _editItem(PurchaseOrderItem updated) {
-    setState(() {
-      final i = _items.indexWhere((it) => it.productId == updated.productId);
-      if (i != -1) _items[i] = updated;
-    });
+  double get _total => _items.fold<double>(0, (sum, i) => sum + i.subtotalMxn);
+
+  /// Al confirmar pueden aparecer productos nuevos en el catálogo; el botón
+  /// lo dice antes del toque, no después.
+  String get _submitLabel {
+    final verb = widget.isEditing ? 'Guardar cambios' : 'Crear orden de compra';
+    if (_toCreateCount == 0) return verb;
+    final tail = _toCreateCount == 1
+        ? '1 producto nuevo'
+        : '$_toCreateCount productos nuevos';
+    return widget.isEditing
+        ? 'Guardar cambios y $tail'
+        : 'Crear orden y $tail';
   }
 
-  double get _total => _items.fold<double>(0, (sum, i) => sum + i.subtotalMxn);
+  /// Renglones que van a dar de alta un producto nuevo al confirmar.
+  int get _toCreateCount => _items
+      .where((i) =>
+          i.productId.startsWith('draft-') &&
+          !_resolvedRows.containsKey(i.productId))
+      .length;
+
+  /// Editando una orden existente los renglones traen `product_id` real pero
+  /// no pasaron por `_resolvedRows`: se resuelven contra el catálogo para que
+  /// el campo compartido los muestre amarrados y no como productos nuevos.
+  List<PurchaseDraftLine> _linesFor(List<Product> catalog) => [
+        for (final item in _items)
+          PurchaseDraftLine(
+            item: item,
+            resolved: _resolvedRows[item.productId] ??
+                (item.productId.startsWith('draft-')
+                    ? null
+                    : catalog
+                        .where((p) => p.id == item.productId)
+                        .firstOrNull),
+            salePriceMxn: _salePrices[item.productId],
+          ),
+      ];
 
   /// Además de requerir proveedor y al menos un producto, ningún producto
   /// puede quedar a medias (nombre vacío, cantidad o precio en 0) — el chip
@@ -346,6 +495,46 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
     if (picked != null) setState(() => _expectedDeliveryDate = picked);
   }
 
+  /// Traduce las llaves locales a `product_id` reales: los renglones amarrados
+  /// al catálogo usan el suyo, y los que se van a crear se dan de alta aquí,
+  /// con el precio de venta que quedó en su fila (sugerido como costo ×
+  /// (1 + margen máximo de Preferencias), o el que el usuario haya escrito).
+  /// Un solo toque de "Crear orden de compra", sin pasos extra por producto.
+  Future<List<PurchaseOrderItem>> _materializeLines() async {
+    double margin;
+    try {
+      margin = await ref.read(maxMarginPercentProvider.future);
+    } catch (_) {
+      margin = 40.0; // Mismo default que AuthRepositoryImpl.fetchMaxMarginPercent.
+    }
+
+    final items = <PurchaseOrderItem>[];
+    for (final item in _items) {
+      // Renglón que ya viene de una orden guardada: su `product_id` es real,
+      // no una llave local. Darlo de alta otra vez duplicaría el catálogo.
+      if (!item.productId.startsWith('draft-')) {
+        items.add(item);
+        continue;
+      }
+      final product = _resolvedRows[item.productId] ??
+          await ref.read(inventoryProvider.notifier).addProduct(
+                name: item.productName,
+                costMxn: item.unitCostMxn,
+                priceMxn: _salePrices[item.productId] ??
+                    item.unitCostMxn * (1 + margin / 100),
+                stock: 0,
+              );
+      items.add(PurchaseOrderItem(
+        productId: product.id,
+        productName: product.name,
+        productSku: product.sku,
+        quantity: item.quantity,
+        unitCostMxn: item.unitCostMxn,
+      ));
+    }
+    return items;
+  }
+
   Future<void> _submit() async {
     if (!_isValid || _isSaving) return;
     setState(() {
@@ -354,18 +543,38 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
     });
 
     try {
-      await ref.read(purchaseOrdersProvider.notifier).createOrder(
-            supplierId: _supplier!.id,
-            items: _items,
-            expectedDeliveryDate: _expectedDeliveryDate,
-            notes:
-                _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-          );
+      final items = await _materializeLines();
+      final notes =
+          _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
+      final notifier = ref.read(purchaseOrdersProvider.notifier);
+
+      if (widget.isEditing) {
+        await notifier.updateOrder(
+          purchaseOrderId: widget.initial!.id,
+          supplierId: _supplier!.id,
+          items: items,
+          expectedDeliveryDate: _expectedDeliveryDate,
+          notes: notes,
+        );
+      } else {
+        await notifier.createOrder(
+          supplierId: _supplier!.id,
+          items: items,
+          expectedDeliveryDate: _expectedDeliveryDate,
+          notes: notes,
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() {
         _isSaving = false;
-        _error = 'No se pudo crear la orden de compra.';
+        // El 422 de "ya recibió mercancía" trae su propio mensaje; se respeta
+        // en vez de taparlo con uno genérico.
+        _error = e is PurchasesException
+            ? e.message
+            : widget.isEditing
+                ? 'No se pudieron guardar los cambios.'
+                : 'No se pudo crear la orden de compra.';
       });
     }
   }
@@ -373,12 +582,22 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final suppliers = ref.watch(suppliersProvider).suppliers;
+    final catalog = ref.watch(inventoryProvider).products;
+
+    // Editando: el proveedor llega por id, y la lista puede seguir cargando
+    // cuando se abre la pantalla.
+    final initialSupplierId = widget.initial?.supplierId;
+    _supplier ??= initialSupplierId == null
+        ? null
+        : suppliers.where((s) => s.id == initialSupplierId).firstOrNull;
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
       appBar: AppBar(
         backgroundColor: AppColors.darkSlate,
-        title: const Text('Nueva orden de compra'),
+        title: Text(widget.isEditing
+            ? 'Editar orden de compra'
+            : 'Nueva orden de compra'),
         actions: [
           // Factura en PDF o imagen — Tarea 12.2, Q-03. Mismo pipeline que
           // la foto; deshabilitado mientras corre cualquiera de los dos.
@@ -456,9 +675,12 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
           const SizedBox(height: 16),
           _sectionLabel('Productos en esta orden  *'),
           PurchaseItemsSummaryTable(
-            items: _items,
-            onRemove: _removeItem,
-            onEdit: _editItem,
+            lines: _linesFor(catalog),
+            marginPercent: _marginPercent,
+            onRemove: _removeLine,
+            onEdit: _editLine,
+            onResolve: _resolveLine,
+            onSalePriceChanged: _setSalePrice,
             justAddedId: _justAddedId,
           ),
           const SizedBox(height: 16),
@@ -518,7 +740,9 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
                     child: CircularProgressIndicator(
                         strokeWidth: 2.5, color: AppColors.darkSlate),
                   )
-                : const Text('Crear orden de compra'),
+                // Al confirmar aparecerán productos nuevos en el catálogo; el
+                // botón lo dice antes del toque, no después.
+                : Text(_submitLabel),
           ),
         ],
       ),
@@ -582,13 +806,13 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
       ),
       child: Column(
         children: [
-          TextFormField(
-            key: const Key('purchaseEntryNameField'),
+          ProductField(
+            fieldKey: const Key('purchaseEntryNameField'),
             controller: _nameCtrl,
-            onChanged: (_) => setState(() {}),
-            style: const TextStyle(color: AppColors.onSurface, fontSize: 14),
-            decoration: const InputDecoration(
-                hintText: 'Nombre del producto', isDense: true),
+            resolved: _selectedProduct,
+            onResolvedChanged: (product) =>
+                setState(() => _selectedProduct = product),
+            onChanged: () => setState(() {}),
           ),
           const SizedBox(height: 10),
           Row(

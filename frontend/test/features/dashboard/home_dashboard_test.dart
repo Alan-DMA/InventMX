@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:nexus_app/core/router/app_router.dart';
 import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
@@ -19,6 +21,12 @@ import 'package:nexus_app/features/inventory/presentation/inventory_provider.dar
 import 'package:nexus_app/features/purchases/presentation/widgets/phone_launcher.dart';
 import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart'
     show clockProvider;
+import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/public_catalog.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/whatsapp_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ---------------------------------------------------------------------------
@@ -40,9 +48,54 @@ class _RecordingLauncher {
   }
 }
 
-ProviderContainer _container({_RecordingLauncher? launcher}) {
+/// Pedido web real (20 sep 2026): el aviso de pedido ya no sale del mock del
+/// dashboard sino de `storeOrdersProvider`. Laura pidió hace 12 min y nadie
+/// lo ha abierto — cuenta como aviso sin leer.
+StoreOrder _lauraOrder() => StoreOrder(
+      order: SavedOrder(
+        folio: 'P-260916-AB12',
+        slug: 'tiendita-nexus',
+        issuedAt: _now.subtract(const Duration(minutes: 12)),
+        updatedAt: _now.subtract(const Duration(minutes: 12)),
+        draft: const WhatsAppOrderDraft(
+          customerName: 'Laura Jiménez',
+          customerPhone: '+525518324477',
+          deliveryMethod: DeliveryMethod.delivery,
+          deliveryAddress: 'Av. Reforma 10',
+          lines: [
+            CartLine(
+              product: PublicCatalogProduct(
+                  id: 'prod-001',
+                  name: 'Coca-Cola 600ml',
+                  sku: 'C1',
+                  priceMxn: 18.5),
+              quantity: 3,
+            ),
+          ],
+        ),
+        totals: WhatsAppOrderBuild(
+          waLink: Uri.parse('https://wa.me/525518324477'),
+          formattedText: '',
+          subtotalMxn: 55.5,
+          deliveryFeeMxn: 20,
+          totalMxn: 75.5,
+          itemCount: 1,
+        ),
+      ),
+    );
+
+ProviderContainer _container({
+  _RecordingLauncher? launcher,
+  StoreOrdersRepositoryMock? orders,
+}) {
   final container = ProviderContainer(
     overrides: [
+      // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+      // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+      orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+      storeOrdersRepositoryProvider.overrideWithValue(orders ??
+          StoreOrdersRepositoryMock(
+              orders: [_lauraOrder()], now: () => _now, latency: Duration.zero)),
       clockProvider.overrideWithValue(() => _now),
       dashboardRepositoryProvider
           .overrideWithValue(DashboardRepositoryMock(now: _now)),
@@ -63,6 +116,10 @@ ProviderContainer _container({_RecordingLauncher? launcher}) {
             WarehouseOption(
                 id: 'wh-001', name: 'Almacén Principal', isDefault: true),
           ]),
+      // "Últimas ventas" (recentSalesProvider) pega a salesRepositoryProvider
+      // directo — sin esto golpearía la red real desde Sep 2026 (ya no es
+      // Mock por defecto).
+      salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock(clock: () => _now)),
     ],
   );
   addTearDown(container.dispose);
@@ -74,6 +131,15 @@ Widget _app(ProviderContainer container, Widget home) =>
       container: container,
       child: MaterialApp(theme: AppTheme.dark, home: home),
     );
+
+/// La tarjeta "Pedidos web" (20 sep 2026) empuja "Cómo va el día" bajo el
+/// pliegue del viewport de prueba; el ListView es perezoso y no lo construye.
+void _tallViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(2400, 6000); // 800 × 2000 lógicos
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
 
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
@@ -117,6 +183,7 @@ void main() {
     });
 
     testWidgets('muestra ventas, margen, por pagar y caja', (tester) async {
+      _tallViewport(tester);
       final container = _container();
       await tester.pumpWidget(_app(container, const HomeDashboardScreen()));
       await _settle(tester);
@@ -192,6 +259,11 @@ void main() {
         (tester) async {
       final container = ProviderContainer(
         overrides: [
+          // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+          // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+          orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+          storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
           clockProvider.overrideWithValue(() => _now),
           dashboardRepositoryProvider
               .overrideWithValue(_NoAlertsMock(now: _now)),
@@ -201,6 +273,8 @@ void main() {
               .overrideWithValue(OperatingWarehouseStoreMemory()),
           inventoryRepositoryProvider
               .overrideWithValue(InventoryRepositoryMock()),
+          salesRepositoryProvider
+              .overrideWith((ref) => SalesRepositoryMock(clock: () => _now)),
         ],
       );
       addTearDown(container.dispose);
@@ -215,6 +289,7 @@ void main() {
 
     testWidgets('las últimas ventas se muestran condensadas con "Ver todo"',
         (tester) async {
+      _tallViewport(tester);
       final container = _container();
       await tester.pumpWidget(_app(container, const HomeDashboardScreen()));
       await _settle(tester);
@@ -272,23 +347,35 @@ void main() {
       expect(find.text('ayer'), findsOneWidget);
     });
 
-    testWidgets('el aviso de pedido abre el chat de quien lo hizo',
+    testWidgets('el aviso de pedido abre el pedido en la app (no el chat)',
         (tester) async {
       final launcher = _RecordingLauncher();
       final container = _container(launcher: launcher);
-      await tester.pumpWidget(_app(container, const NotificationsScreen()));
+      final router = GoRouter(routes: [
+        GoRoute(path: '/', builder: (_, __) => const NotificationsScreen()),
+        GoRoute(
+          path: AppRoutes.storeOrderDetail,
+          builder: (_, state) =>
+              Text('detalle ${state.pathParameters['folio']}'),
+        ),
+      ]);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
+      ));
       await _settle(tester);
 
-      await tester.tap(find.byKey(const Key('notification-ntf-001')));
+      expect(find.text('Ver el pedido'), findsOneWidget);
+      await tester
+          .tap(find.byKey(const Key('notification-order-P-260916-AB12')));
       await _settle(tester);
 
-      expect(launcher.opened.single.toString(),
-          'https://wa.me/525518324477');
-      // Y queda leído: el contador baja de 3 a 2.
-      expect(container.read(unreadNotificationsProvider), 2);
+      expect(find.text('detalle P-260916-AB12'), findsOneWidget);
+      expect(launcher.opened, isEmpty);
     });
 
-    testWidgets('"Marcar leídos" vacía el contador', (tester) async {
+    testWidgets('"Marcar leídos" deja sólo el pedido pendiente sin leer',
+        (tester) async {
       final container = _container();
       await tester.pumpWidget(_app(container, const NotificationsScreen()));
       await _settle(tester);
@@ -297,14 +384,40 @@ void main() {
       await tester.tap(find.byKey(const Key('notificationsMarkAll')));
       await _settle(tester);
 
-      expect(container.read(unreadNotificationsProvider), 0);
-      expect(find.byKey(const Key('notificationsMarkAll')), findsNothing);
+      // El pedido web no es un aviso que se "lee": es trabajo pendiente y se
+      // marca al abrirlo. Los demás sí quedan leídos.
+      expect(container.read(unreadNotificationsProvider), 1);
+    });
+
+    testWidgets('abrir el pedido lo marca visto y el aviso queda leído',
+        (tester) async {
+      final orders = StoreOrdersRepositoryMock(
+          orders: [_lauraOrder()], now: () => _now, latency: Duration.zero);
+      final container = _container(orders: orders);
+      await tester.pumpWidget(_app(container, const NotificationsScreen()));
+      await _settle(tester);
+      expect(container.read(unreadNotificationsProvider), 3);
+
+      // Lo que hace la pantalla de detalle al abrirse. `runAsync`: el mock
+      // resuelve con timers reales que el reloj falso del test no avanza.
+      await tester.runAsync(() async {
+        await container.read(storeOrderDetailProvider('P-260916-AB12').future);
+        await container.read(storeOrdersProvider.notifier).refresh();
+      });
+      await _settle(tester);
+
+      expect(container.read(unreadNotificationsProvider), 2);
     });
 
     testWidgets('sin avisos explica para qué sirve el apartado',
         (tester) async {
       final container = ProviderContainer(
         overrides: [
+          // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+          // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+          orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+          storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
           clockProvider.overrideWithValue(() => _now),
           dashboardRepositoryProvider.overrideWithValue(_EmptyMock(now: _now)),
         ],

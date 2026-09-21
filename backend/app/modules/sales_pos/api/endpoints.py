@@ -7,7 +7,7 @@ from typing import List, Optional
 # Importación de identificadores UUID
 import uuid
 # Importación de componentes de FastAPI
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 # Importación de sesión asíncrona de base de datos
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +44,7 @@ from app.modules.sales_pos.schemas.payment import (
 from app.modules.sales_pos.schemas.sale import (
     SaleCancelRequest,
     SaleCheckoutRequest,
+    SaleRefundRequest,
     SaleResponse,
 )
 from app.modules.sales_pos.schemas.ticket import (
@@ -463,21 +464,23 @@ async def get_sale(
     description="Permite consultar el historial de ventas filtrando por rango de fechas, cajero, estado o almacén.",
 )
 async def list_sales(
+    response: Response,
     start_date: Optional[datetime] = Query(None, description="Fecha inicial del filtro (ISO 8601)"),
     end_date: Optional[datetime] = Query(None, description="Fecha final del filtro (ISO 8601)"),
     cashier_id: Optional[uuid.UUID] = Query(None, description="Filtrar por cajero"),
     warehouse_id: Optional[uuid.UUID] = Query(None, description="Filtrar por almacén"),
-    status_filter: Optional[SaleStatus] = Query(None, description="Filtrar por estado de venta"),
+    status_filter: Optional[SaleStatus] = Query(None, alias="status", description="Filtrar por estado de venta"),
     skip: int = Query(0, ge=0, description="Número de registros a omitir (offset)"),
     limit: int = Query(50, ge=1, le=100, description="Número máximo de registros por página"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("sales.view")),
 ):
     """
-    Listado paginado de ventas del comercio.
+    Listado paginado de ventas del comercio. El conteo total de registros
+    coincidentes (antes de paginar) se expone en el header `X-Total-Count`.
     """
     service = SalesService(db)
-    return await service.list_sales(
+    sales, total_count = await service.list_sales(
         current_user=current_user,
         start_date=start_date,
         end_date=end_date,
@@ -487,6 +490,8 @@ async def list_sales(
         skip=skip,
         limit=limit,
     )
+    response.headers["X-Total-Count"] = str(total_count)
+    return sales
 
 
 @router.post(
@@ -511,3 +516,29 @@ async def cancel_sale(
     """
     service = SalesService(db)
     return await service.cancel_sale(sale_id, request.reason, current_user)
+
+
+@router.post(
+    "/{sale_id}/refund",
+    response_model=SaleResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reembolsar una Venta Completada (Total o Parcial)",
+    description=(
+        "Reembolsa una venta en estado COMPLETED, total o parcialmente por partida. "
+        "Repone existencias opcionalmente con asiento inmutable en el Kardex (SALE_RETURN). "
+        "Una venta admite un solo evento de reembolso: al aplicarse, el estado pasa a "
+        "REFUNDED y un segundo intento es rechazado con 422."
+    ),
+)
+async def refund_sale(
+    sale_id: uuid.UUID,
+    request: SaleRefundRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("sales.cancel")),
+    _unlocked: None = Depends(require_unlocked_tenant),
+):
+    """
+    Reembolso transaccional (total o parcial por renglón) con reversión opcional de inventario.
+    """
+    service = SalesService(db)
+    return await service.refund_sale(sale_id, request, current_user)

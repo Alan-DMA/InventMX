@@ -1,9 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
+import 'package:nexus_app/features/account/data/operating_warehouse_store.dart';
+import 'package:nexus_app/features/account/presentation/account_provider.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
+import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
+    show WarehouseOption, inventoryProvider, warehousesProvider;
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/sales_pos/domain/cart_item.dart';
+import 'package:nexus_app/features/sales_pos/domain/cart_state.dart';
+import 'package:nexus_app/features/sales_pos/domain/payment_entry.dart';
 import 'package:nexus_app/features/sales_pos/presentation/cart_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -11,6 +20,7 @@ import 'package:nexus_app/features/sales_pos/presentation/cart_provider.dart';
 // ---------------------------------------------------------------------------
 
 class MockSalesRepository extends Mock implements SalesRepository {}
+class MockInventoryRepository extends Mock implements InventoryRepository {}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -48,6 +58,45 @@ ProviderContainer _makeContainer({MockSalesRepository? repo}) {
       salesRepositoryProvider.overrideWithValue(mock),
     ],
   );
+}
+
+/// Container con la cadena completa de overrides que `checkout()` necesita
+/// para resolver `operatingWarehouseProvider` (almacén operativo real) —
+/// mismo combo usado en `checkout_screen_test.dart`.
+ProviderContainer _makeCheckoutContainer({
+  required MockSalesRepository salesRepo,
+  required MockInventoryRepository inventoryRepo,
+}) {
+  return ProviderContainer(
+    overrides: [
+      salesRepositoryProvider.overrideWithValue(salesRepo),
+      inventoryRepositoryProvider.overrideWithValue(inventoryRepo),
+      operatingWarehouseStoreProvider
+          .overrideWithValue(OperatingWarehouseStoreMemory()),
+      authRepositoryProvider
+          .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+      warehousesProvider.overrideWith((ref) async => const [
+            WarehouseOption(
+                id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+          ]),
+    ],
+  );
+}
+
+void _stubInventoryRepoGetProducts(MockInventoryRepository repo) {
+  when(() => repo.getProducts(
+        query: any(named: 'query'),
+        category: any(named: 'category'),
+        lowStock: any(named: 'lowStock'),
+        page: any(named: 'page'),
+        pageSize: any(named: 'pageSize'),
+      )).thenAnswer((_) async => const PaginatedProducts(
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      ));
 }
 
 // ---------------------------------------------------------------------------
@@ -208,5 +257,79 @@ void main() {
         .addProduct(_makeProduct(id: 'prod-002', name: 'Sabritas'), qty: 3);
 
     expect(container.read(cartProvider).itemCount, 5);
+  });
+
+  // ── Regresión: checkout exitoso invalida inventoryProvider ───────────────
+  // Bug real reportado en QA de dispositivo (Sep 2026): "al vender no se
+  // descuenta el stock" — el backend sí descontaba, pero `inventoryProvider`
+  // nunca se refrescaba tras un checkout, así que Inventario/Detalle de
+  // producto seguían mostrando el stock cacheado de antes de la venta.
+  test('checkout exitoso invalida inventoryProvider para refrescar el stock',
+      () async {
+    final salesRepo = MockSalesRepository();
+    final inventoryRepo = MockInventoryRepository();
+    _stubInventoryRepoGetProducts(inventoryRepo);
+    when(() => salesRepo.checkout(
+          items: any(named: 'items'),
+          payments: any(named: 'payments'),
+          cashierName: any(named: 'cashierName'),
+          warehouseId: any(named: 'warehouseId'),
+        )).thenAnswer((_) async => CheckoutResult(
+          saleId: 'sale-001',
+          folio: 'NV-2026-000001',
+          totalMxn: 18.0,
+          totalPaidMxn: 18.0,
+          changeGivenMxn: 0.0,
+          items: const [],
+          payments: const [],
+          cashierName: 'Cajero de prueba',
+          completedAt: DateTime(2026, 9, 18, 12, 0),
+        ));
+
+    final container = _makeCheckoutContainer(
+      salesRepo: salesRepo,
+      inventoryRepo: inventoryRepo,
+    );
+    addTearDown(container.dispose);
+
+    container.read(cartProvider.notifier).addProduct(_makeProduct());
+
+    // Lee `inventoryProvider` para que exista y quede "watched" — refleja
+    // el caso real (Inventario/Checkout comparten el mismo provider vivo).
+    container.read(inventoryProvider);
+    while (container.read(inventoryProvider).isLoading) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    verify(() => inventoryRepo.getProducts(
+          query: any(named: 'query'),
+          category: any(named: 'category'),
+          lowStock: any(named: 'lowStock'),
+          page: any(named: 'page'),
+          pageSize: any(named: 'pageSize'),
+        )).called(1);
+
+    await container.read(cartProvider.notifier).checkout(
+      payments: const [
+        PaymentEntry(
+          id: 'pay-1',
+          method: PaymentMethodMxn.cashMxn,
+          amountMxn: 18.0,
+        ),
+      ],
+    );
+
+    // El checkout invalidó inventoryProvider — leerlo de nuevo dispara una
+    // segunda llamada real a `getProducts` en vez de servir el caché viejo.
+    container.read(inventoryProvider);
+    while (container.read(inventoryProvider).isLoading) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    verify(() => inventoryRepo.getProducts(
+          query: any(named: 'query'),
+          category: any(named: 'category'),
+          lowStock: any(named: 'lowStock'),
+          page: any(named: 'page'),
+          pageSize: any(named: 'pageSize'),
+        )).called(1);
   });
 }

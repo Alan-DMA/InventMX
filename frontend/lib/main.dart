@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
@@ -12,6 +13,11 @@ import 'features/onboarding/presentation/onboarding_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Web: `/tienda/{slug}/pedido/{folio}` en vez de `/#/tienda/...` — el enlace
+  // del chat de WhatsApp sólo se vuelve clicable sin `#` (QA 20 sep 2026).
+  // El servidor que entregue la vitrina debe devolver index.html para
+  // cualquier ruta (el backend lo hace en desarrollo; nginx `try_files` en prod).
+  usePathUrlStrategy();
   debugPrint('[Nexus] main() started');
 
   bool hasSession = false;

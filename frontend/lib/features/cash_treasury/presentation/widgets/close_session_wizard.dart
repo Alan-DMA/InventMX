@@ -91,9 +91,10 @@ class _CloseSessionWizardState extends ConsumerState<CloseSessionWizard> {
       final piecesByApiKey = {
         for (final e in _entries) e.denomination.apiKey: e.quantity,
       };
-      final closed = await ref
-          .read(cashSessionProvider.notifier)
-          .closeSession(BanxicoCount(piecesByApiKey));
+      final closed = await ref.read(cashSessionProvider.notifier).closeSession(
+            BanxicoCount(piecesByApiKey),
+            movements: ref.read(cashMovementsProvider),
+          );
       if (!mounted) return;
       Navigator.of(context).pop(closed);
     } catch (e) {
@@ -112,8 +113,9 @@ class _CloseSessionWizardState extends ConsumerState<CloseSessionWizard> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(cashSessionProvider);
-    final expectedCashMxn = ref.watch(expectedCashMxnProvider);
-    final digitalTotals = ref.watch(digitalPaymentTotalsProvider);
+    final expectedCashMxn = ref.watch(expectedCashMxnProvider).valueOrNull ?? 0;
+    final digitalTotals =
+        ref.watch(digitalPaymentTotalsProvider).valueOrNull ?? const {};
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,

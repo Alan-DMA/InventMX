@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/account_payable.dart';
+import '../purchase_format.dart';
 
 /// Tarjeta de cuenta por pagar con semáforo de vencimiento — Subtarea
 /// 11.2.3. Verde: a tiempo · Amarillo: vence en ≤3 días · Rojo: vencida.
@@ -74,7 +75,7 @@ class AccountPayableCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Vence: ${_formatDate(payable.dueDate)}',
+                  'Vence: ${formatPurchaseDate(payable.dueDate)}',
                   style: const TextStyle(fontSize: 12, color: AppColors.onSurfaceMuted),
                 ),
                 const SizedBox(height: 10),
@@ -125,8 +126,4 @@ class AccountPayableCard extends StatelessWidget {
     );
   }
 
-  String _formatDate(DateTime date) {
-    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
 }

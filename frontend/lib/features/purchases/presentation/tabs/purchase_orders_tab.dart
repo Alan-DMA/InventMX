@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/purchase_order.dart';
+import '../purchase_order_detail_screen.dart';
 import '../purchases_provider.dart';
 import '../widgets/purchase_filter_sheet.dart';
 import '../widgets/purchase_order_card.dart';
@@ -26,6 +27,17 @@ class PurchaseOrdersTab extends ConsumerWidget {
   Future<void> _receive(BuildContext context, PurchaseOrder order) async {
     if (order.status == PurchaseOrderStatus.received) return;
     await showReceivePurchaseModal(context, order);
+  }
+
+  /// Se empuja sobre el navegador de la pestaña (no el raíz) para que la barra
+  /// de tabs siga visible: desde el detalle es normal querer saltar a
+  /// "Por pagar". Mismo criterio que el wizard de cierre de caja.
+  void _openDetail(BuildContext context, PurchaseOrder order) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PurchaseOrderDetailScreen(order: order),
+      ),
+    );
   }
 
   @override
@@ -119,7 +131,7 @@ class PurchaseOrdersTab extends ConsumerWidget {
         final order = visible[i];
         return PurchaseOrderCard(
           order: order,
-          onTap: () {},
+          onTap: () => _openDetail(context, order),
           onReceive: () => _receive(context, order),
         );
       },

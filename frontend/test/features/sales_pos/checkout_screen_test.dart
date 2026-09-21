@@ -17,6 +17,9 @@ import 'package:nexus_app/features/sales_pos/domain/cart_state.dart';
 import 'package:nexus_app/features/sales_pos/domain/payment_entry.dart';
 import 'package:nexus_app/features/sales_pos/presentation/cart_provider.dart';
 import 'package:nexus_app/features/sales_pos/presentation/checkout_screen.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -97,11 +100,18 @@ Widget _buildScreen({
 }) {
   final inv = inventoryRepo ?? MockInventoryRepository();
   final sal = salesRepo ?? MockSalesRepository();
-  _stubInventoryRepo(inv);
+  // Sólo aplica el stub por defecto (catálogo vacío) si quien llama no trajo
+  // su propio mock ya stubbeado — si no, esto lo pisaría con una lista vacía.
+  if (inventoryRepo == null) _stubInventoryRepo(inv);
   _stubSalesRepo(sal);
 
   return ProviderScope(
     overrides: [
+      // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+      // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+      orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+      storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
       inventoryRepositoryProvider.overrideWithValue(inv),
       salesRepositoryProvider.overrideWithValue(sal),
       // El checkout ahora exige almacén operativo (warehouse_id real) — sin
@@ -194,6 +204,33 @@ void main() {
     expect(find.text('Coca-Cola 600ml'), findsOneWidget);
     // El empty state desaparece
     expect(find.text('Carrito vacío'), findsNothing);
+  });
+
+  // ── Regresión: tocar un resultado real del buscador debe agregarlo ───────
+  // (a diferencia de CA-02/CA-03, que añaden vía provider y nunca ejercitan
+  // el tap real sobre `_ResultRow` — el único camino que usa un cajero).
+  testWidgets(
+      'tocar un producto en el panel de resultados lo agrega al carrito',
+      (tester) async {
+    final inv = MockInventoryRepository();
+    _stubInventoryRepo(inv, products: [_makeProduct(name: 'Coca-Cola 600ml')]);
+
+    await tester.pumpWidget(_buildScreen(inventoryRepo: inv));
+    await tester.pumpAndSettle(); // deja resolver la carga inicial de inventoryProvider
+
+    await tester.enterText(find.byType(TextField), 'Coca');
+    await tester.pumpAndSettle();
+
+    // El panel de resultados debe mostrar el producto encontrado.
+    expect(find.text('Coca-Cola 600ml'), findsOneWidget);
+    expect(find.text('Carrito vacío'), findsNothing);
+
+    await tester.tap(find.text('Coca-Cola 600ml'));
+    await tester.pumpAndSettle();
+
+    // El panel de búsqueda se cierra y el producto queda en el carrito.
+    expect(find.text('Coca-Cola 600ml'), findsOneWidget);
+    expect(find.textContaining('18.00'), findsWidgets);
   });
 
   // ── CA-05: limpiar carrito vuelve al empty state ──────────────────────────

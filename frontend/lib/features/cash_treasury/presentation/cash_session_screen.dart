@@ -86,7 +86,7 @@ class _CashSessionScreenState extends ConsumerState<CashSessionScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(cashSessionProvider);
-    final expectedCashMxn = ref.watch(expectedCashMxnProvider);
+    final expectedCashMxn = ref.watch(expectedCashMxnProvider).valueOrNull;
     final movements = ref.watch(cashMovementsProvider);
 
     return Scaffold(
@@ -206,7 +206,11 @@ class _ActiveShiftCard extends StatelessWidget {
   const _ActiveShiftCard({required this.session, required this.expectedCashMxn});
 
   final CashSession session;
-  final double expectedCashMxn;
+
+  /// `null` mientras se resuelve contra el backend real (Sep 2026 — antes
+  /// era un cálculo síncrono sobre datos en memoria, ahora pide `GET /sales`
+  /// y `GET /cash/sessions/{id}/movements`).
+  final double? expectedCashMxn;
 
   @override
   Widget build(BuildContext context) {
@@ -278,7 +282,7 @@ class _ActiveShiftCard extends StatelessWidget {
     );
   }
 
-  Widget _statTile(String label, double amountMxn, {Color? valueColor}) {
+  Widget _statTile(String label, double? amountMxn, {Color? valueColor}) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -291,7 +295,7 @@ class _ActiveShiftCard extends StatelessWidget {
           Text(label, style: const TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted)),
           const SizedBox(height: 4),
           Text(
-            '\$${amountMxn.toStringAsFixed(2)}',
+            amountMxn == null ? '…' : '\$${amountMxn.toStringAsFixed(2)}',
             style: TextStyle(
               fontFamily: 'monospace',
               fontSize: 16,

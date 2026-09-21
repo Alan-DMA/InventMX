@@ -78,6 +78,27 @@ final operatingWarehouseProvider =
   OperatingWarehouseNotifier.new,
 );
 
+/// Margen máximo sugerido (%) del comercio — piso del "precio máximo
+/// sugerido" por producto mientras no haya suficiente historial de ventas
+/// (Sep 2026). Real desde el día uno (`/tenants/me/pricing-settings`),
+/// aparte del resto de "Preferencias operativas" que sigue mock (Almacenes,
+/// Categorías, Usuarios) — ver `management_provider.dart`.
+class MaxMarginPercentNotifier extends AsyncNotifier<double> {
+  @override
+  Future<double> build() =>
+      ref.read(authRepositoryProvider).fetchMaxMarginPercent();
+
+  Future<void> setPercent(double percent) async {
+    await ref.read(authRepositoryProvider).setMaxMarginPercent(percent);
+    state = AsyncData(percent);
+  }
+}
+
+final maxMarginPercentProvider =
+    AsyncNotifierProvider<MaxMarginPercentNotifier, double>(
+  MaxMarginPercentNotifier.new,
+);
+
 /// Quién puede ver cuánto paga el negocio.
 ///
 /// Decisión de Eduardo (Sep 16): sólo el Dueño — un cajero no tiene por qué

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
+import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
 import 'package:nexus_app/features/purchases/presentation/tabs/purchase_orders_tab.dart';
 
 /// Viewport de teléfono — mismo criterio que `close_session_wizard_test.dart`:
@@ -16,6 +18,11 @@ void _setPhoneViewport(WidgetTester tester) {
 
 Widget _buildApp() {
   return ProviderScope(
+    // `purchasesRepositoryProvider` ya apunta al backend real (retome de
+    // Compras) — estos tests siguen ejercitando el mock a propósito.
+    overrides: [
+      purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
+    ],
     child: MaterialApp(
       theme: AppTheme.dark,
       home: const Scaffold(body: PurchaseOrdersTab()),

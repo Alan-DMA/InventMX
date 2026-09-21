@@ -557,3 +557,229 @@ async def test_cashier_rbac_permissions_on_sales(client: AsyncClient):
     res_cancel = await client.post(f"/api/v1/sales/{sale_id}/cancel", json={"reason": "Cancelación no autorizada"}, headers=cashier_headers)
     assert res_cancel.status_code == 403
     assert "sales.cancel" in res_cancel.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_list_sales_paginated_with_total_count_and_cashier_name(client: AsyncClient):
+    """
+    Bug corregido (Sep 2026, ver docs/architecture/integrations.md): `GET /sales`
+    fallaba con TypeError porque el servicio llamaba al repositorio con el kwarg
+    `status_filter` en vez de `status`, y descartaba el conteo total que el
+    repositorio sí calcula. Valida:
+    - El listado responde 200 con paginación (`skip`/`limit`).
+    - El conteo total de registros coincidentes viaja en `X-Total-Count`.
+    - Cada venta expone `cashier_name` (nuevo campo, RF-08).
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Listado {suffix}",
+            "slug": f"list-{suffix}",
+            "full_name": "Dueña Listado",
+            "email": f"list_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    prod_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Refresco 355ml", "price_mxn": 15.00, "cost_mxn": 9.00, "initial_stock": 20.0},
+        headers=headers,
+    )
+    prod_data = prod_resp.json()
+    product_id = prod_data["id"]
+    warehouse_id = prod_data["stocks"][0]["warehouse_id"]
+
+    # Tres ventas independientes para el mismo comercio.
+    for _ in range(3):
+        res = await client.post(
+            "/api/v1/sales/checkout",
+            json={"warehouse_id": warehouse_id, "items": [{"product_id": product_id, "quantity": 1.0, "unit_price_mxn": 15.00}]},
+            headers=headers,
+        )
+        assert res.status_code == 201
+
+    # Página de 2 registros: el total coincidente debe seguir siendo 3.
+    res_list = await client.get("/api/v1/sales?skip=0&limit=2", headers=headers)
+    assert res_list.status_code == 200, res_list.text
+    assert res_list.headers["x-total-count"] == "3"
+    page = res_list.json()
+    assert len(page) == 2
+    assert page[0]["cashier_name"] == "Dueña Listado"
+
+    # Segunda página con el registro restante.
+    res_list_2 = await client.get("/api/v1/sales?skip=2&limit=2", headers=headers)
+    assert res_list_2.headers["x-total-count"] == "3"
+    assert len(res_list_2.json()) == 1
+
+    # Filtro por estado (alias `status`, documentado en docs/api/sales.yaml) no debe tronar.
+    res_filtered = await client.get("/api/v1/sales?status=COMPLETED", headers=headers)
+    assert res_filtered.status_code == 200, res_filtered.text
+    assert res_filtered.headers["x-total-count"] == "3"
+
+
+@pytest.mark.asyncio
+async def test_refund_sale_total_reverses_stock_and_closes_cycle(client: AsyncClient):
+    """
+    RF-12 (reembolso real, decisión de Eduardo Sep 2026 — ver
+    docs/architecture/integrations.md, punto 1.3): reembolso total de una venta
+    COMPLETED repone el stock con un asiento SALE_RETURN, congela
+    `refunded_amount_mxn`/`refunded_quantity` y transiciona la venta a REFUNDED.
+    Un segundo intento sobre la misma venta es rechazado con 422.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Reembolso {suffix}",
+            "slug": f"ref-{suffix}",
+            "full_name": "Dueño Reembolso",
+            "email": f"ref_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    prod_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Detergente 900g", "price_mxn": 32.00, "cost_mxn": 20.00, "initial_stock": 10.0},
+        headers=headers,
+    )
+    prod_data = prod_resp.json()
+    product_id = prod_data["id"]
+    warehouse_id = prod_data["stocks"][0]["warehouse_id"]
+
+    res_checkout = await client.post(
+        "/api/v1/sales/checkout",
+        json={"warehouse_id": warehouse_id, "items": [{"product_id": product_id, "quantity": 3.0, "unit_price_mxn": 32.00}]},
+        headers=headers,
+    )
+    assert res_checkout.status_code == 201
+    sale_id = res_checkout.json()["id"]
+
+    p_before = await client.get(f"/api/v1/inventory/products/{product_id}", headers=headers)
+    assert float(p_before.json()["total_stock"]) == 7.0
+
+    # Reembolso total: sin `items`, se reembolsa todo lo pendiente.
+    res_refund = await client.post(
+        f"/api/v1/sales/{sale_id}/refund",
+        json={"reason": "Cliente devolvió los tres paquetes", "refund_to_stock": True},
+        headers=headers,
+    )
+    assert res_refund.status_code == 200, res_refund.text
+    refunded = res_refund.json()
+    assert refunded["status"] == "REFUNDED"
+    assert Decimal(str(refunded["refunded_amount_mxn"])) == Decimal("96.00")
+    assert Decimal(str(refunded["items"][0]["refunded_quantity"])) == Decimal("3.000")
+
+    # Stock repuesto: 7 + 3 = 10.
+    p_after = await client.get(f"/api/v1/inventory/products/{product_id}", headers=headers)
+    assert float(p_after.json()["total_stock"]) == 10.0
+
+    mov_resp = await client.get(f"/api/v1/inventory/movements?product_id={product_id}", headers=headers)
+    return_movs = [m for m in mov_resp.json() if m["movement_type"] == "SALE_RETURN"]
+    assert len(return_movs) == 1
+    assert float(return_movs[0]["quantity"]) == 3.0
+
+    # Segundo intento de reembolso sobre la misma venta -> 422 (ya reembolsada).
+    res_refund_again = await client.post(
+        f"/api/v1/sales/{sale_id}/refund",
+        json={"reason": "Intento duplicado", "refund_to_stock": True},
+        headers=headers,
+    )
+    assert res_refund_again.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_refund_sale_partial_by_line_item_without_restocking(client: AsyncClient):
+    """
+    Reembolso parcial por renglón (RF-12): sólo se devuelve una partida
+    específica y con `refund_to_stock=false` el producto no regresa al
+    inventario (defectuoso/caducado, no arrepentimiento).
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Reembolso Parcial {suffix}",
+            "slug": f"refp-{suffix}",
+            "full_name": "Dueña Parcial",
+            "email": f"refp_{suffix}@tienda.mx",
+            "password": "password123",
+        },
+    )
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    prod_a_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Producto A Parcial", "price_mxn": 10.00, "cost_mxn": 6.00, "initial_stock": 10.0},
+        headers=headers,
+    )
+    prod_a = prod_a_resp.json()
+    warehouse_id = prod_a["stocks"][0]["warehouse_id"]
+
+    prod_b_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={"name": "Producto B Parcial", "price_mxn": 20.00, "cost_mxn": 12.00, "initial_stock": 10.0},
+        headers=headers,
+    )
+    prod_b = prod_b_resp.json()
+
+    res_checkout = await client.post(
+        "/api/v1/sales/checkout",
+        json={
+            "warehouse_id": warehouse_id,
+            "items": [
+                {"product_id": prod_a["id"], "quantity": 4.0, "unit_price_mxn": 10.00},
+                {"product_id": prod_b["id"], "quantity": 2.0, "unit_price_mxn": 20.00},
+            ],
+        },
+        headers=headers,
+    )
+    assert res_checkout.status_code == 201
+    sale_data = res_checkout.json()
+    sale_id = sale_data["id"]
+    item_a_id = next(i["id"] for i in sale_data["items"] if i["product_name"] == "Producto A Parcial")
+
+    # Sólo se reembolsan 2 de las 4 unidades del producto A, sin reponer stock.
+    res_refund = await client.post(
+        f"/api/v1/sales/{sale_id}/refund",
+        json={
+            "reason": "2 piezas defectuosas del producto A",
+            "refund_to_stock": False,
+            "items": [{"sale_item_id": item_a_id, "quantity": 2.0}],
+        },
+        headers=headers,
+    )
+    assert res_refund.status_code == 200, res_refund.text
+    refunded = res_refund.json()
+    # Aun siendo parcial, el ciclo de la venta se cierra en REFUNDED (un solo evento de reembolso).
+    assert refunded["status"] == "REFUNDED"
+    assert Decimal(str(refunded["refunded_amount_mxn"])) == Decimal("20.00")
+
+    item_a_after = next(i for i in refunded["items"] if i["id"] == item_a_id)
+    assert Decimal(str(item_a_after["refunded_quantity"])) == Decimal("2.000")
+    item_b_after = next(i for i in refunded["items"] if i["product_name"] == "Producto B Parcial")
+    assert Decimal(str(item_b_after["refunded_quantity"])) == Decimal("0.000")
+
+    # `refund_to_stock=false`: el stock del producto A sigue en 6 (10 - 4), no vuelve a 8.
+    p_a_after = await client.get(f"/api/v1/inventory/products/{prod_a['id']}", headers=headers)
+    assert float(p_a_after.json()["total_stock"]) == 6.0
+
+    # La venta ya quedó en REFUNDED tras el reembolso parcial (un solo evento
+    # de reembolso por venta): un segundo intento se rechaza con 422.
+    res_over_refund = await client.post(
+        f"/api/v1/sales/{sale_id}/refund",
+        json={
+            "reason": "Intento sobre partida cerrada",
+            "refund_to_stock": False,
+            "items": [{"sale_item_id": item_a_id, "quantity": 1.0}],
+        },
+        headers=headers,
+    )
+    assert res_over_refund.status_code == 422

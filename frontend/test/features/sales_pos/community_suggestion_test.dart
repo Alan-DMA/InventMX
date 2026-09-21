@@ -9,6 +9,9 @@ import 'package:nexus_app/features/sales_pos/data/community_catalog_repository.d
 import 'package:nexus_app/features/sales_pos/domain/ean_lookup_result.dart';
 import 'package:nexus_app/features/sales_pos/presentation/cart_provider.dart';
 import 'package:nexus_app/features/sales_pos/presentation/widgets/product_search_results.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks y fixtures — Tarea 15.2.1 (badge y autocompletado comunitario)
@@ -83,6 +86,11 @@ Widget _build({
   _stubInventory(repo, products);
   return ProviderScope(
     overrides: [
+      // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+      // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+      orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+      storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
       inventoryRepositoryProvider.overrideWithValue(repo),
       // Delay 0: el reloj falso de los tests no avanza un Future.delayed real.
       communityCatalogRepositoryProvider.overrideWithValue(
@@ -195,6 +203,11 @@ void main() {
     final host = _HostKey();
     await tester.pumpWidget(ProviderScope(
       overrides: [
+        // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+        // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+        orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+        storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
         inventoryRepositoryProvider.overrideWithValue(repo),
         communityCatalogRepositoryProvider.overrideWithValue(
           CommunityCatalogRepositoryMock(delay: Duration.zero),

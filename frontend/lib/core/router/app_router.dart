@@ -25,6 +25,8 @@ import '../../features/dictation_diagnostic/presentation/dictation_diagnostic_sc
 import '../../features/whatsapp_catalog/presentation/catalog_share_screen.dart';
 import '../../features/whatsapp_catalog/presentation/order_ticket_screen.dart';
 import '../../features/whatsapp_catalog/presentation/public_catalog_screen.dart';
+import '../../features/whatsapp_catalog/presentation/store_order_detail_screen.dart';
+import '../../features/whatsapp_catalog/presentation/store_orders_screen.dart';
 import '../../features/account/presentation/account_screen.dart';
 import '../../features/account/presentation/personal_data_screen.dart';
 import '../../features/account/presentation/password_screen.dart';
@@ -105,6 +107,12 @@ abstract final class AppRoutes {
   static const salesHistory = '/ventas/historial';
   static const saleDetail = '/ventas/historial/:id';
   static String saleDetailPath(String id) => '/ventas/historial/$id';
+
+  // Pedidos web del tendero (plan del 20 sep 2026). Fuera del shell, como el
+  // kardex: se entra desde Inicio (avisos / tarjeta), Ventas y el banner.
+  static const storeOrders = '/ventas/pedidos';
+  static const storeOrderDetail = '/ventas/pedidos/:folio';
+  static String storeOrderPath(String folio) => '/ventas/pedidos/$folio';
 
   // Suscripción SaaS (Tarea 14.2). Fuera del shell: se alcanzan también
   // desde el bloqueo total por morosidad.
@@ -266,6 +274,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
+      // ── Pedidos web del tendero ───────────────────────────────────────
+      GoRoute(
+        path: AppRoutes.storeOrders,
+        name: 'store-orders',
+        builder: (_, state) => StoreOrdersScreen(
+          initialTab: state.uri.queryParameters['tab'] == 'historial' ? 1 : 0,
+        ),
+        routes: [
+          GoRoute(
+            path: ':folio',
+            name: 'store-order-detail',
+            builder: (_, state) => StoreOrderDetailScreen(
+              folio: state.pathParameters['folio']!,
+            ),
+          ),
+        ],
+      ),
+
       // ── Administración del comercio ──────────────────────────────────
       GoRoute(
         path: AppRoutes.manageMembers,
@@ -326,6 +352,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: 'public-order',
             builder: (_, state) => OrderTicketScreen(
               slug: state.pathParameters['slug']!,
+              accessKey: state.uri.queryParameters['k'],
               folio: state.pathParameters['folio']!,
             ),
           ),

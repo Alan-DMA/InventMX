@@ -3,22 +3,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../data/import_repository.dart';
+import 'inventory_provider.dart';
 import 'widgets/column_mapper_row.dart';
 import 'widgets/import_preview_table.dart';
+
+/// Archivo elegido por el usuario. En Android/iOS llega con `path`; en Web
+/// sólo con `bytes` (por eso el picker se pide `withData: true`).
+typedef PickedImportFile = ({String path, String name, List<int>? bytes});
+
+/// Cómo se elige el archivo. Inyectable para que los tests recorran el
+/// wizard completo sin `FilePicker` (que no corre en `flutter test`).
+typedef ImportFilePicker = Future<PickedImportFile?> Function();
 
 /// Wizard de importación de productos desde archivo Excel/CSV.
 ///
 /// Flujo de 4 pasos:
 ///   Paso 0 — Selección de archivo
 ///   Paso 1 — Previsualización de las primeras 5 filas
-///   Paso 2 — Mapeo de columnas (Nombre*, Precio*, Stock)
+///   Paso 2 — Mapeo de columnas (Nombre*, Precio*, Stock, y opcionales:
+///            costo, código de barras, categoría), pre-llenado con la
+///            sugerencia del backend
 ///   Paso 3 — Resultado de la importación
 ///
 /// Trazabilidad: Constitución Art. VII (7.5 Catálogo Semilla)
 ///              Doc. Maestro RF-01 (Importación con Mapeo Visual Flexible)
 ///              HU-09 / CU-09
 class ImportScreen extends ConsumerStatefulWidget {
-  const ImportScreen({super.key});
+  const ImportScreen({super.key, @visibleForTesting this.filePicker});
+
+  final ImportFilePicker? filePicker;
 
   @override
   ConsumerState<ImportScreen> createState() => _ImportScreenState();
@@ -42,6 +55,13 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   String? _colName;
   String? _colPrice;
   String? _colStock;
+  String? _colCost;
+  String? _colBarcode;
+  String? _colCategory;
+
+  /// "Más columnas" abierto. Se abre solo si la sugerencia del backend
+  /// encontró alguna opcional, para que el usuario vea qué se va a importar.
+  bool _showOptional = false;
 
   // Paso 3 — resultado
   ImportResult? _result;
@@ -54,22 +74,29 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  Future<void> _pickFile() async {
+  /// Selector por defecto. Sólo `.xlsx`/`.csv`: el backend rechaza `.xls`
+  /// (Excel 97-2003) con "Formato no soportado", mejor no ofrecerlo.
+  static Future<PickedImportFile?> _pickWithFilePicker() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xls', 'csv'],
+      allowedExtensions: ['xlsx', 'csv'],
       allowMultiple: false,
       withData: true,
     );
-    if (result != null && result.files.isNotEmpty) {
-      final file = result.files.first;
-      setState(() {
-        _filePath = file.path ?? file.name;
-        _fileName = file.name;
-        _fileBytes = file.bytes;
-        _errorMessage = null;
-      });
-    }
+    if (result == null || result.files.isEmpty) return null;
+    final file = result.files.first;
+    return (path: file.path ?? file.name, name: file.name, bytes: file.bytes);
+  }
+
+  Future<void> _pickFile() async {
+    final picked = await (widget.filePicker ?? _pickWithFilePicker)();
+    if (picked == null || !mounted) return;
+    setState(() {
+      _filePath = picked.path;
+      _fileName = picked.name;
+      _fileBytes = picked.bytes;
+      _errorMessage = null;
+    });
   }
 
   Future<void> _loadPreview() async {
@@ -84,24 +111,48 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
             fileBytes: _fileBytes,
             fileName: _fileName,
           );
+      if (!mounted) return;
       setState(() {
         _preview = preview;
-        // Intenta auto-mapear columnas si solo hay 3 o 4
-        if (preview.headers.length >= 3) {
-          _colName = preview.headers[0];
-          _colPrice = preview.headers[2];
-          _colStock = preview.headers.length >= 4 ? preview.headers[3] : null;
-        }
+        _applySuggestedMapping(preview);
         _step = 1;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            'No se pudo leer el archivo. Verifica que sea un Excel o CSV válido.';
+        _errorMessage = e is ImportException
+            ? e.message
+            : 'No se pudo leer el archivo. Verifica que sea un Excel o CSV válido.';
       });
     }
+  }
+
+  /// Pre-llena el mapeo con la heurística del backend (`suggested_mapping`,
+  /// por nombres de encabezado). Si el archivo no trae encabezados
+  /// reconocibles, cae al orden posicional de siempre (nombre, —, precio,
+  /// stock) para no dejar los dropdowns vacíos.
+  void _applySuggestedMapping(FilePreview preview) {
+    final s = preview.suggestedMapping;
+    final headers = preview.headers;
+    String? valid(String? col) =>
+        col != null && headers.contains(col) ? col : null;
+
+    _colName = valid(s.name);
+    _colPrice = valid(s.price);
+    _colStock = valid(s.stock);
+    _colCost = valid(s.cost);
+    _colBarcode = valid(s.barcode);
+    _colCategory = valid(s.category);
+
+    if (_colName == null && _colPrice == null && headers.length >= 3) {
+      _colName = headers[0];
+      _colPrice = headers[2];
+      _colStock = headers.length >= 4 ? headers[3] : null;
+    }
+    _showOptional =
+        _colCost != null || _colBarcode != null || _colCategory != null;
   }
 
   Future<void> _runImport() async {
@@ -113,22 +164,34 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
     try {
       final result = await ref.read(importRepositoryProvider).importFile(
             filePath: _filePath!,
-            colName: _colName!,
-            colPrice: _colPrice!,
-            colStock: _colStock ?? '',
+            mapping: ColumnMapping(
+              name: _colName!,
+              price: _colPrice!,
+              stock: _colStock,
+              cost: _colCost,
+              barcode: _colBarcode,
+              category: _colCategory,
+            ),
             fileBytes: _fileBytes,
             fileName: _fileName,
           );
+      // Los productos ya están en el servidor: sin esto la lista de
+      // Inventario seguiría mostrando la copia cacheada de antes (mismo
+      // patrón que checkout/reembolso — ver bitácora, quinta sesión).
+      if (result.imported > 0) ref.invalidate(inventoryProvider);
+      if (!mounted) return;
       setState(() {
         _result = result;
         _step = 3;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            'Error al importar: ${e.toString()}';
+        _errorMessage = e is ImportException
+            ? e.message
+            : 'Error al importar. Verifica tu conexión e intenta de nuevo.';
       });
     }
   }
@@ -143,6 +206,10 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       _colName = null;
       _colPrice = null;
       _colStock = null;
+      _colCost = null;
+      _colBarcode = null;
+      _colCategory = null;
+      _showOptional = false;
       _result = null;
       _errorMessage = null;
     });
@@ -229,9 +296,18 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
           colName: _colName,
           colPrice: _colPrice,
           colStock: _colStock,
+          colCost: _colCost,
+          colBarcode: _colBarcode,
+          colCategory: _colCategory,
+          showOptional: _showOptional,
           onNameChanged: (v) => setState(() => _colName = v),
           onPriceChanged: (v) => setState(() => _colPrice = v),
           onStockChanged: (v) => setState(() => _colStock = v),
+          onCostChanged: (v) => setState(() => _colCost = v),
+          onBarcodeChanged: (v) => setState(() => _colBarcode = v),
+          onCategoryChanged: (v) => setState(() => _colCategory = v),
+          onToggleOptional: () =>
+              setState(() => _showOptional = !_showOptional),
         );
       case 3:
         return _Step3Result(
@@ -470,18 +546,37 @@ class _Step2Mapping extends StatelessWidget {
     required this.colName,
     required this.colPrice,
     required this.colStock,
+    required this.colCost,
+    required this.colBarcode,
+    required this.colCategory,
+    required this.showOptional,
     required this.onNameChanged,
     required this.onPriceChanged,
     required this.onStockChanged,
+    required this.onCostChanged,
+    required this.onBarcodeChanged,
+    required this.onCategoryChanged,
+    required this.onToggleOptional,
   });
 
   final FilePreview preview;
   final String? colName;
   final String? colPrice;
   final String? colStock;
+  final String? colCost;
+  final String? colBarcode;
+  final String? colCategory;
+  final bool showOptional;
   final ValueChanged<String?> onNameChanged;
   final ValueChanged<String?> onPriceChanged;
   final ValueChanged<String?> onStockChanged;
+  final ValueChanged<String?> onCostChanged;
+  final ValueChanged<String?> onBarcodeChanged;
+  final ValueChanged<String?> onCategoryChanged;
+  final VoidCallback onToggleOptional;
+
+  int get _optionalCount =>
+      [colCost, colBarcode, colCategory].where((c) => c != null).length;
 
   @override
   Widget build(BuildContext context) {
@@ -520,7 +615,51 @@ class _Step2Mapping extends StatelessWidget {
           columns: preview.headers,
           selectedColumn: colStock,
           onChanged: onStockChanged,
+          helperText: 'Sin columna, todo entra con 0 piezas',
         ),
+
+        const SizedBox(height: 14),
+
+        // Columnas opcionales que el backend también sabe leer. Colapsadas
+        // para no abrumar a quien sólo trae nombre y precio; abiertas solas
+        // cuando la sugerencia encontró alguna.
+        _OptionalColumnsToggle(
+          expanded: showOptional,
+          mappedCount: _optionalCount,
+          onTap: onToggleOptional,
+        ),
+        if (showOptional) ...[
+          const SizedBox(height: 10),
+          ColumnMapperRow(
+            fieldLabel: 'Costo de compra (MXN)',
+            fieldIcon: Icons.request_quote_outlined,
+            isRequired: false,
+            columns: preview.headers,
+            selectedColumn: colCost,
+            onChanged: onCostChanged,
+            helperText: 'Para calcular tu margen',
+          ),
+          const SizedBox(height: 10),
+          ColumnMapperRow(
+            fieldLabel: 'Código de barras',
+            fieldIcon: Icons.qr_code_2_rounded,
+            isRequired: false,
+            columns: preview.headers,
+            selectedColumn: colBarcode,
+            onChanged: onBarcodeChanged,
+            helperText: 'Se omiten los repetidos',
+          ),
+          const SizedBox(height: 10),
+          ColumnMapperRow(
+            fieldLabel: 'Categoría',
+            fieldIcon: Icons.category_outlined,
+            isRequired: false,
+            columns: preview.headers,
+            selectedColumn: colCategory,
+            onChanged: onCategoryChanged,
+            helperText: 'Se crean las que no existan',
+          ),
+        ],
 
         const SizedBox(height: 20),
 
@@ -535,6 +674,74 @@ class _Step2Mapping extends StatelessWidget {
         ],
         const SizedBox(height: 16),
       ],
+    );
+  }
+}
+
+/// Cabecera plegable de "Más columnas (opcional)" con el conteo de mapeadas.
+class _OptionalColumnsToggle extends StatelessWidget {
+  const _OptionalColumnsToggle({
+    required this.expanded,
+    required this.mappedCount,
+    required this.onTap,
+  });
+
+  final bool expanded;
+  final int mappedCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              expanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              size: 20,
+              color: AppColors.onSurfaceMuted,
+            ),
+            const SizedBox(width: 6),
+            const Text(
+              'Más columnas (opcional)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.onSurface,
+              ),
+            ),
+            if (mappedCount > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.emerald.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$mappedCount mapeada${mappedCount == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.emerald,
+                  ),
+                ),
+              ),
+            ],
+            const Spacer(),
+            const Text(
+              'Costo · Código · Categoría',
+              style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

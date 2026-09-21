@@ -252,7 +252,8 @@ class _OrderSheetState extends ConsumerState<OrderSheet> {
     final text = WhatsAppMessageFormatter.orderLinkText(
       store: _store,
       order: order,
-      ticketUrl: publicOrderUrl(_store.slug, order.folio),
+      ticketUrl:
+          publicOrderUrl(_store.slug, order.folio, key: order.accessKey),
     );
     final opened = await ref.read(urlLauncherProvider)(
       WhatsAppMessageFormatter.waLinkFor(_store.whatsappNumber, text),

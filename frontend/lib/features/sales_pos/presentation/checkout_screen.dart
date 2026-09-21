@@ -6,8 +6,10 @@ import '../../../core/router/app_router.dart' show AppRoutes;
 import '../../saas_admin/presentation/subscription_lock_banner.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../analytics/presentation/employee_performance_screen.dart';
+import '../../inventory/presentation/inventory_provider.dart';
 import '../domain/cart_item.dart';
 import 'cart_provider.dart';
+import '../../whatsapp_catalog/presentation/store_orders_provider.dart';
 import 'sale_receipt_screen.dart';
 import 'widgets/cart_item_tile.dart';
 import 'widgets/cart_totals_bar.dart';
@@ -50,6 +52,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   @override
   void initState() {
     super.initState();
+    // Precalienta el catálogo apenas se abre el POS (Sep 2026 — bug real
+    // encontrado: `inventoryProvider` sólo se creaba al primer tecleo en el
+    // buscador, en `ProductSearchResults`, dejando una ventana donde una
+    // búsqueda inmediata mostraba "Sin resultados" mientras el catálogo
+    // seguía en camino desde el backend).
+    Future.microtask(() => ref.read(inventoryProvider));
     _searchController.addListener(_onSearchChanged);
     _searchFocus.addListener(() {
       if (!_searchFocus.hasFocus) {
@@ -267,6 +275,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ),
             ),
           ),
+        ),
+        // Pedidos web (20 sep 2026): lo que llegó por el catálogo, con el
+        // conteo de nuevos del servidor.
+        Consumer(
+          builder: (context, ref, _) {
+            final newCount = ref.watch(newOrdersCountProvider);
+            return IconButton(
+              key: const Key('storeOrdersButton'),
+              tooltip: 'Pedidos web',
+              icon: Badge(
+                isLabelVisible: newCount > 0,
+                label: Text('$newCount'),
+                backgroundColor: AppColors.skyBlue,
+                textColor: AppColors.darkSlate,
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 22,
+                  color: newCount > 0
+                      ? AppColors.skyBlue
+                      : AppColors.onSurfaceMuted,
+                ),
+              ),
+              onPressed: () => context.push(AppRoutes.storeOrders),
+            );
+          },
         ),
         // Historial de ventas — Fase 2. Un cajero busca "la de hace cinco
         // minutos" sin salir del POS.

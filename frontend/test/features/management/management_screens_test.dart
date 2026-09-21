@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nexus_app/core/storage/secure_storage.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/auth/data/auth_repository.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/management/data/management_repository.dart';
 import 'package:nexus_app/features/management/domain/app_permission.dart';
@@ -27,6 +29,10 @@ ProviderContainer _container({String email = _email}) {
     overrides: [
       sessionProvider.overrideWith((ref) => true),
       currentUserNameProvider.overrideWith((ref) => email),
+      // "Precios" (real, Sep 2026) llama a authRepositoryProvider — sin este
+      // override haría una petición HTTP real en cada test de esta pantalla.
+      authRepositoryProvider
+          .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
     ],
   );
   addTearDown(container.dispose);
@@ -60,6 +66,27 @@ void main() {
       expect(find.text('3 almacenes activos'), findsOneWidget);
       expect(find.byKey(const Key('preferencesCategories')), findsOneWidget);
       expect(find.text('5 categorías'), findsOneWidget);
+    });
+
+    testWidgets(
+        'margen máximo sugerido muestra el valor por defecto y se puede editar',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const PreferencesScreen()));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('preferencesMaxMargin')), findsOneWidget);
+      expect(find.textContaining('40%'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('preferencesMaxMargin')));
+      await _settle(tester);
+
+      expect(find.byKey(const Key('maxMarginField')), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('maxMarginField')), '25');
+      await tester.tap(find.byKey(const Key('saveMaxMarginButton')));
+      await _settle(tester);
+
+      expect(find.textContaining('25%'), findsOneWidget);
     });
   });
 

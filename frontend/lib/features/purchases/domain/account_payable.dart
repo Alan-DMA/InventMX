@@ -1,44 +1,61 @@
 import 'package:equatable/equatable.dart';
 
-/// Estado de una cuenta por pagar — `AccountPayable.status` en
-/// `docs/api/components.yaml` (PENDING/PARTIAL/PAID/OVERDUE).
+/// Estado de una cuenta por pagar — `AccountPayableStatus` real del backend
+/// (`backend/app/modules/purchasing_suppliers/domain/account_payable.py`).
+/// El backend es la fuente de verdad (`status`/`is_overdue` ya calculados
+/// server-side) — el cliente ya no deriva el estado a partir del saldo.
 enum AccountPayableStatus {
   pending,
-  partial,
+  partiallyPaid,
   paid,
-  overdue;
+  overdue,
+  cancelled;
 
   String get apiValue => switch (this) {
         AccountPayableStatus.pending => 'PENDING',
-        AccountPayableStatus.partial => 'PARTIAL',
+        AccountPayableStatus.partiallyPaid => 'PARTIALLY_PAID',
         AccountPayableStatus.paid => 'PAID',
         AccountPayableStatus.overdue => 'OVERDUE',
+        AccountPayableStatus.cancelled => 'CANCELLED',
+      };
+
+  static AccountPayableStatus fromApi(String value) => switch (value) {
+        'PARTIALLY_PAID' => AccountPayableStatus.partiallyPaid,
+        'PAID' => AccountPayableStatus.paid,
+        'OVERDUE' => AccountPayableStatus.overdue,
+        'CANCELLED' => AccountPayableStatus.cancelled,
+        _ => AccountPayableStatus.pending,
       };
 
   String get label => switch (this) {
         AccountPayableStatus.pending => 'Pendiente',
-        AccountPayableStatus.partial => 'Abonada',
+        AccountPayableStatus.partiallyPaid => 'Abonada',
         AccountPayableStatus.paid => 'Pagada',
         AccountPayableStatus.overdue => 'Vencida',
+        AccountPayableStatus.cancelled => 'Cancelada',
       };
 }
 
-/// Método de pago al liquidar una cuenta por pagar — `PaymentMethodType` de
-/// `docs/api/components.yaml`, reutilizado aquí (no confundir con
-/// `PaymentMethodMxn` de `sales_pos`, que es el cobro de mostrador).
+/// Método de pago al liquidar una cuenta por pagar — `PaymentMethod` real del
+/// backend (reutilizado de `sales_pos`, no confundir con `PaymentMethodMxn`
+/// del cobro de mostrador).
+///
+/// Sin "Mixto" (decisión de Eduardo, Sep 2026): el backend sólo acepta un
+/// método por abono — un pago combinado se registra como dos abonos
+/// separados, que el backend ya soporta.
 enum SupplierPaymentMethod {
   cashMxn,
   spei,
   codi,
   cardTpv,
-  mixed;
+  other;
 
   String get apiValue => switch (this) {
         SupplierPaymentMethod.cashMxn => 'CASH_MXN',
         SupplierPaymentMethod.spei => 'SPEI',
         SupplierPaymentMethod.codi => 'CODI',
         SupplierPaymentMethod.cardTpv => 'CARD_TPV',
-        SupplierPaymentMethod.mixed => 'MIXED',
+        SupplierPaymentMethod.other => 'OTHER',
       };
 
   String get label => switch (this) {
@@ -46,11 +63,12 @@ enum SupplierPaymentMethod {
         SupplierPaymentMethod.spei => 'SPEI',
         SupplierPaymentMethod.codi => 'CoDi',
         SupplierPaymentMethod.cardTpv => 'Tarjeta (TPV)',
-        SupplierPaymentMethod.mixed => 'Mixto',
+        SupplierPaymentMethod.other => 'Otro',
       };
 }
 
 /// Semáforo de vencimiento — Subtarea 11.2.3 (Tablero de CxP con Semáforo).
+/// Visual únicamente, derivado de `dueDate`/`status` — no viaja al backend.
 enum PayableUrgency {
   /// Verde — a tiempo.
   onTime,
@@ -62,8 +80,8 @@ enum PayableUrgency {
   overdue,
 }
 
-/// Cuenta por pagar a un proveedor — modelada sobre `AccountPayable` de
-/// `docs/api/components.yaml`.
+/// Cuenta por pagar a un proveedor — modelada sobre `AccountPayableResponse`
+/// del backend real (`schemas/account_payable.py`).
 ///
 /// Trazabilidad: Constitución Art. I (1.2.8) · Doc. Maestro Sección 5.3
 ///              (RF-16) · HU-17 / CU-22
@@ -72,52 +90,62 @@ class AccountPayable extends Equatable {
     required this.id,
     required this.supplierId,
     required this.supplierName,
-    required this.purchaseOrderId,
     required this.originalAmountMxn,
     required this.paidAmountMxn,
+    required this.status,
     required this.dueDate,
     required this.createdAt,
+    required this.updatedAt,
+    this.purchaseOrderId,
+    this.folio,
+    this.invoiceReference,
+    this.notes,
   });
 
   final String id;
   final String supplierId;
   final String supplierName;
-  final String purchaseOrderId;
+  final String? purchaseOrderId;
+  final String? folio;
   final double originalAmountMxn;
   final double paidAmountMxn;
+  final AccountPayableStatus status;
+  final String? invoiceReference;
+  final String? notes;
   final DateTime dueDate;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   double get balanceMxn => originalAmountMxn - paidAmountMxn;
 
-  /// Estado calculado en el cliente a partir del saldo y la fecha de
-  /// vencimiento — mismo criterio que `Product.stockStatus`: el backend es
-  /// la fuente de verdad cuando exista (Tarea 11.1), el cliente solo
-  /// clasifica mientras se opera contra el mock.
-  AccountPayableStatus get status {
-    if (balanceMxn <= 0.005) return AccountPayableStatus.paid;
-    if (DateTime.now().isAfter(dueDate)) return AccountPayableStatus.overdue;
-    if (paidAmountMxn > 0) return AccountPayableStatus.partial;
-    return AccountPayableStatus.pending;
-  }
-
-  /// Semáforo visual de la tarjeta (11.2.3).
+  /// Semáforo visual de la tarjeta (11.2.3) — el estado real viene del
+  /// backend en [status]; esto sólo clasifica la urgencia visual.
   PayableUrgency get urgency {
+    if (status == AccountPayableStatus.overdue) return PayableUrgency.overdue;
     final daysUntilDue = dueDate.difference(DateTime.now()).inDays;
     if (daysUntilDue < 0) return PayableUrgency.overdue;
     if (daysUntilDue <= 3) return PayableUrgency.dueSoon;
     return PayableUrgency.onTime;
   }
 
-  AccountPayable copyWith({double? paidAmountMxn}) => AccountPayable(
+  AccountPayable copyWith({
+    double? paidAmountMxn,
+    AccountPayableStatus? status,
+  }) =>
+      AccountPayable(
         id: id,
         supplierId: supplierId,
         supplierName: supplierName,
         purchaseOrderId: purchaseOrderId,
+        folio: folio,
         originalAmountMxn: originalAmountMxn,
         paidAmountMxn: paidAmountMxn ?? this.paidAmountMxn,
+        status: status ?? this.status,
+        invoiceReference: invoiceReference,
+        notes: notes,
         dueDate: dueDate,
         createdAt: createdAt,
+        updatedAt: updatedAt,
       );
 
   @override
@@ -126,26 +154,41 @@ class AccountPayable extends Equatable {
         supplierId,
         supplierName,
         purchaseOrderId,
+        folio,
         originalAmountMxn,
         paidAmountMxn,
+        status,
+        invoiceReference,
+        notes,
         dueDate,
         createdAt,
+        updatedAt,
       ];
 }
 
-/// Resumen agregado — espejo de `data.summary` en
-/// `GET /accounts-payable` (`docs/api/purchases.yaml`).
+/// Resumen agregado — espejo de `AccountsPayableSummaryResponse` real
+/// (`GET /accounts-payable/summary`).
 class AccountsPayableSummary extends Equatable {
   const AccountsPayableSummary({
     required this.totalPendingMxn,
+    required this.totalPaidMxn,
     required this.overdueAmountMxn,
     required this.overdueCount,
+    required this.pendingCount,
   });
 
   final double totalPendingMxn;
+  final double totalPaidMxn;
   final double overdueAmountMxn;
   final int overdueCount;
+  final int pendingCount;
 
   @override
-  List<Object?> get props => [totalPendingMxn, overdueAmountMxn, overdueCount];
+  List<Object?> get props => [
+        totalPendingMxn,
+        totalPaidMxn,
+        overdueAmountMxn,
+        overdueCount,
+        pendingCount,
+      ];
 }

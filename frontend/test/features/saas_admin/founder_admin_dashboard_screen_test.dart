@@ -6,6 +6,9 @@ import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/saas_admin/data/saas_repository.dart';
 import 'package:nexus_app/features/saas_admin/presentation/founder_admin_dashboard_screen.dart';
 import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart';
+import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
+import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
+import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
 
 /// Tarea 14.2.2 — CA-05 (métricas calculadas), CA-06 (aprobar/rechazar),
 /// CA-07 (filtros, búsqueda, reactivar/extender).
@@ -26,6 +29,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+          // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+          orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+          storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
           sessionProvider.overrideWith((ref) => true),
           saasRepositoryProvider.overrideWithValue(mock),
           clockProvider.overrideWithValue(() => now),
@@ -155,6 +163,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
+          // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+          orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
+          storeOrdersRepositoryProvider.overrideWithValue(
+            StoreOrdersRepositoryMock(latency: Duration.zero)),
           sessionProvider.overrideWith((ref) => true),
           saasRepositoryProvider.overrideWithValue(
             SaasRepositoryMock(currentEmail: 'sol@tiendita.mx', latency: Duration.zero, now: () => now),

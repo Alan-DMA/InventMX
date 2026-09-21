@@ -53,6 +53,7 @@ class Sale(Base):
         CheckConstraint("subtotal_mxn >= 0", name="chk_sales_subtotal_non_negative"),
         CheckConstraint("discount_mxn >= 0", name="chk_sales_discount_non_negative"),
         CheckConstraint("total_cost_mxn >= 0", name="chk_sales_total_cost_non_negative"),
+        CheckConstraint("refunded_amount_mxn >= 0", name="chk_sales_refunded_amount_non_negative"),
         {"schema": "public"},
     )
 
@@ -186,6 +187,14 @@ class Sale(Base):
         doc="Notas u observaciones de la nota de venta",
     )
 
+    # Monto acumulado devuelto por reembolsos totales o parciales ($ MXN)
+    refunded_amount_mxn: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        default=Decimal("0.00"),
+        nullable=False,
+        doc="Suma de los importes reembolsados de la venta (total o parcial)",
+    )
+
     # Estampa de tiempo de creación
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -263,6 +272,7 @@ class SaleItem(Base):
         CheckConstraint("unit_price_mxn >= 0", name="chk_sale_items_price_non_negative"),
         CheckConstraint("unit_cost_mxn >= 0", name="chk_sale_items_cost_non_negative"),
         CheckConstraint("total_mxn >= 0", name="chk_sale_items_total_non_negative"),
+        CheckConstraint("refunded_quantity >= 0", name="chk_sale_items_refunded_qty_non_negative"),
         {"schema": "public"},
     )
 
@@ -374,6 +384,14 @@ class SaleItem(Base):
         default=False,
         nullable=False,
         doc="Indica si el producto fue creado al vuelo durante la venta",
+    )
+
+    # Cantidad acumulada ya reembolsada de esta partida (reembolso parcial por renglón)
+    refunded_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(12, 3),
+        default=Decimal("0.000"),
+        nullable=False,
+        doc="Cantidad de esta partida ya devuelta por reembolsos previos",
     )
 
     # Estampa de tiempo de registro

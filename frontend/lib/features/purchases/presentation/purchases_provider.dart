@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/capture_frame_analyzer.dart';
 import '../../../core/utils/ocr_helper.dart';
 import '../../../core/utils/voice_dictation_helper.dart';
+import '../../auth/data/auth_repository.dart' show dioClientProvider;
 import '../data/purchases_repository.dart';
 import '../data/receipt_file_source.dart';
 import '../data/receipt_mapping_store.dart';
@@ -14,8 +15,12 @@ import '../domain/purchase_order.dart';
 import '../domain/supplier.dart';
 import 'receipt_capture_screen.dart';
 
+/// Retome de Compras cerrado (ver `registro_implementacion.md`): "Nueva
+/// orden de compra" ya resuelve cada renglón a un `product_id` real
+/// (`ProductPickerField`/`product_name_matcher.dart`) o lo da de alta
+/// automáticamente antes de enviarlo — el backend real ya no responde 404.
 final purchasesRepositoryProvider = Provider<PurchasesRepository>(
-  (_) => PurchasesRepositoryMock(),
+  (ref) => PurchasesRepositoryImpl(client: ref.watch(dioClientProvider)),
 );
 
 /// Reconocedor de texto on-device — Tarea 12.2.1.
@@ -202,6 +207,48 @@ class PurchaseOrdersNotifier extends Notifier<PurchaseOrdersState> {
     return order;
   }
 
+  /// Corrige una orden que todavía no recibe mercancía. Propaga tal cual el
+  /// mensaje del backend si la orden ya se cerró a cambios.
+  Future<PurchaseOrder> updateOrder({
+    required String purchaseOrderId,
+    String? supplierId,
+    List<PurchaseOrderItem>? items,
+    DateTime? expectedDeliveryDate,
+    String? notes,
+  }) async {
+    final updated = await _repo.updatePurchaseOrder(
+      purchaseOrderId: purchaseOrderId,
+      supplierId: supplierId,
+      items: items,
+      expectedDeliveryDate: expectedDeliveryDate,
+      notes: notes,
+    );
+    state = state.copyWith(
+      orders: [
+        for (final o in state.orders) o.id == purchaseOrderId ? updated : o,
+      ],
+    );
+    return updated;
+  }
+
+  /// Cancela una orden sin borrarla: queda en `CANCELLED` y el historial
+  /// sigue contando lo que pasó.
+  Future<PurchaseOrder> cancelOrder({
+    required String purchaseOrderId,
+    String? reason,
+  }) async {
+    final cancelled = await _repo.cancelPurchaseOrder(
+      purchaseOrderId: purchaseOrderId,
+      reason: reason,
+    );
+    state = state.copyWith(
+      orders: [
+        for (final o in state.orders) o.id == purchaseOrderId ? cancelled : o,
+      ],
+    );
+    return cancelled;
+  }
+
   /// Registra la recepción de mercancía (total o parcial) de una orden.
   Future<PurchaseOrder> receiveOrder({
     required String purchaseOrderId,
@@ -299,19 +346,19 @@ class SuppliersNotifier extends Notifier<SuppliersState> {
 
   Future<Supplier> createSupplier({
     required String name,
-    String? contactName,
     String? phone,
     String? email,
     String? rfc,
     String? notes,
+    int? creditDays,
   }) async {
     final supplier = await _repo.createSupplier(
       name: name,
-      contactName: contactName,
       phone: phone,
       email: email,
       rfc: rfc,
       notes: notes,
+      creditDays: creditDays,
     );
     state = state.copyWith(suppliers: [supplier, ...state.suppliers]);
     return supplier;
@@ -321,18 +368,18 @@ class SuppliersNotifier extends Notifier<SuppliersState> {
   Future<Supplier> updateSupplier({
     required String id,
     String? name,
-    String? contactName,
     String? phone,
     String? email,
     String? rfc,
+    int? creditDays,
   }) async {
     final updated = await _repo.updateSupplier(
       id: id,
       name: name,
-      contactName: contactName,
       phone: phone,
       email: email,
       rfc: rfc,
+      creditDays: creditDays,
     );
     state = state.copyWith(
       suppliers: [for (final s in state.suppliers) s.id == id ? updated : s],

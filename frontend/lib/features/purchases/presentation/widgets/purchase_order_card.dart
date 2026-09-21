@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/purchase_order.dart';
+import '../purchase_format.dart';
+import 'purchase_status_pill.dart';
 
 /// Tarjeta de orden de compra — Subtarea 11.2.1, Figma nodo `1:51`.
 ///
@@ -21,9 +23,28 @@ class PurchaseOrderCard extends StatelessWidget {
 
   bool get _isReceived => order.status == PurchaseOrderStatus.received;
 
+  /// Qué fecha le sirve al tendero según dónde está la orden, siempre con su
+  /// etiqueta: antes mostraba `createdAt` sin nombre, así que la fecha de
+  /// entrega que el usuario elegía al crear la orden nunca se veía por ningún
+  /// lado y parecía que no se guardaba (hallazgo de QA, Sep 19).
+  (String, DateTime) get _dateInfo {
+    if (_isReceived && order.receivedDate != null) {
+      return ('Recibida', order.receivedDate!);
+    }
+    if (order.expectedDeliveryDate != null) {
+      return ('Llega', order.expectedDeliveryDate!);
+    }
+    // Parcial sin fecha esperada: lo último que se sabe es cuándo llegó algo.
+    if (order.receivedDate != null) {
+      return ('Última entrega', order.receivedDate!);
+    }
+    return ('Creada', order.createdAt);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dateLabel = _formatDate(order.createdAt);
+    final (dateCaption, date) = _dateInfo;
+    final dateLabel = '$dateCaption: ${formatPurchaseDate(date)}';
 
     return InkWell(
       onTap: onTap,
@@ -54,7 +75,7 @@ class PurchaseOrderCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                _StatusPill(status: order.status),
+                PurchaseStatusPill(status: order.status),
               ],
             ),
             const SizedBox(height: 6),
@@ -72,7 +93,16 @@ class PurchaseOrderCard extends StatelessWidget {
               children: [
                 const Icon(Icons.calendar_today_rounded, size: 13, color: AppColors.onSurfaceMuted),
                 const SizedBox(width: 4),
-                Text(dateLabel, style: const TextStyle(fontSize: 12, color: AppColors.onSurfaceMuted)),
+                // Flexible: la fecha ahora va etiquetada ("Llega: …") y en un
+                // teléfono angosto es lo primero que se queda sin ancho.
+                Flexible(
+                  child: Text(
+                    dateLabel,
+                    style: const TextStyle(fontSize: 12, color: AppColors.onSurfaceMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 const SizedBox(width: 10),
                 const Text('•', style: TextStyle(fontSize: 12, color: AppColors.onSurfaceMuted)),
                 const SizedBox(width: 10),
@@ -147,47 +177,6 @@ class PurchaseOrderCard extends StatelessWidget {
     );
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-      'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.status});
-
-  final PurchaseOrderStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (status) {
-      PurchaseOrderStatus.received => AppColors.success,
-      PurchaseOrderStatus.partialReceived => AppColors.warning,
-      PurchaseOrderStatus.sent => AppColors.info,
-      PurchaseOrderStatus.draft => AppColors.onSurfaceMuted,
-      PurchaseOrderStatus.cancelled => AppColors.error,
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 6),
-          Text(status.label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
-        ],
-      ),
-    );
-  }
 }
 
 class _WarehouseBadge extends StatelessWidget {

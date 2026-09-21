@@ -3,7 +3,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../core/widgets/barcode_scan_sheet.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../domain/product.dart';
@@ -141,67 +143,140 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
       final bytes = file.bytes;
       if (bytes == null || bytes.isEmpty) return;
 
-      if (bytes.lengthInBytes > 5 * 1024 * 1024) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('La imagen seleccionada supera el límite de 5 MB'),
-              backgroundColor: AppColors.error,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        return;
-      }
+      await _uploadPickedBytes(bytes, file.name, file.extension);
+    } catch (e) {
+      _handleUploadError(e);
+    }
+  }
 
+  /// Toma la foto con la cámara nativa del dispositivo — el usuario no sale
+  /// de la app (antes sólo podía adjuntar una imagen ya tomada/guardada).
+  Future<void> _takePhotoAndUploadImage() async {
+    try {
+      final photo = await ImagePicker().pickImage(source: ImageSource.camera);
+      if (photo == null) return;
+
+      final bytes = await photo.readAsBytes();
+      if (bytes.isEmpty) return;
+
+      await _uploadPickedBytes(bytes, photo.name, _extensionFromPath(photo.path));
+    } catch (e) {
+      _handleUploadError(e);
+    }
+  }
+
+  String? _extensionFromPath(String path) {
+    final dotIndex = path.lastIndexOf('.');
+    if (dotIndex == -1 || dotIndex == path.length - 1) return null;
+    return path.substring(dotIndex + 1);
+  }
+
+  String _withoutExtension(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    return dotIndex == -1 ? fileName : fileName.substring(0, dotIndex);
+  }
+
+  /// Sube (o cae a Base64 si falla) los bytes de una imagen ya elegida, sin
+  /// importar si vinieron del selector de archivos o de la cámara.
+  ///
+  /// El usuario no controla cuántos megapixeles dispara su cámara ni el peso
+  /// del archivo que elige de su galería — comprimir es responsabilidad de
+  /// la app, no un límite que el usuario tenga que sortear a mano (Sep 2026,
+  /// tras QA de Eduardo: la foto de la cámara chocaba con el límite de 5 MB
+  /// sin que hubiera nada que el usuario pudiera hacer al respecto).
+  Future<void> _uploadPickedBytes(
+    Uint8List bytes,
+    String fileName,
+    String? extension,
+  ) async {
+    setState(() {
+      _isUploadingImage = true;
+    });
+
+    // Recomprime a JPEG y limita resolución antes de validar el tamaño — el
+    // catálogo sólo muestra miniaturas, no hace falta la foto a resolución
+    // completa de la cámara para verse igual de bien ahí.
+    var uploadBytes = bytes;
+    var uploadFileName = fileName;
+    var uploadExtension = extension;
+    try {
+      uploadBytes = await FlutterImageCompress.compressWithList(
+        bytes,
+        minWidth: 1280,
+        minHeight: 1280,
+        quality: 80,
+        format: CompressFormat.jpeg,
+      );
+      uploadFileName = '${_withoutExtension(fileName)}.jpg';
+      uploadExtension = 'jpg';
+    } catch (_) {
+      // Códec no pudo procesar este formato (raro) — sigue con el original
+      // y deja que la validación de abajo decida.
+    }
+
+    if (uploadBytes.lengthInBytes > 5 * 1024 * 1024) {
       setState(() {
-        _isUploadingImage = true;
-      });
-
-      String finalImageUrl;
-      try {
-        // 1. Intentar subir al servidor para obtener URL estática ligera (/uploads/images/...)
-        final uploadedUrl = await ref.read(inventoryProvider.notifier).uploadImage(
-              fileBytes: bytes,
-              fileName: file.name,
-            );
-        finalImageUrl = uploadedUrl;
-      } catch (_) {
-        // 2. Fallback a binario Base64 Data URI si la carga falla o sin conexión
-        final ext = (file.extension ?? 'jpg').toLowerCase();
-        final mimeType = (ext == 'png')
-            ? 'image/png'
-            : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
-        final base64String = base64Encode(bytes);
-        finalImageUrl = 'data:$mimeType;base64,$base64String';
-      }
-
-      setState(() {
-        _imageUrlCon.text = finalImageUrl;
         _isUploadingImage = false;
       });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✓ Imagen cargada correctamente'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        _isUploadingImage = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al cargar imagen: $e'),
+            content: Text(
+              'La imagen sigue siendo muy pesada incluso comprimida — prueba con otra foto',
+            ),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
+      return;
+    }
+
+    String finalImageUrl;
+    try {
+      // 1. Intentar subir al servidor para obtener URL estática ligera (/uploads/images/...)
+      final uploadedUrl = await ref.read(inventoryProvider.notifier).uploadImage(
+            fileBytes: uploadBytes,
+            fileName: uploadFileName,
+          );
+      finalImageUrl = uploadedUrl;
+    } catch (_) {
+      // 2. Fallback a binario Base64 Data URI si la carga falla o sin conexión
+      final ext = (uploadExtension ?? 'jpg').toLowerCase();
+      final mimeType = (ext == 'png')
+          ? 'image/png'
+          : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
+      final base64String = base64Encode(uploadBytes);
+      finalImageUrl = 'data:$mimeType;base64,$base64String';
+    }
+
+    setState(() {
+      _imageUrlCon.text = finalImageUrl;
+      _isUploadingImage = false;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ Imagen cargada correctamente'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _handleUploadError(Object e) {
+    setState(() {
+      _isUploadingImage = false;
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cargar imagen: $e'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -219,6 +294,15 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_rounded,
+                      color: AppColors.emerald),
+                  title: const Text('Tomar foto'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _takePhotoAndUploadImage();
+                  },
+                ),
                 ListTile(
                   leading: const Icon(Icons.upload_file_rounded,
                       color: AppColors.emerald),
@@ -444,7 +528,6 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                 isUploading: _isUploadingImage,
                 onChangeTap: _showImageOptionsModal,
                 onPickImage: _pickAndUploadImage,
-                onUrlTap: _showImageUrlDialog,
                 onRemoveImage: () => setState(() => _imageUrlCon.clear()),
               ),
 
@@ -649,67 +732,6 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
                           fontSize: 11,
                           color: AppColors.onSurfaceMuted,
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Sección: Imagen del producto ─────────────────────────
-              const _SectionHeader(label: 'IMAGEN DEL PRODUCTO'),
-              _FormPad(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      controller: _imageUrlCon,
-                      textInputAction: TextInputAction.done,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        labelText: 'URL o ruta de imagen',
-                        hintText: 'https://... o sube una imagen',
-                        prefixIcon: const Icon(
-                          Icons.image_outlined,
-                          size: 18,
-                          color: AppColors.onSurfaceMuted,
-                        ),
-                        suffixIcon: _imageUrlCon.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear_rounded, size: 18),
-                                tooltip: 'Quitar imagen',
-                                onPressed: () =>
-                                    setState(() => _imageUrlCon.clear()),
-                              )
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            AppColors.emerald.withValues(alpha: 0.15),
-                        foregroundColor: AppColors.emerald,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        side: const BorderSide(color: AppColors.emerald),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      onPressed: _isUploadingImage ? null : _pickAndUploadImage,
-                      icon: _isUploadingImage
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.emerald,
-                              ),
-                            )
-                          : const Icon(Icons.upload_file_rounded, size: 18),
-                      label: const Text(
-                        'Subir imagen desde archivo',
-                        style: TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ),
                   ],
@@ -942,7 +964,6 @@ class _PhotoBanner extends StatelessWidget {
     required this.imageUrl,
     required this.onChangeTap,
     this.onPickImage,
-    this.onUrlTap,
     this.onRemoveImage,
     this.isUploading = false,
   });
@@ -950,7 +971,6 @@ class _PhotoBanner extends StatelessWidget {
   final String? imageUrl;
   final VoidCallback onChangeTap;
   final VoidCallback? onPickImage;
-  final VoidCallback? onUrlTap;
   final VoidCallback? onRemoveImage;
   final bool isUploading;
 
@@ -1110,56 +1130,6 @@ class _PhotoBanner extends StatelessWidget {
             fontSize: 11,
             color: AppColors.onSurfaceMuted.withValues(alpha: 0.6),
           ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.emerald.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.emerald.withValues(alpha: 0.4)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.file_upload_outlined, size: 14, color: AppColors.emerald),
-                  SizedBox(width: 4),
-                  Text(
-                    'Subir archivo',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.emerald),
-                  ),
-                ],
-              ),
-            ),
-            if (onUrlTap != null) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: onUrlTap,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.link_rounded, size: 14, color: AppColors.onSurfaceMuted),
-                      SizedBox(width: 4),
-                      Text(
-                        'URL web',
-                        style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ],
         ),
       ],
     );

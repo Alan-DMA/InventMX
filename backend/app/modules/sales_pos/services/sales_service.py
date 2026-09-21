@@ -78,6 +78,7 @@ from app.modules.sales_pos.schemas.sale import (
     SaleCheckoutRequest,
     SaleItemRequest,
     SaleItemResponse,
+    SaleRefundRequest,
     SaleResponse,
 )
 from app.modules.sales_pos.schemas.ticket import (
@@ -641,6 +642,7 @@ class SalesService:
             self.session.add(credit_charge_entry)
 
         await self.sale_repo.create_sale(sale)
+        await self.session.commit()
         return self._build_sale_response(sale)
 
     def calculate_quick_change(
@@ -779,7 +781,7 @@ class SalesService:
         else:
             sale.payment_method_type = payment_req.payment_method.value
 
-        await self.session.flush()
+        await self.session.commit()
         return self._build_sale_response(sale)
 
     async def get_sale_by_id(self, sale_id: uuid.UUID, current_user: User) -> SaleResponse:
@@ -804,21 +806,23 @@ class SalesService:
         status_filter: Optional[SaleStatus] = None,
         skip: int = 0,
         limit: int = 50,
-    ) -> List[SaleResponse]:
+    ) -> Tuple[List[SaleResponse], int]:
         """
         Consulta el historial de ventas paginado con filtros avanzados.
+        Retorna la página solicitada junto con el conteo total de registros
+        coincidentes (antes de paginar), para exponerlo vía `X-Total-Count`.
         """
-        sales = await self.sale_repo.list_sales(
+        sales, total_count = await self.sale_repo.list_sales(
             tenant_id=current_user.tenant_id,
             start_date=start_date,
             end_date=end_date,
             cashier_id=cashier_id,
             warehouse_id=warehouse_id,
-            status_filter=status_filter,
+            status=status_filter,
             skip=skip,
             limit=limit,
         )
-        return [self._build_sale_response(s) for s in sales]
+        return [self._build_sale_response(s) for s in sales], total_count
 
     async def cancel_sale(
         self,
@@ -921,7 +925,175 @@ class SalesService:
         # Actualizar estado a CANCELLED
         sale.status = SaleStatus.CANCELLED
         sale.notes = f"{sale.notes or ''} [CANCELADA: {reason}]".strip()
-        await self.session.flush()
+        await self.session.commit()
+        return self._build_sale_response(sale)
+
+    async def refund_sale(
+        self,
+        sale_id: uuid.UUID,
+        request: SaleRefundRequest,
+        current_user: User,
+    ) -> SaleResponse:
+        """
+        Reembolsa una venta completada, total o parcialmente por renglón (RF-12,
+        decisión de Eduardo Sep 2026). A diferencia de `cancel_sale` (que sólo
+        cubre cancelación total y requiere una venta que nunca llega a
+        completarse en el flujo real), este método:
+        - Acepta partidas específicas (`request.items`) o, si se omiten,
+          reembolsa toda la cantidad pendiente de cada partida.
+        - Repone stock opcionalmente (`refund_to_stock`) con un asiento
+          `SALE_RETURN` inmutable en el Kardex — espejo de la reversión que
+          `cancel_sale` ya hace para combos y productos individuales.
+        - Sólo admite **un** evento de reembolso por venta: tras aplicarlo el
+          estado pasa a `REFUNDED` (el enum ya lo documenta como "total o
+          parcial"), y un segundo intento sobre la misma venta es rechazado.
+        """
+        tenant_id = current_user.tenant_id
+
+        sale = await self.sale_repo.get_by_id(sale_id, tenant_id)
+        if not sale:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"La venta con ID {sale_id} no fue encontrada.",
+            )
+
+        if sale.status != SaleStatus.COMPLETED:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "La venta no puede reembolsarse en su estado actual "
+                    f"({sale.status.value})."
+                ),
+            )
+
+        items_by_id = {item.id: item for item in sale.items}
+
+        # 1. Determinar qué partidas y cuánto de cada una se va a reembolsar.
+        refund_targets: List[Tuple[SaleItem, Decimal]] = []
+        if request.items:
+            for req_item in request.items:
+                sale_item = items_by_id.get(req_item.sale_item_id)
+                if not sale_item:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=(
+                            f"La partida {req_item.sale_item_id} no pertenece "
+                            f"a la venta {sale.folio}."
+                        ),
+                    )
+                pending = sale_item.quantity - sale_item.refunded_quantity
+                if req_item.quantity > pending:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=(
+                            f"La cantidad a reembolsar de '{sale_item.product_name}' "
+                            f"({req_item.quantity}) excede lo pendiente ({pending})."
+                        ),
+                    )
+                refund_targets.append((sale_item, req_item.quantity))
+        else:
+            for sale_item in sale.items:
+                pending = sale_item.quantity - sale_item.refunded_quantity
+                if pending > Decimal("0.000"):
+                    refund_targets.append((sale_item, pending))
+
+        if not refund_targets:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No hay partidas pendientes de reembolso en esta venta.",
+            )
+
+        # 2. Aplicar el reembolso: reponer stock (opcional) y congelar montos.
+        total_refund_amount = Decimal("0.00")
+        for sale_item, refund_qty in refund_targets:
+            item_refund_amount = (
+                (sale_item.total_mxn / sale_item.quantity) * refund_qty
+            ).quantize(Decimal("0.01"))
+            total_refund_amount += item_refund_amount
+
+            if request.refund_to_stock:
+                if sale_item.combo_id is not None:
+                    combo_query = (
+                        select(Combo)
+                        .options(selectinload(Combo.items).selectinload(ComboItem.product))
+                        .where(Combo.id == sale_item.combo_id)
+                    )
+                    c_res = await self.session.execute(combo_query)
+                    combo = c_res.scalar_one_or_none()
+                    if combo:
+                        for c_item in combo.items:
+                            qty_to_revert = c_item.quantity * refund_qty
+                            stock_query = (
+                                select(ProductStock)
+                                .where(ProductStock.product_id == c_item.product_id)
+                                .where(ProductStock.warehouse_id == sale.warehouse_id)
+                                .where(ProductStock.tenant_id == tenant_id)
+                                .with_for_update()
+                            )
+                            s_res = await self.session.execute(stock_query)
+                            p_stock = s_res.scalar_one_or_none()
+                            if p_stock:
+                                prev_stk = p_stock.current_stock
+                                new_stk = prev_stk + qty_to_revert
+                                p_stock.current_stock = new_stk
+
+                                comp_cost = c_item.product.cost_mxn if c_item.product else Decimal("0.00")
+                                rev_mov = InventoryMovement(
+                                    tenant_id=tenant_id,
+                                    product_id=c_item.product_id,
+                                    warehouse_id=sale.warehouse_id,
+                                    user_id=current_user.id,
+                                    movement_type=MovementType.SALE_RETURN,
+                                    quantity=qty_to_revert,
+                                    previous_stock=prev_stk,
+                                    new_stock=new_stk,
+                                    unit_cost_mxn=comp_cost or Decimal("0.00"),
+                                    notes=(
+                                        f"Reembolso de venta {sale.folio}: combo "
+                                        f"'{combo.name}' — {request.reason}"
+                                    ),
+                                )
+                                self.session.add(rev_mov)
+                elif sale_item.product_id is not None:
+                    stock_query = (
+                        select(ProductStock)
+                        .where(ProductStock.product_id == sale_item.product_id)
+                        .where(ProductStock.warehouse_id == sale.warehouse_id)
+                        .where(ProductStock.tenant_id == tenant_id)
+                        .with_for_update()
+                    )
+                    s_res = await self.session.execute(stock_query)
+                    p_stock = s_res.scalar_one_or_none()
+                    if p_stock:
+                        prev_stk = p_stock.current_stock
+                        new_stk = prev_stk + refund_qty
+                        p_stock.current_stock = new_stk
+
+                        rev_mov = InventoryMovement(
+                            tenant_id=tenant_id,
+                            product_id=sale_item.product_id,
+                            warehouse_id=sale.warehouse_id,
+                            user_id=current_user.id,
+                            movement_type=MovementType.SALE_RETURN,
+                            quantity=refund_qty,
+                            previous_stock=prev_stk,
+                            new_stock=new_stk,
+                            unit_cost_mxn=sale_item.unit_cost_mxn,
+                            notes=(
+                                f"Reembolso de venta {sale.folio}: "
+                                f"'{sale_item.product_name}' — {request.reason}"
+                            ),
+                        )
+                        self.session.add(rev_mov)
+
+            sale_item.refunded_quantity = sale_item.refunded_quantity + refund_qty
+
+        # 3. Congelar el reembolso en la cabecera y cerrar el ciclo de la venta.
+        sale.refunded_amount_mxn = (sale.refunded_amount_mxn + total_refund_amount).quantize(Decimal("0.01"))
+        sale.status = SaleStatus.REFUNDED
+        sale.notes = f"{sale.notes or ''} [REEMBOLSO: {request.reason}]".strip()
+
+        await self.session.commit()
         return self._build_sale_response(sale)
 
     # =========================================================================
@@ -1292,6 +1464,7 @@ class SalesService:
                     discount_mxn=it.discount_mxn,
                     total_mxn=it.total_mxn,
                     is_on_the_fly=it.is_on_the_fly,
+                    refunded_quantity=it.refunded_quantity,
                     profit_mxn=profit.quantize(Decimal("0.01")),
                     created_at=it.created_at,
                 )
@@ -1318,6 +1491,7 @@ class SalesService:
             id=sale.id,
             tenant_id=sale.tenant_id,
             cashier_id=sale.cashier_id,
+            cashier_name=sale.cashier.full_name if sale.cashier else None,
             warehouse_id=sale.warehouse_id,
             client_id=sale.client_id,
             folio=sale.folio,
@@ -1331,6 +1505,7 @@ class SalesService:
             payment_method_type=sale.payment_method_type or "CASH_MXN",
             amount_paid_mxn=sale.amount_paid_mxn,
             change_returned_mxn=sale.change_returned_mxn,
+            refunded_amount_mxn=sale.refunded_amount_mxn,
             notes=sale.notes,
             items=item_responses,
             payments=payment_responses,

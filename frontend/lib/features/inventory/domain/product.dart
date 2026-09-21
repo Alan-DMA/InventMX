@@ -44,6 +44,8 @@ class Product {
     this.costUsdImport,
     this.supplierId,
     this.supplierName,
+    this.suggestedMaxPriceMxn,
+    this.suggestedMaxPriceSource,
   });
 
   // --- Identificación ---
@@ -63,6 +65,16 @@ class Product {
   final double priceMxn;
   final double costMxn;
   final double? costUsdImport;
+
+  /// Precio máximo sugerido en MXN — sólo viene poblado en el detalle
+  /// (`GET /inventory/products/{id}`), nunca en el listado (decisión de
+  /// Eduardo, Sep 2026: la elasticidad histórica es cara de calcular por
+  /// producto, no se corre en cada carga de la lista).
+  final double? suggestedMaxPriceMxn;
+
+  /// 'historical' (elasticidad de la demanda) o 'margin_fallback' (margen
+  /// máximo del comercio) — de dónde salió [suggestedMaxPriceMxn].
+  final String? suggestedMaxPriceSource;
 
   // --- Stock ---
   final int stock;
@@ -207,6 +219,8 @@ class Product {
       isActive: json['is_active'] is bool ? json['is_active'] as bool : (json['is_active']?.toString() != 'false'),
       isOnCatalog: json['is_on_catalog'] is bool ? json['is_on_catalog'] as bool : (json['is_on_catalog']?.toString() == 'true'),
       createdAt: parsedDate,
+      suggestedMaxPriceMxn: parseNullableDouble(json['suggested_max_price_mxn']),
+      suggestedMaxPriceSource: json['suggested_max_price_source']?.toString(),
     );
   }
 
@@ -230,6 +244,8 @@ class Product {
         'is_active': isActive,
         'is_on_catalog': isOnCatalog,
         'created_at': createdAt.toIso8601String(),
+        'suggested_max_price_mxn': suggestedMaxPriceMxn,
+        'suggested_max_price_source': suggestedMaxPriceSource,
       };
 
   Product copyWith({
@@ -252,6 +268,8 @@ class Product {
     bool? isActive,
     bool? isOnCatalog,
     DateTime? createdAt,
+    double? suggestedMaxPriceMxn,
+    String? suggestedMaxPriceSource,
   }) {
     return Product(
       id: id ?? this.id,
@@ -273,6 +291,9 @@ class Product {
       isActive: isActive ?? this.isActive,
       isOnCatalog: isOnCatalog ?? this.isOnCatalog,
       createdAt: createdAt ?? this.createdAt,
+      suggestedMaxPriceMxn: suggestedMaxPriceMxn ?? this.suggestedMaxPriceMxn,
+      suggestedMaxPriceSource:
+          suggestedMaxPriceSource ?? this.suggestedMaxPriceSource,
     );
   }
 

@@ -169,7 +169,11 @@ void main() {
       expect(saved.totals.totalMxn, 54);
       expect(saved.itemCount, 3);
 
-      final fetched = await repo.fetchOrder('abarrotes-don-pepe', saved.folio);
+      // El ticket exige la clave del enlace; sin ella es como si no existiera.
+      expect(() => repo.fetchOrder('abarrotes-don-pepe', saved.folio),
+          throwsA(isA<OrderNotFound>()));
+      final fetched = await repo.fetchOrder('abarrotes-don-pepe', saved.folio,
+          accessKey: saved.accessKey);
       expect(fetched, saved);
     });
 

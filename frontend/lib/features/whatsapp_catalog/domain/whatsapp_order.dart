@@ -159,6 +159,12 @@ class SavedOrder extends Equatable {
     required this.issuedAt,
     required this.draft,
     required this.totals,
+    this.status = OrderStatus.newOrder,
+    this.statusChangedAt,
+    this.cancelReason,
+    this.storeEditedAt,
+    this.updatedAt,
+    this.accessKey,
   });
 
   final String folio;
@@ -167,10 +173,113 @@ class SavedOrder extends Equatable {
   final WhatsAppOrderDraft draft;
   final WhatsAppOrderBuild totals;
 
+  /// Clave del enlace del ticket (`…/pedido/{folio}?k=`). El folio solo es
+  /// adivinable; sin la clave el ticket público no abre. La recibe quien
+  /// registró el pedido y el tendero; el GET público no la devuelve.
+  final String? accessKey;
+
+  /// Estado del lado de la tienda — visible también en el ticket público
+  /// ("Listo para recoger"), que es el único feedback que la app le da al
+  /// cliente sin inventar un canal nuevo (su canal es el chat).
+  final OrderStatus status;
+  final DateTime? statusChangedAt;
+  final CancelReason? cancelReason;
+
+  /// Última edición hecha por la tienda tras cambios acordados por chat. El
+  /// ticket público la anuncia para que el enlace nunca mienta.
+  final DateTime? storeEditedAt;
+
+  /// Versión para concurrencia optimista (`expected_updated_at`).
+  final DateTime? updatedAt;
+
   int get itemCount => draft.lines.fold(0, (n, l) => n + l.quantity);
 
+  SavedOrder copyWith({
+    WhatsAppOrderDraft? draft,
+    WhatsAppOrderBuild? totals,
+    OrderStatus? status,
+    DateTime? statusChangedAt,
+    CancelReason? Function()? cancelReason,
+    DateTime? storeEditedAt,
+    DateTime? updatedAt,
+    String? accessKey,
+  }) =>
+      SavedOrder(
+        folio: folio,
+        slug: slug,
+        issuedAt: issuedAt,
+        draft: draft ?? this.draft,
+        totals: totals ?? this.totals,
+        status: status ?? this.status,
+        statusChangedAt: statusChangedAt ?? this.statusChangedAt,
+        cancelReason:
+            cancelReason == null ? this.cancelReason : cancelReason(),
+        storeEditedAt: storeEditedAt ?? this.storeEditedAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        accessKey: accessKey ?? this.accessKey,
+      );
+
   @override
-  List<Object?> get props => [folio, slug, issuedAt, draft, totals];
+  List<Object?> get props => [
+        folio,
+        slug,
+        issuedAt,
+        draft,
+        totals,
+        status,
+        statusChangedAt,
+        cancelReason,
+        storeEditedAt,
+        updatedAt,
+        accessKey,
+      ];
+}
+
+/// Estado del pedido web — `CatalogOrderStatus` del backend. El mínimo que
+/// responde "¿qué me falta hacer con esto?" en una tiendita: "visto" es una
+/// marca automática, no un estado, y "en preparación" se dejó fuera a
+/// propósito (decisión de Eduardo, Sep 20 2026).
+enum OrderStatus {
+  newOrder('NEW', 'Nuevo'),
+  ready('READY', 'Listo'),
+  delivered('DELIVERED', 'Entregado'),
+  cancelled('CANCELLED', 'Cancelado');
+
+  const OrderStatus(this.apiValue, this.label);
+
+  final String apiValue;
+  final String label;
+
+  bool get isActive => this == newOrder || this == ready;
+  bool get isClosed => !isActive;
+
+  static OrderStatus fromApi(String? value) => values.firstWhere(
+        (s) => s.apiValue == value,
+        orElse: () => OrderStatus.newOrder,
+      );
+}
+
+/// Motivo de cancelación — un toque en la app, alimenta reportes.
+enum CancelReason {
+  customerCancelled('CUSTOMER_CANCELLED', 'El cliente canceló'),
+  outOfStock('OUT_OF_STOCK', 'Sin existencias'),
+  neverConfirmed('NEVER_CONFIRMED', 'Nunca confirmó'),
+  duplicate('DUPLICATE', 'Pedido repetido'),
+  spam('SPAM', 'Broma o pedido falso'),
+  other('OTHER', 'Otro motivo');
+
+  const CancelReason(this.apiValue, this.label);
+
+  final String apiValue;
+  final String label;
+
+  static CancelReason? fromApi(String? value) {
+    if (value == null) return null;
+    for (final r in values) {
+      if (r.apiValue == value) return r;
+    }
+    return CancelReason.other;
+  }
 }
 
 /// El folio no corresponde a ningún pedido de esa tienda.

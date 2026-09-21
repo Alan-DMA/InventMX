@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
+import 'package:nexus_app/features/inventory/domain/product.dart';
+import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart';
 import 'package:nexus_app/features/management/domain/app_permission.dart';
 import 'package:nexus_app/features/management/presentation/management_provider.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
@@ -83,17 +86,117 @@ class _StubSalesRepo implements SalesRepository {
   }
 }
 
+/// Cuenta llamadas a `getProducts` para verificar que `inventoryProvider` se
+/// invalida (y por lo tanto vuelve a pedir al backend) tras un reembolso.
+class _StubInventoryRepo implements InventoryRepository {
+  int getProductsCallCount = 0;
+
+  @override
+  Future<PaginatedProducts> getProducts({
+    String? query,
+    String? category,
+    bool lowStock = false,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    getProductsCallCount++;
+    return const PaginatedProducts(
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      totalPages: 1,
+    );
+  }
+
+  @override
+  Future<Product> getProductById(String id) => throw UnimplementedError();
+
+  @override
+  Future<Product> createProduct({
+    required String name,
+    required double priceMxn,
+    int stock = 0,
+    String? category,
+    String? barcode,
+    double? costMxn,
+    int? minStockAlert,
+    String? imageUrl,
+    String? supplierId,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<Product> updateProduct({
+    required String productId,
+    String? name,
+    double? priceMxn,
+    double? costMxn,
+    String? category,
+    String? barcode,
+    int? minStockAlert,
+    String? imageUrl,
+    bool? isActive,
+    String? supplierId,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<Map<String, dynamic>>> getSuppliers() => throw UnimplementedError();
+
+  @override
+  Future<String> uploadProductImage({
+    required List<int> fileBytes,
+    required String fileName,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> adjustStock({
+    required String productId,
+    required String movementType,
+    required int quantity,
+    required String reason,
+    String? warehouseId,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> transferStock({
+    required String productId,
+    required String fromWarehouseId,
+    required String toWarehouseId,
+    required int quantity,
+    String? notes,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<PaginatedMovements> getMovements({
+    required String productId,
+    String? movementType,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int page = 1,
+    int pageSize = 20,
+  }) =>
+      throw UnimplementedError();
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   required CheckoutResult result,
   required bool isLookup,
   bool canRefund = false,
   SalesRepository? repo,
+  InventoryRepository? inventoryRepo,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         if (repo != null) salesRepositoryProvider.overrideWithValue(repo),
+        if (inventoryRepo != null)
+          inventoryRepositoryProvider.overrideWithValue(inventoryRepo),
         hasPermissionProvider(Permissions.ventasEliminar).overrideWithValue(canRefund),
       ],
       child: MaterialApp(
@@ -175,5 +278,54 @@ void main() {
     expect(find.byType(RefundSaleModal), findsNothing);
     expect(find.textContaining('Reembolsada el'), findsOneWidget);
     expect(find.byKey(const Key('refundSaleButton')), findsNothing);
+  });
+
+  // ── Regresión: mismo bug que en checkout (Sep 2026) ───────────────────────
+  // Un reembolso con reposición a stock cambia el inventario en el backend,
+  // pero Inventario/Detalle de producto seguían mostrando el stock cacheado
+  // de `inventoryProvider` porque nadie lo invalidaba tras completar el
+  // reembolso (a diferencia de `saleDetailProvider`/`salesKardexProvider`,
+  // que sí se invalidaban).
+  testWidgets('completar el reembolso invalida inventoryProvider para refrescar el stock',
+      (tester) async {
+    final repo = _StubSalesRepo();
+    final inventoryRepo = _StubInventoryRepo();
+    await _pump(
+      tester,
+      result: _sale(),
+      isLookup: true,
+      canRefund: true,
+      repo: repo,
+      inventoryRepo: inventoryRepo,
+    );
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SaleReceiptScreen)),
+    );
+
+    // Lee `inventoryProvider` para que exista y quede "watched" — refleja el
+    // caso real (Inventario y el ticket de venta comparten el mismo
+    // provider vivo dentro de la misma app).
+    container.read(inventoryProvider);
+    await tester.pumpAndSettle();
+    expect(inventoryRepo.getProductsCallCount, 1);
+
+    await tester.ensureVisible(find.byKey(const Key('refundSaleButton')));
+    await tester.tap(find.byKey(const Key('refundSaleButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('refundAllButton')));
+    await tester.enterText(
+      find.byKey(const Key('refundReasonField')),
+      'Producto defectuoso',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirmRefundButton')));
+    await tester.pumpAndSettle();
+
+    // El reembolso invalidó inventoryProvider — leerlo de nuevo dispara una
+    // segunda llamada real a `getProducts` en vez de servir el caché viejo.
+    container.read(inventoryProvider);
+    await tester.pumpAndSettle();
+    expect(inventoryRepo.getProductsCallCount, 2);
   });
 }

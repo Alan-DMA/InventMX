@@ -45,6 +45,37 @@ class PurchaseOrderCreateRequest(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=500)
 
 
+class PurchaseOrderUpdateRequest(BaseModel):
+    """
+    Contrato para corregir una orden de compra **antes** de que llegue
+    mercancía (RF-15).
+
+    Sólo se modifica lo que viene en la petición: un campo ausente se deja
+    como estaba. Si se mandan `items`, reemplazan por completo a los
+    renglones anteriores y los totales se recalculan.
+    """
+    supplier_id: Optional[uuid.UUID] = None
+    warehouse_id: Optional[uuid.UUID] = None
+    items: Optional[List[PurchaseOrderItemCreateRequest]] = Field(
+        default=None,
+        min_length=1,
+        description="Renglones que sustituyen a los actuales (mínimo 1)",
+    )
+    expected_delivery_date: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class PurchaseOrderCancelRequest(BaseModel):
+    """
+    Cancelación de una orden de compra que aún no recibe mercancía.
+    """
+    reason: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Motivo de la cancelación; se anexa a las notas de la orden",
+    )
+
+
 class PurchaseOrderItemResponse(BaseModel):
     """
     Detalle de renglón de orden de compra.

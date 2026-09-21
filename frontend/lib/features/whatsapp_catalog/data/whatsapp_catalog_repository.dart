@@ -30,9 +30,10 @@ abstract class WhatsappCatalogRepository {
   /// lo guarda en memoria.
   Future<SavedOrder> submitOrder(String slug, WhatsAppOrderDraft draft);
 
-  /// El ticket que abre la tienda desde el enlace del chat —
-  /// `GET /public/catalog/{slug}/orders/{folio}` (propuesto).
-  Future<SavedOrder> fetchOrder(String slug, String folio);
+  /// El ticket que abre el cliente desde el enlace del chat —
+  /// `GET /public/catalog/{slug}/orders/{folio}?k=`. Sin la clave del
+  /// enlace el backend responde 404 (el folio solo es adivinable).
+  Future<SavedOrder> fetchOrder(String slug, String folio, {String? accessKey});
 
   /// `GET /catalog-settings` (tenant de la sesión).
   Future<CatalogSettings> getSettings();
@@ -94,6 +95,10 @@ class WhatsappCatalogRepositoryMock implements WhatsappCatalogRepository {
 
   /// Inyectable para folios deterministas en tests.
   final DateTime Function() now;
+
+  /// Lo que haría la tienda desde su app (estado, edición): el ticket
+  /// público lo refleja en la siguiente lectura.
+  void putOrder(SavedOrder order) => _orders[order.folio] = order;
 
   @override
   Future<PublicCatalog> fetchPublicCatalog(
@@ -162,23 +167,29 @@ class WhatsappCatalogRepositoryMock implements WhatsappCatalogRepository {
     if (slug != _settings.slug) throw StoreNotFound(slug);
     final totals = formatter.build(store: _storeInfo(), draft: draft);
     final issuedAt = now();
+    final folio = orderFolio(totals.formattedText, issuedAt);
     final order = SavedOrder(
-      folio: orderFolio(totals.formattedText, issuedAt),
+      folio: folio,
       slug: slug,
       issuedAt: issuedAt,
       draft: draft,
       totals: totals,
+      accessKey: 'k-${folio.substring(folio.length - 4).toLowerCase()}',
     );
     _orders[order.folio] = order;
     return order;
   }
 
   @override
-  Future<SavedOrder> fetchOrder(String slug, String folio) async {
+  Future<SavedOrder> fetchOrder(String slug, String folio, {String? accessKey}) async {
     await Future<void>.delayed(latency);
     if (slug != _settings.slug) throw StoreNotFound(slug);
     final order = _orders[folio];
     if (order == null) throw OrderNotFound(folio);
+    // Misma regla que el backend: clave incorrecta = folio inexistente.
+    if (order.accessKey != null && order.accessKey != accessKey) {
+      throw OrderNotFound(folio);
+    }
     return order;
   }
 

@@ -161,6 +161,23 @@ class WhatsAppMessageFormatter {
     ].join('\n');
   }
 
+  /// "Avisar al cliente" desde la app del tendero (QA 20 sep): el cliente no
+  /// tiene la página del ticket abierta, así que el aviso de "Listo" va por
+  /// su chat, con el texto armado para que sea un toque.
+  static String readyText({
+    required SavedOrder order,
+    required String storeName,
+  }) {
+    final delivery = order.draft.deliveryMethod == DeliveryMethod.delivery;
+    final name = order.draft.customerName.trim().split(' ').first;
+    return [
+      'Hola $name, tu pedido *${order.folio}* ya está '
+          '${delivery ? 'listo y va en camino 🛵' : 'listo para recoger 🛍️'}.',
+      '💰 Total: \$${money(order.totals.totalMxn)} MXN',
+      '— $storeName',
+    ].join('\n');
+  }
+
   /// `https://wa.me/525512345678?text=…` — solo dígitos en el número, texto
   /// codificado. Sin número, `wa.me/?text=` deja al cliente elegir el chat.
   static Uri waLinkFor(String? phone, String text) {

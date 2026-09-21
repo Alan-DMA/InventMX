@@ -129,6 +129,7 @@ class AccountsPayableService:
             created_by_user_id=current_user.id,
         )
         saved_entry = await self.ap_repo.create_payment_ledger(entry)
+        await self.session.commit()
 
         return SupplierPaymentResponse(
             id=saved_entry.id,

@@ -1,5 +1,7 @@
 # Importación de enumeraciones
 import enum
+# Importación de fecha y hora del pedido registrado
+from datetime import datetime
 # Importación de precisión decimal para Pesos Mexicanos
 from decimal import Decimal
 # Importación de tipado estático
@@ -21,6 +23,24 @@ class PaymentMethodPreview(str, enum.Enum):
     CASH = "CASH"                        # Efectivo contra entrega
     TRANSFER = "TRANSFER"                # Transferencia bancaria / SPEI
     CARD_ON_DELIVERY = "CARD_ON_DELIVERY" # Tarjeta con terminal punto de venta portátil
+
+
+class CatalogOrderStatus(str, enum.Enum):
+    """Estado del pedido web del lado del tendero (migración 0020)."""
+    NEW = "NEW"                # Recibido, pendiente de preparar
+    READY = "READY"            # Preparado: listo para recoger o para salir
+    DELIVERED = "DELIVERED"    # Entregado (con o sin venta ligada)
+    CANCELLED = "CANCELLED"    # Cerrado sin entregar
+
+
+class CancelReason(str, enum.Enum):
+    """Motivo de cancelación — un toque en la app, alimenta reportes."""
+    CUSTOMER_CANCELLED = "CUSTOMER_CANCELLED"  # El cliente se retractó por chat
+    OUT_OF_STOCK = "OUT_OF_STOCK"              # No había existencias
+    NEVER_CONFIRMED = "NEVER_CONFIRMED"        # Nunca mandó el WhatsApp / no contestó
+    DUPLICATE = "DUPLICATE"                    # Pedido repetido
+    SPAM = "SPAM"                              # Broma o pedido falso
+    OTHER = "OTHER"
 
 
 class PublicStoreInfoResponse(BaseModel):
@@ -135,6 +155,10 @@ class CatalogSettingsResponse(BaseModel):
     """Configuración actual del catálogo digital del comercio (RF-26)."""
     id: uuid.UUID = Field(description="ID de la configuración")
     tenant_id: uuid.UUID = Field(description="ID del comercio")
+    # Nombre y slug del comercio: el panel "Mi catálogo" los necesita para armar
+    # el enlace público y el QR sin depender de lo que guardó el login.
+    store_name: str = Field(description="Nombre comercial de la tienda")
+    store_slug: str = Field(description="Slug público de la tienda (/tienda/{slug})")
     is_catalog_enabled: bool = Field(description="Catálogo web activado")
     whatsapp_number: Optional[str] = Field(default=None, description="Número de WhatsApp oficial")
     welcome_message: Optional[str] = Field(default=None, description="Mensaje de bienvenida")
@@ -157,3 +181,112 @@ class CatalogSettingsUpdateRequest(BaseModel):
     delivery_enabled: Optional[bool] = Field(default=None, description="Permitir envíos")
     pickup_enabled: Optional[bool] = Field(default=None, description="Permitir pickup")
     business_hours: Optional[str] = Field(default=None, max_length=500, description="Horario de servicio")
+
+
+class CatalogOrderItemResponse(BaseModel):
+    """Renglón de un pedido registrado — instantánea del producto al momento de pedir."""
+    product_id: uuid.UUID = Field(description="ID del producto pedido")
+    name: str = Field(description="Nombre del producto al momento del pedido")
+    sku: str = Field(description="SKU del producto")
+    category_id: Optional[uuid.UUID] = Field(default=None, description="ID de categoría")
+    category_name: Optional[str] = Field(default=None, description="Nombre de categoría")
+    price_mxn: Decimal = Field(description="Precio unitario en $ MXN al momento del pedido")
+    image_url: Optional[str] = Field(default=None, description="Fotografía del producto")
+    quantity: Decimal = Field(gt=0, description="Cantidad pedida")
+    notes: Optional[str] = Field(default=None, description="Instrucción especial del renglón")
+    total_mxn: Decimal = Field(description="Importe del renglón en $ MXN")
+
+
+class CatalogOrderResponse(BaseModel):
+    """
+    Pedido registrado desde la vitrina (RF-24). Es lo que abre la tienda desde el
+    enlace del chat: el mensaje de WhatsApp solo lleva folio, total y este enlace.
+    """
+    folio: str = Field(description="Folio corto del pedido (P-260918-3F2A)")
+    store_slug: str = Field(description="Slug de la tienda")
+    store_name: str = Field(description="Nombre de la tienda")
+    created_at: datetime = Field(description="Fecha y hora en que se registró el pedido")
+    customer_name: str = Field(description="Nombre del cliente")
+    customer_phone: Optional[str] = Field(default=None, description="Teléfono del cliente")
+    delivery_method: DeliveryMethod = Field(description="Método de entrega")
+    delivery_address: Optional[str] = Field(default=None, description="Dirección si es a domicilio")
+    payment_method: PaymentMethodPreview = Field(description="Forma de pago prevista")
+    cash_tendered_mxn: Optional[Decimal] = Field(default=None, description="Con cuánto paga (efectivo)")
+    order_notes: Optional[str] = Field(default=None, description="Observaciones generales")
+    items: List[CatalogOrderItemResponse] = Field(default_factory=list, description="Renglones del pedido")
+    subtotal_mxn: Decimal = Field(description="Subtotal en $ MXN")
+    delivery_fee_mxn: Decimal = Field(default=Decimal("0.00"), description="Costo de envío en $ MXN")
+    total_mxn: Decimal = Field(description="Total a pagar en $ MXN")
+    change_mxn: Optional[Decimal] = Field(default=None, description="Cambio a devolver si pagó en efectivo")
+    item_count: int = Field(description="Cantidad de renglones")
+    wa_link: str = Field(description="Enlace wa.me con el mensaje completo")
+    formatted_text: str = Field(description="Mensaje formateado completo del pedido")
+    # Estado visible también en el ticket público (el cliente ve "Listo para recoger")
+    status: CatalogOrderStatus = Field(default=CatalogOrderStatus.NEW, description="Estado del pedido")
+    status_changed_at: Optional[datetime] = Field(default=None, description="Último cambio de estado")
+    cancel_reason: Optional[CancelReason] = Field(default=None, description="Motivo si está cancelado")
+    store_edited_at: Optional[datetime] = Field(
+        default=None, description="Última edición hecha por la tienda (el ticket público la anuncia)"
+    )
+    updated_at: Optional[datetime] = Field(default=None, description="Versión para concurrencia optimista")
+    # Sólo se entrega a quien creó el pedido (respuesta del POST) y al tendero
+    # autenticado; el GET público la exige como `?k=` y no la devuelve.
+    access_key: Optional[str] = Field(default=None, description="Clave del enlace del ticket (…/pedido/{folio}?k=)")
+
+
+class OrderRevisionResponse(BaseModel):
+    """Instantánea previa de un pedido editado por la tienda."""
+    at: datetime = Field(description="Cuándo se reemplazó esta versión")
+    by_name: Optional[str] = Field(default=None, description="Quién la editó")
+    delivery_method: DeliveryMethod
+    delivery_address: Optional[str] = None
+    order_notes: Optional[str] = None
+    items: List[CatalogOrderItemResponse] = Field(default_factory=list)
+    subtotal_mxn: Decimal
+    delivery_fee_mxn: Decimal
+    total_mxn: Decimal
+
+
+class StoreOrderResponse(CatalogOrderResponse):
+    """
+    Pedido tal como lo ve el tendero en la app: además del ticket, quién lo vio,
+    quién lo atiende, la venta que lo cobró y el historial de ediciones.
+    """
+    seen_at: Optional[datetime] = None
+    seen_by_name: Optional[str] = None
+    attended_by_name: Optional[str] = None
+    edited_by_name: Optional[str] = None
+    sale_id: Optional[uuid.UUID] = Field(default=None, description="Venta del POS que cobró el pedido")
+    revisions: List[OrderRevisionResponse] = Field(default_factory=list)
+    possible_duplicate_of: Optional[str] = Field(
+        default=None, description="Folio de un pedido igual del mismo cliente en los últimos minutos"
+    )
+
+
+class StoreOrderListResponse(BaseModel):
+    """Lista de pedidos del tendero con el conteo de nuevos (badge, siempre del servidor)."""
+    items: List[StoreOrderResponse] = Field(default_factory=list)
+    total: int = Field(default=0, description="Total en el alcance pedido")
+    new_count: int = Field(default=0, description="Pedidos en estado NEW sin ver")
+    active_count: int = Field(default=0, description="Pedidos NEW + READY")
+
+
+class StoreOrderStatusUpdate(BaseModel):
+    """Cambio de estado desde la app (un toque)."""
+    status: CatalogOrderStatus
+    cancel_reason: Optional[CancelReason] = Field(default=None, description="Obligatorio al cancelar")
+    sale_id: Optional[uuid.UUID] = Field(default=None, description="Venta que cobró el pedido (Cobrar en caja)")
+    expected_updated_at: Optional[datetime] = Field(
+        default=None, description="Versión que el cliente vio; 409 si alguien más cambió el pedido"
+    )
+
+
+class StoreOrderEditRequest(BaseModel):
+    """Edición del pedido tras cambios acordados por chat."""
+    items: List[WhatsAppOrderItemRequest] = Field(min_length=1)
+    delivery_method: DeliveryMethod
+    delivery_address: Optional[str] = Field(default=None, max_length=300)
+    order_notes: Optional[str] = Field(default=None, max_length=500)
+    customer_name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    customer_phone: Optional[str] = Field(default=None, max_length=20)
+    expected_updated_at: Optional[datetime] = None

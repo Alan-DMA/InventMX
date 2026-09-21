@@ -167,6 +167,19 @@ class ProductResponse(BaseModel):
     total_stock: Decimal = Field(Decimal("0.00"), description="Suma total de existencias en todos los almacenes")
     is_low_stock: bool = Field(False, description="Determina si el producto está en nivel crítico")
     margin_percentage: Optional[Decimal] = Field(None, description="Porcentaje de margen de ganancia bruto")
+    suggested_max_price_mxn: Optional[Decimal] = Field(
+        None,
+        description=(
+            "Precio máximo sugerido en MXN: estimado por elasticidad histórica "
+            "de la demanda cuando hay suficientes ventas a distintos precios, "
+            "o por el margen máximo configurado del comercio sobre el costo "
+            "cuando no las hay. Sólo se calcula en el detalle del producto."
+        ),
+    )
+    suggested_max_price_source: Optional[str] = Field(
+        None,
+        description="'historical' (elasticidad) o 'margin_fallback' (margen máximo del comercio)",
+    )
     category_name: Optional[str] = Field(None, description="Nombre de la categoría asociada")
     supplier_name: Optional[str] = Field(None, description="Nombre del proveedor habitual asociado")
     stocks: List[ProductStockResponse] = Field(default_factory=list, description="Desglose de existencias por almacén")

@@ -32,6 +32,8 @@ Product _makeProduct({
   int reservedStock = 2,
   int? minStockAlert = 10,
   String category = 'Bebidas',
+  double? suggestedMaxPriceMxn,
+  String? suggestedMaxPriceSource,
 }) {
   return Product(
     id: id,
@@ -48,6 +50,8 @@ Product _makeProduct({
     isActive: true,
     isOnCatalog: true,
     createdAt: DateTime(2026, 9, 1),
+    suggestedMaxPriceMxn: suggestedMaxPriceMxn,
+    suggestedMaxPriceSource: suggestedMaxPriceSource,
   );
 }
 
@@ -173,24 +177,68 @@ void main() {
     await tester.pumpWidget(_buildWidget(product));
     await tester.pumpAndSettle();
 
-    // Encuentra los widgets StockCard
-    expect(find.byType(StockCard), findsNWidgets(2));
+    // Encuentra el widget StockCard (RESERVADO se retiró — Sep 2026, ver
+    // decisión: era un hold temporal de checkout, casi siempre en 0, sin
+    // valor para el dueño de la tienda)
+    expect(find.byType(StockCard), findsOneWidget);
 
     // La etiqueta DISPONIBLE y la cantidad aparecen en pantalla
     expect(find.text('DISPONIBLE'), findsOneWidget);
     expect(find.text('48'), findsOneWidget);
   });
 
-  // ── CA-06: Tarjeta RESERVADO en muted cuando es 0 ────────────────────────
-  testWidgets('tarjeta RESERVADO muestra 0 pzs cuando reserved_stock es 0',
+  // ── CA-06: Precio máximo sugerido — historial vs. margen de respaldo ─────
+  testWidgets(
+      'precio máximo sugerido muestra el valor real y su leyenda (historial)',
       (tester) async {
-    final product = _makeProduct(reservedStock: 0);
+    final product = _makeProduct(
+      suggestedMaxPriceMxn: 24.50,
+      suggestedMaxPriceSource: 'historical',
+    );
 
     await tester.pumpWidget(_buildWidget(product));
     await tester.pumpAndSettle();
 
-    expect(find.text('RESERVADO'), findsOneWidget);
-    expect(find.text('0'), findsOneWidget);
+    await tester.ensureVisible(find.text('Información adicional'));
+    await tester.tap(find.text('Información adicional'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('\$24.50'), findsOneWidget);
+    expect(find.text('según tu historial de ventas'), findsOneWidget);
+  });
+
+  testWidgets(
+      'precio máximo sugerido cae al margen configurado cuando no hay historial',
+      (tester) async {
+    final product = _makeProduct(
+      suggestedMaxPriceMxn: 16.10,
+      suggestedMaxPriceSource: 'margin_fallback',
+    );
+
+    await tester.pumpWidget(_buildWidget(product));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Información adicional'));
+    await tester.tap(find.text('Información adicional'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('\$16.10'), findsOneWidget);
+    expect(find.text('según margen máximo configurado'), findsOneWidget);
+  });
+
+  testWidgets('precio máximo sugerido muestra "—" si el backend no lo envía',
+      (tester) async {
+    final product = _makeProduct();
+
+    await tester.pumpWidget(_buildWidget(product));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Información adicional'));
+    await tester.tap(find.text('Información adicional'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Precio máximo sugerido'), findsOneWidget);
+    expect(find.text('—'), findsWidgets);
   });
 
   // ── CA-07: Cuadrícula muestra las 4 acciones ──────────────────────────────

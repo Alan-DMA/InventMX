@@ -151,6 +151,10 @@ class SaleItemResponse(BaseModel):
     discount_mxn: Decimal
     total_mxn: Decimal
     is_on_the_fly: bool
+    refunded_quantity: Decimal = Field(
+        default=Decimal("0.000"),
+        description="Cantidad de esta partida ya devuelta por reembolsos previos",
+    )
     profit_mxn: Decimal = Field(
         description="Utilidad bruta generada por la partida en $ MXN",
     )
@@ -166,6 +170,10 @@ class SaleResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     cashier_id: uuid.UUID
+    cashier_name: Optional[str] = Field(
+        default=None,
+        description="Nombre completo del cajero que procesó la venta",
+    )
     warehouse_id: uuid.UUID
     client_id: Optional[uuid.UUID] = None
     folio: str
@@ -190,6 +198,10 @@ class SaleResponse(BaseModel):
         default=Decimal("0.00"),
         description="Monto de vuelto o cambio devuelto al cliente",
     )
+    refunded_amount_mxn: Decimal = Field(
+        default=Decimal("0.00"),
+        description="Suma de los importes reembolsados de la venta (total o parcial)",
+    )
     notes: Optional[str] = None
     items: List[SaleItemResponse]
     payments: List[PaymentResponse] = Field(
@@ -210,4 +222,42 @@ class SaleCancelRequest(BaseModel):
         min_length=3,
         max_length=255,
         description="Motivo de cancelación o devolución de la venta",
+    )
+
+
+class SaleRefundItemRequest(BaseModel):
+    """
+    Esquema para una partida específica a reembolsar dentro de un reembolso parcial.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    sale_item_id: uuid.UUID = Field(
+        description="ID de la partida (SaleItem) de la venta a reembolsar",
+    )
+    quantity: Decimal = Field(
+        gt=0,
+        description="Cantidad a reembolsar de esta partida",
+    )
+
+
+class SaleRefundRequest(BaseModel):
+    """
+    Esquema de solicitud para reembolsar una venta completada, total o parcialmente
+    (RF-12, decisión de Eduardo Sep 2026: la cancelación total de `/cancel` no cubre
+    el flujo real de reembolso, que nunca deja una venta en estado "pendiente").
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    reason: str = Field(
+        min_length=3,
+        max_length=255,
+        description="Motivo del reembolso",
+    )
+    refund_to_stock: bool = Field(
+        default=True,
+        description="Si el producto devuelto regresa al inventario vendible",
+    )
+    items: Optional[List[SaleRefundItemRequest]] = Field(
+        default=None,
+        description="Partidas específicas a reembolsar. Vacío/None = reembolsa todo lo pendiente.",
     )
