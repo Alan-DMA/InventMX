@@ -23,6 +23,7 @@ class CategoriesScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('categoryAddFab'),
+        heroTag: 'fab-category-add',
         onPressed: () => showCategoryFormModal(context),
         backgroundColor: AppColors.emerald,
         foregroundColor: AppColors.darkSlate,

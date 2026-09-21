@@ -438,6 +438,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   Widget _buildFab(BuildContext context) {
     return FloatingActionButton(
+      // Compras es pestaña del shell (Sep 21): con IndexedStack conviven dos
+      // FABs y el Hero por defecto choca al abrir una ruta encima.
+      heroTag: 'fab-inventory-add',
       onPressed: () => _openAddModal(context),
       backgroundColor: AppColors.emerald,
       foregroundColor: AppColors.darkSlate,

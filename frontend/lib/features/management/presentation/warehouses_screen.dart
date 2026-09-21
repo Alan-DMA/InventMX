@@ -27,6 +27,7 @@ class WarehousesScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('warehouseAddFab'),
+        heroTag: 'fab-warehouse-add',
         onPressed: () => showWarehouseFormModal(context),
         backgroundColor: AppColors.emerald,
         foregroundColor: AppColors.darkSlate,

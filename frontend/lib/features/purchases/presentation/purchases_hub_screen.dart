@@ -99,6 +99,7 @@ class _PurchasesHubScreenState extends ConsumerState<PurchasesHubScreen>
         builder: (_, __) {
           return switch (_tabController.index) {
             0 => FloatingActionButton(
+                heroTag: 'fab-purchase-new',
                 onPressed: () => _openCreateScreen(context),
                 backgroundColor: AppColors.emerald,
                 foregroundColor: AppColors.darkSlate,
@@ -106,6 +107,7 @@ class _PurchasesHubScreenState extends ConsumerState<PurchasesHubScreen>
                 child: const Icon(Icons.add_rounded, size: 28),
               ),
             1 => FloatingActionButton(
+                heroTag: 'fab-supplier-add',
                 onPressed: () => _openAddSupplierModal(context),
                 backgroundColor: AppColors.emerald,
                 foregroundColor: AppColors.darkSlate,

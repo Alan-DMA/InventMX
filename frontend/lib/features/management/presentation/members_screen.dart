@@ -26,6 +26,7 @@ class MembersScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('memberAddFab'),
+        heroTag: 'fab-member-add',
         onPressed: () => showMemberFormModal(context),
         backgroundColor: AppColors.emerald,
         foregroundColor: AppColors.darkSlate,
