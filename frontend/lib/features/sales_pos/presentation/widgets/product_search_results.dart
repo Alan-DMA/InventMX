@@ -8,11 +8,16 @@ import '../../../inventory/presentation/widgets/add_product_modal.dart';
 import '../../domain/ean_lookup_result.dart';
 import '../cart_provider.dart';
 import '../community_lookup_provider.dart';
+import '../pos_product_search_provider.dart';
 
 /// Panel desplegable de resultados de búsqueda del POS.
 ///
-/// Filtra la lista ya cargada en inventoryProvider (sin llamada extra
-/// al backend) con búsqueda fuzzy local case-insensitive.
+/// Dos fuentes: la lista ya cargada en `inventoryProvider` (respuesta
+/// inmediata, sin red) y la búsqueda en el servidor
+/// (`posProductSearchProvider`, con *debounce*), porque la lista local sólo
+/// tiene las páginas que Inventario haya cargado y un producto fuera de ellas
+/// no aparecía (QA de Eduardo, Sep 21: "Coco Light", "Skyrim"). Se unen sin
+/// duplicados, primero lo local.
 /// Se muestra cuando searchQuery.isNotEmpty y se cierra al añadir un producto.
 ///
 /// Tarea 15.2.1 — cuando no hay coincidencia local y lo tecleado/escaneado
@@ -38,19 +43,28 @@ class ProductSearchResults extends ConsumerWidget {
     final allProducts = ref.watch(inventoryProvider).products;
     final q = query.toLowerCase().trim();
 
-    final results = allProducts
-        .where((p) {
-          return p.name.toLowerCase().contains(q) ||
-              p.sku.toLowerCase().contains(q) ||
-              (p.barcode?.contains(q) ?? false);
-        })
-        .take(6)
-        .toList();
+    final local = allProducts.where((p) {
+      return p.name.toLowerCase().contains(q) ||
+          p.sku.toLowerCase().contains(q) ||
+          (p.barcode?.contains(q) ?? false);
+    }).toList();
+
+    final remote = ref.watch(posProductSearchProvider(query.trim()));
+    final seen = {for (final p in local) p.id};
+    final results = [
+      ...local,
+      for (final p in remote.valueOrNull ?? const <Product>[])
+        if (seen.add(p.id)) p,
+    ].take(8).toList();
 
     if (results.isEmpty) {
-      // Sin coincidencia local. Si parece código de barras, el motor de dos
-      // niveles puede tener el nombre; si es texto libre, no hay nada que
-      // consultar (un nombre tecleado no identifica un producto).
+      // Mientras el servidor no responda, no se afirma "no existe".
+      if (remote.isLoading) {
+        return const _SearchingHint(key: Key('posSearchLoading'));
+      }
+      // Sin coincidencia local ni remota. Si parece código de barras, el
+      // motor de dos niveles puede tener el nombre; si es texto libre, no hay
+      // nada que consultar (un nombre tecleado no identifica un producto).
       if (looksLikeBarcode(query)) {
         return _CommunitySuggestion(
           barcode: query.trim(),
@@ -434,6 +448,37 @@ class _SuggestionShell extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Sin resultados
 // ---------------------------------------------------------------------------
+
+/// Panel mínimo mientras el servidor busca — evita el parpadeo a "sin
+/// resultados" y luego a la lista.
+class _SearchingHint extends StatelessWidget {
+  const _SearchingHint({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.emerald),
+          ),
+          SizedBox(width: 10),
+          Text('Buscando en tu inventario…',
+              style: TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted)),
+        ],
+      ),
+    );
+  }
+}
 
 class _NoResultsHint extends StatelessWidget {
   const _NoResultsHint({required this.query});

@@ -53,13 +53,26 @@ void _stubInventory(MockInventoryRepository repo, List<Product> products) {
         lowStock: any(named: 'lowStock'),
         page: any(named: 'page'),
         pageSize: any(named: 'pageSize'),
-      )).thenAnswer((_) async => PaginatedProducts(
-        items: products,
-        total: products.length,
-        page: 1,
-        pageSize: 20,
-        totalPages: 1,
-      ));
+      )).thenAnswer((inv) async {
+        // Como el backend: `q` filtra por nombre, SKU o código de barras
+        // (el panel del POS ahora también busca en el servidor).
+        final q = (inv.namedArguments[#query] as String?)?.toLowerCase().trim();
+        final items = q == null || q.isEmpty
+            ? products
+            : products
+                .where((p) =>
+                    p.name.toLowerCase().contains(q) ||
+                    p.sku.toLowerCase().contains(q) ||
+                    (p.barcode?.contains(q) ?? false))
+                .toList();
+        return PaginatedProducts(
+          items: items,
+          total: items.length,
+          page: 1,
+          pageSize: 20,
+          totalPages: 1,
+        );
+      });
   when(() => repo.createProduct(
         name: any(named: 'name'),
         priceMxn: any(named: 'priceMxn'),
