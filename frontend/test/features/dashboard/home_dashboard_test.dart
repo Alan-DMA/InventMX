@@ -453,6 +453,70 @@ void main() {
       expect(find.text('Nada que revisar'), findsOneWidget);
     });
   });
+
+  group('DailySnapshot — parseo robusto de tipos', () {
+    test('DailySnapshot.fromJson soporta strings de Decimal ("0.00")', () {
+      final json = {
+        'period_info': {
+          'period': 'TODAY',
+          'start_date': '2026-09-21',
+          'end_date': '2026-09-21',
+        },
+        'sales_metrics': {
+          'total_revenue_mxn': '0.00',
+          'total_orders': '0',
+          'average_ticket_mxn': '0.00',
+          'revenue_change_percent': null,
+        },
+        'profitability': {
+          'gross_profit_mxn': '0.00',
+          'gross_margin_percent': '0.00',
+          'margin_change_percent': null,
+        },
+        'inventory_metrics': {
+          'total_products': 0,
+          'products_with_stock': 0,
+          'low_stock_alerts': '0',
+          'inventory_value_mxn': '0.00',
+          'turnover_rate': null,
+        },
+        'top_products': [],
+        'critical_stock_alerts': [
+          {
+            'product_id': 'prod-001',
+            'product_name': 'Coca Cola',
+            'sku': 'CC-600',
+            'current_stock': '0.00',
+            'min_stock': '5.00',
+            'is_out_of_stock': true,
+          }
+        ],
+        'pending_purchases': [
+          {
+            'id': 'po-001',
+            'folio': 'OC-0001',
+            'supplier_name': 'Distribuidora',
+            'total_mxn': '1500.50',
+            'days_pending': '2',
+            'is_overdue': false,
+          }
+        ],
+      };
+
+      final snapshot = DailySnapshot.fromJson(json);
+
+      expect(snapshot.salesTodayMxn, equals(0.0));
+      expect(snapshot.salesTodayCount, equals(0));
+      expect(snapshot.marginTodayMxn, equals(0.0));
+      expect(snapshot.lowStockAlerts.length, equals(1));
+      expect(snapshot.lowStockAlerts.first.availableStock, equals(0));
+      expect(snapshot.lowStockAlerts.first.minStock, equals(5));
+      expect(snapshot.pendingPurchasesAlerts.length, equals(1));
+      expect(snapshot.pendingPurchasesAlerts.first.totalMxn, equals(1500.50));
+      expect(snapshot.pendingPurchasesAlerts.first.daysPending, equals(2));
+      expect(snapshot.payablesDueMxn, equals(1500.50));
+    });
+  });
 }
 
 /// Buzón vacío — para el estado sin avisos.

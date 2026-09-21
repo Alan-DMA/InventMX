@@ -18,11 +18,15 @@ class SecureStorage {
   static const _keyUserEmail = 'nexus_user_email';
   static const _webAuthBoxName = 'web_secure_auth_store';
 
-  Future<Box<dynamic>> _getWebBox() async {
-    if (Hive.isBoxOpen(_webAuthBoxName)) {
-      return Hive.box<dynamic>(_webAuthBoxName);
+  Future<Box<dynamic>?> _getWebBox() async {
+    try {
+      if (Hive.isBoxOpen(_webAuthBoxName)) {
+        return Hive.box<dynamic>(_webAuthBoxName);
+      }
+      return await Hive.openBox<dynamic>(_webAuthBoxName);
+    } catch (_) {
+      return null;
     }
-    return await Hive.openBox<dynamic>(_webAuthBoxName);
   }
 
   // ---------- Access Token ----------
@@ -36,7 +40,7 @@ class SecureStorage {
     } catch (_) {}
     // Fallback para Flutter Web o entornos HTTP LAN
     final box = await _getWebBox();
-    await box.put(_keyAccessToken, token);
+    await box?.put(_keyAccessToken, token);
   }
 
   Future<String?> readAccessToken() async {
@@ -48,7 +52,7 @@ class SecureStorage {
     } catch (_) {}
     // Fallback para Flutter Web o entornos HTTP LAN
     final box = await _getWebBox();
-    final dynamic val = box.get(_keyAccessToken);
+    final dynamic val = box?.get(_keyAccessToken);
     return val?.toString();
   }
 
@@ -63,7 +67,7 @@ class SecureStorage {
     } catch (_) {}
     // Fallback para Flutter Web o entornos HTTP LAN
     final box = await _getWebBox();
-    await box.put(_keyRefreshToken, token);
+    await box?.put(_keyRefreshToken, token);
   }
 
   Future<String?> readRefreshToken() async {
@@ -75,7 +79,7 @@ class SecureStorage {
     } catch (_) {}
     // Fallback para Flutter Web o entornos HTTP LAN
     final box = await _getWebBox();
-    final dynamic val = box.get(_keyRefreshToken);
+    final dynamic val = box?.get(_keyRefreshToken);
     return val?.toString();
   }
 
@@ -92,7 +96,7 @@ class SecureStorage {
       }
     } catch (_) {}
     final box = await _getWebBox();
-    await box.put(_keyUserEmail, email);
+    await box?.put(_keyUserEmail, email);
   }
 
   Future<String?> readUserEmail() async {
@@ -103,7 +107,7 @@ class SecureStorage {
       }
     } catch (_) {}
     final box = await _getWebBox();
-    final dynamic val = box.get(_keyUserEmail);
+    final dynamic val = box?.get(_keyUserEmail);
     return val?.toString();
   }
 
@@ -125,12 +129,46 @@ class SecureStorage {
       }
     } catch (_) {}
     final box = await _getWebBox();
-    await box.clear();
+    await box?.clear();
   }
 
   /// Devuelve true si existe un access token guardado (no valida expiración).
   Future<bool> hasSession() async {
     final token = await readAccessToken();
     return token != null && token.isNotEmpty;
+  }
+
+  /// Escritura genérica de preferencia o clave local.
+  Future<void> write(String key, String value) async {
+    try {
+      if (!kIsWeb) {
+        await _storage.write(key: key, value: value);
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    try {
+      final box = await _getWebBox();
+      await box?.put(key, value);
+    } catch (_) {}
+  }
+
+  /// Lectura genérica de preferencia o clave local.
+  Future<String?> read(String key) async {
+    try {
+      if (!kIsWeb) {
+        return await _storage.read(key: key);
+      }
+    } catch (_) {
+      return null;
+    }
+    try {
+      final box = await _getWebBox();
+      final dynamic val = box?.get(key);
+      return val?.toString();
+    } catch (_) {
+      return null;
+    }
   }
 }

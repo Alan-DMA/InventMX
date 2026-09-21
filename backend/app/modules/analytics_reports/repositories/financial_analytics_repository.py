@@ -1,5 +1,5 @@
 # Importación de precisión decimal para Pesos Mexicanos
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 # Importación de tipado estático
 from typing import Any, Dict, List, Optional, Tuple
@@ -470,3 +470,62 @@ class FinancialAnalyticsRepository:
             "accounts_payable_mxn": pay_dec,
             "net_working_capital_mxn": net_working,
         }
+
+    async def get_pending_purchase_orders_alerts(
+        self,
+        tenant_id: uuid.UUID,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene las órdenes de compra activas pendientes de entrega o recepción (RF-15/RF-17).
+        Calcula los días transcurridos y si la orden se encuentra vencida según expected_delivery_date.
+        """
+        from app.modules.purchasing_suppliers.domain.purchase_order import PurchaseOrder, PurchaseOrderStatus
+        from app.modules.purchasing_suppliers.domain.supplier import Supplier
+
+        stmt = (
+            select(
+                PurchaseOrder.id,
+                PurchaseOrder.folio,
+                Supplier.name.label("supplier_name"),
+                PurchaseOrder.total_mxn,
+                PurchaseOrder.expected_delivery_date,
+                PurchaseOrder.created_at,
+            )
+            .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
+            .where(
+                PurchaseOrder.tenant_id == tenant_id,
+                PurchaseOrder.status.in_([
+                    PurchaseOrderStatus.DRAFT,
+                    PurchaseOrderStatus.SENT,
+                    PurchaseOrderStatus.CONFIRMED,
+                    PurchaseOrderStatus.PARTIALLY_RECEIVED,
+                ]),
+            )
+            .order_by(PurchaseOrder.created_at.asc())
+            .limit(limit)
+        )
+        res = await self.session.execute(stmt)
+        rows = res.all()
+
+        now_utc = datetime.now(timezone.utc)
+        today_date = now_utc.date()
+        alerts: List[Dict[str, Any]] = []
+        for r in rows:
+            created_dt = r.created_at
+            # Días de antigüedad desde la creación de la orden
+            days_pending = max(0, (now_utc - created_dt).days) if created_dt else 0
+            # Vencida si superó la fecha prometida de recepción
+            is_overdue = False
+            if r.expected_delivery_date:
+                is_overdue = today_date > r.expected_delivery_date
+
+            alerts.append({
+                "id": r.id,
+                "folio": r.folio,
+                "supplier_name": r.supplier_name,
+                "total_mxn": Decimal(str(r.total_mxn)).quantize(Decimal("0.01")),
+                "days_pending": days_pending,
+                "is_overdue": is_overdue,
+            })
+        return alerts

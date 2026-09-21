@@ -580,3 +580,98 @@ async def test_empty_analytics_safe_zero_division(client: AsyncClient):
     assert Decimal(str(data["profit_margin_pct"])) == Decimal("0.00")
     assert Decimal(str(data["average_ticket_mxn"])) == Decimal("0.00")
     assert data["total_transactions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_dashboard_kpis_canonical_endpoint(client: AsyncClient):
+    """
+    Test 8: Endpoint canónico GET /api/v1/analytics/dashboard retorna métricas completas en tiempo real.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "store_name": f"Tienda Dashboard {suffix}",
+            "slug": f"tienda-dashboard-{suffix}",
+            "full_name": "Dueño Dashboard",
+            "email": f"dashboard_{suffix}@nexus.mx",
+            "password": "password123",
+        },
+    )
+    assert reg_resp.status_code == 201
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Crear producto con stock crítico
+    p_resp = await client.post(
+        "/api/v1/inventory/products",
+        json={
+            "name": f"Leche Entera 1L {suffix}",
+            "sku": f"LEC-{suffix}",
+            "price_mxn": 25.00,
+            "cost_mxn": 18.00,
+            "initial_stock": 3,
+            "min_stock_alert": 5,
+        },
+        headers=headers,
+    )
+    assert p_resp.status_code == 201
+    prod = p_resp.json()
+    prod_id = prod["id"]
+    warehouse_id = prod["stocks"][0]["warehouse_id"]
+
+    # 2. Abrir turno de caja
+    shift_resp = await client.post(
+        "/api/v1/sales/shifts/open",
+        json={"opening_balance_mxn": 500.00},
+        headers=headers,
+    )
+    assert shift_resp.status_code == 201
+
+    # 3. Cobrar una venta de 2 unidades ($50.00)
+    sale_resp = await client.post(
+        "/api/v1/sales/checkout",
+        json={
+            "warehouse_id": warehouse_id,
+            "items": [{"product_id": prod_id, "quantity": 2, "unit_price_mxn": 25.00}],
+            "payments": [{"payment_method": "CASH_MXN", "amount_paid_mxn": 50.00}],
+        },
+        headers=headers,
+    )
+    assert sale_resp.status_code == 201
+
+    # 4. Consultar Dashboard canónico
+    dash_resp = await client.get("/api/v1/analytics/dashboard?period=TODAY&compare_previous=true", headers=headers)
+    assert dash_resp.status_code == 200
+    dash_data = dash_resp.json()
+
+    # Verificar formato con wrapper OpenAPI data y propiedades
+    data = dash_data.get("data", dash_data)
+    assert "period_info" in data
+    assert data["period_info"]["period"] == "TODAY"
+
+    # Sales metrics
+    sales = data["sales_metrics"]
+    assert Decimal(str(sales["total_revenue_mxn"])) == Decimal("50.00")
+    assert sales["total_orders"] == 1
+    assert Decimal(str(sales["average_ticket_mxn"])) == Decimal("50.00")
+
+    # Profitability (Costo 2 x 18 = 36; Utilidad = 50 - 36 = 14)
+    profit = data["profitability"]
+    assert Decimal(str(profit["gross_profit_mxn"])) == Decimal("14.00")
+    assert Decimal(str(profit["gross_margin_percent"])) == Decimal("28.00")
+
+    # Inventory metrics
+    inv = data["inventory_metrics"]
+    assert inv["total_products"] >= 1
+    assert inv["low_stock_alerts"] >= 1  # Queda 1 unidad <= 5 min_stock_alert
+
+    # Critical stock alerts
+    assert len(data["critical_stock_alerts"]) >= 1
+    crit = data["critical_stock_alerts"][0]
+    assert crit["product_id"] == prod_id
+    assert Decimal(str(crit["current_stock"])) == Decimal("1.00")
+
+    # Top products
+    assert len(data["top_products"]) >= 1
+    assert data["top_products"][0]["product_name"] == f"Leche Entera 1L {suffix}"

@@ -28,6 +28,44 @@ router = APIRouter(prefix="/analytics", tags=["Finance & Analytics"])
 
 
 @router.get(
+    "/dashboard",
+    status_code=status.HTTP_200_OK,
+    summary="Dashboard principal con KPIs del negocio (Canonical OpenAPI /analytics/dashboard)",
+    description="Retorna los indicadores clave de rendimiento (KPIs) para el dashboard principal calculados en tiempo real.",
+)
+async def get_dashboard_kpis(
+    period: Optional[str] = Query("TODAY", description="Periodo (TODAY, YESTERDAY, WEEK, MONTH, CUSTOM)"),
+    date_from: Optional[datetime] = Query(None, description="Fecha de inicio para CUSTOM"),
+    date_to: Optional[datetime] = Query(None, description="Fecha de fin para CUSTOM"),
+    compare_previous: bool = Query(True, description="Incluir comparación con periodo anterior"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Endpoint canónico formal de KPIs del Dashboard (OpenAPI docs/api/analytics.yaml).
+    Calcula métricas de venta hoy vs ayer, margen, inventario y alertas en vivo.
+    """
+    # Instanciar servicio financiero y de analítica
+    service = FinancialAnalyticsService(db)
+    # Obtener KPIs consolidados de la base de datos
+    kpis = await service.get_dashboard_kpis(
+        current_user=current_user,
+        period=period or "TODAY",
+        date_from=date_from,
+        date_to=date_to,
+        compare_previous=compare_previous,
+    )
+    # Serializar en diccionario Pydantic v2
+    kpis_dict = kpis.model_dump(mode="json")
+    # Retornar estructura híbrida que satisface el formato OpenAPI (data) y el formato directo
+    return {
+        "success": True,
+        "data": kpis_dict,
+        **kpis_dict,
+    }
+
+
+@router.get(
     "/financial-summary",
     response_model=ExecutiveFinancialSummaryResponse,
     status_code=status.HTTP_200_OK,

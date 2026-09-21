@@ -42,6 +42,7 @@ import '../../features/saas_admin/presentation/hard_lock_screen.dart';
 import '../../features/saas_admin/presentation/saas_provider.dart';
 import '../../features/saas_admin/presentation/subscription_checkout_screen.dart';
 import '../../features/analytics/presentation/analytics_dashboard_screen.dart';
+import '../theme/app_colors.dart';
 
 // ---------------------------------------------------------------------------
 // Rutas nombradas
@@ -182,9 +183,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       // ── Con sesión y onboarding completo ──────────────────────────────
+      // Redirige al Dashboard Home si el usuario intenta entrar al login,
+      // al flujo de onboarding ya culminado, o a la ruta base /dashboard.
       if (location == AppRoutes.login ||
           location == AppRoutes.onboarding ||
-          location == AppRoutes.onboardingSuccess) {
+          location == AppRoutes.onboardingSuccess ||
+          location == AppRoutes.dashboard) {
         return AppRoutes.home;
       }
 
@@ -209,6 +213,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // ── Redirección de compatibilidad /dashboard → /dashboard/home ───
+      GoRoute(
+        path: AppRoutes.dashboard,
+        redirect: (_, __) => AppRoutes.home,
+      ),
       // ── Auth ─────────────────────────────────────────────────────────
       GoRoute(
         path: AppRoutes.login,
@@ -405,20 +414,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     builder: (_, __) => const GondolaScanScreen(),
                   ),
 
-                  // Hub de Compras, Proveedores y CxP — Tarea 11.2
-                  GoRoute(
-                    path: 'purchases',
-                    name: 'purchases',
-                    builder: (_, __) => const PurchasesHubScreen(),
-                    routes: [
-                      GoRoute(
-                        path: 'new',
-                        name: 'purchase-create',
-                        builder: (_, __) => const PurchaseCreateScreen(),
-                      ),
-                    ],
-                  ),
-
                   // Panel de difusión del catálogo — Tarea 13.2.3
                   GoRoute(
                     path: 'catalog',
@@ -474,7 +469,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
 
-          // Branch 3 — Caja (Tarea 9.2)
+          // Branch 3 — Compras y Proveedores (Hub de Compras y CxP — Tarea 11.2)
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.purchases,
+                name: 'purchases',
+                builder: (_, __) => const PurchasesHubScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'new',
+                    name: 'purchase-create',
+                    builder: (_, __) => const PurchaseCreateScreen(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Branch 4 — Caja y Turnos (Tarea 9.2)
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -484,25 +497,63 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
             ],
           ),
-
-          // Branch 4 — Reportes: dashboard analítico (Tarea 15.2.3)
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: AppRoutes.reports,
-                name: 'reports',
-                builder: (_, __) => const AnalyticsDashboardScreen(),
-              ),
-            ],
-          ),
         ],
       ),
-    ],
-    errorBuilder: (_, state) => Scaffold(
-      body: Center(
-        child: Text('Ruta no encontrada: ${state.error}'),
+
+      // ── Reportes y Analítica — Tarea 15.2.3 ──────────────────────────
+      GoRoute(
+        path: AppRoutes.reports,
+        name: 'reports',
+        builder: (_, __) => const AnalyticsDashboardScreen(),
       ),
-    ),
+    ],
+    // Pantalla de respaldo profesional en caso de navegación a una ruta inexistente (404)
+    errorBuilder: (context, state) {
+      // Determina si el usuario tiene sesión para conducirlo al Dashboard Home o al Login
+      final hasSession = ref.read(sessionProvider);
+      return Scaffold(
+        backgroundColor: AppColors.darkSlate,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.explore_off_rounded,
+                  size: 64,
+                  color: AppColors.emerald,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Ruta no encontrada',
+                  style: TextStyle(
+                    color: AppColors.onSurface,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'La dirección "${state.uri.path}" no existe.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.onSurfaceMuted,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => context.go(hasSession ? AppRoutes.home : AppRoutes.login),
+                  icon: const Icon(Icons.home_rounded, size: 18),
+                  label: const Text('Volver al Inicio'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
   );
 });
 

@@ -15,6 +15,8 @@ import 'package:nexus_app/features/inventory/presentation/inventory_provider.dar
     show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/inventory/presentation/widgets/product_list_tile.dart';
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
+import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
+import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 
 // ---------------------------------------------------------------------------
@@ -86,10 +88,10 @@ Widget _buildApp(MockInventoryRepository mock) {
             WarehouseOption(
                 id: 'wh-001', name: 'Almacén Principal', isDefault: true),
           ]),
-      // El Dashboard también pide "Últimas ventas" — sin esto golpearía la
-      // red real desde Sep 2026 (salesRepositoryProvider ya no es Mock por
-      // defecto).
       salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
+      // El Dashboard pide métricas al backend real — en tests de integración
+      // de inventario se usa el mock determinista.
+      dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock()),
     ],
     child: Consumer(
       builder: (_, ref, __) => MaterialApp.router(
@@ -214,8 +216,8 @@ void main() {
     // "Inventario" aparece en AppBar title y en NavigationDestination label
     expect(find.text('Inventario'), findsWidgets);
     expect(find.text('Ventas'), findsOneWidget);
+    expect(find.text('Compras'), findsOneWidget);
     expect(find.text('Caja'), findsOneWidget);
-    expect(find.text('Reportes'), findsOneWidget);
   });
 
   // ── CA-08: Tap en tab Ventas navega al CheckoutScreen ────────────────────

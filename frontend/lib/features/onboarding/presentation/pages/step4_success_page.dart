@@ -187,9 +187,12 @@ class _Step4SuccessPageState extends ConsumerState<Step4SuccessPage>
   // ------------------------------------------------------------ Navegación
 
   Future<void> _navigateToDashboard() async {
+    // Si el widget ya no está montado en el árbol, abortar la ejecución.
     if (!mounted) return;
+    // Marcar el onboarding como completado en el almacenamiento y el estado de la app.
     await ref.read(onboardingProvider.notifier).completeOnboarding();
-    if (mounted) context.go(AppRoutes.dashboard);
+    // Redirigir de manera explícita y segura a la ruta principal del shell (/dashboard/home).
+    if (mounted) context.go(AppRoutes.home);
   }
 
   // ------------------------------------------------------------------ build

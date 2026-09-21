@@ -1,3 +1,7 @@
+import 'package:dio/dio.dart';
+
+import '../../../core/network/dio_client.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../domain/daily_snapshot.dart';
 import '../domain/stock_alert.dart';
 import '../domain/store_notification.dart';
@@ -7,29 +11,6 @@ import '../domain/store_notification.dart';
 // ---------------------------------------------------------------------------
 
 /// Datos del Centro de mando (N-08) y del apartado de Notificaciones.
-///
-/// **Mapa de integración con el backend** — cada dato de aquí tiene un dueño
-/// futuro; hoy todos salen de [DashboardRepositoryMock]:
-///
-/// | Dato del snapshot        | Endpoint destino                              | Tarea |
-/// |--------------------------|-----------------------------------------------|-------|
-/// | Ventas de hoy y de ayer  | `GET /analytics/financial-summary?preset=TODAY` (+ `CUSTOM` ayer) — **ya existe** (Reportes lo consume) | 15.1.3 |
-/// | Margen de hoy            | `GET /analytics/financial-summary` (`gross_profit_mxn`) — **ya existe** | 15.1.3 |
-/// | Stock bajo / agotado (conteo y renglones) | `GET /inventory/products?low_stock=true` | 3.1 / 5.1 |
-/// | Cuentas por pagar        | `GET /accounts-payable?overdue_only=true`     | 11.1 |
-/// | Estado de caja           | `GET /cash/current-session`                   | 9.1 |
-///
-/// | Notificación             | Origen futuro                                  | Tarea |
-/// |--------------------------|------------------------------------------------|-------|
-/// | Stock por agotarse       | Regla sobre el stock + venta histórica          | 15.1 |
-/// | Meta/comparativa de venta| `GET /analytics/sales-trends` — **ya existe**    | 15.1.3 |
-/// | Pedido de la vitrina     | `GET /catalog/orders?status=pending`            | 13.1 |
-/// | Cuenta por pagar próxima | `GET /accounts-payable` (vencimiento)           | 11.1 |
-///
-/// El buzón en sí (`GET /notifications`, `POST /notifications/{id}/read`)
-/// **no existe todavía en ningún contrato** — queda propuesto para Alan. Si
-/// no se construye, cada tarjeta se puede derivar en el cliente de los cuatro
-/// endpoints de arriba; el modelo [StoreNotification] no cambia.
 abstract class DashboardRepository {
   Future<DailySnapshot> getTodaySnapshot();
 
@@ -38,6 +19,154 @@ abstract class DashboardRepository {
   Future<void> markRead(String id);
 
   Future<void> markAllRead();
+}
+
+// ---------------------------------------------------------------------------
+// Implementación Real contra FastAPI (`GET /api/v1/analytics/dashboard`)
+// ---------------------------------------------------------------------------
+
+class DashboardRepositoryImpl implements DashboardRepository {
+  DashboardRepositoryImpl({required this.client, this.storage});
+
+  final DioClient client;
+  final SecureStorage? storage;
+  final Set<String> _readNotificationIds = {};
+  bool _readIdsLoaded = false;
+  DailySnapshot? _lastSnapshot;
+
+  static const String _kReadNotificationsKey = 'nexus_read_notification_ids';
+
+  // Carga los identificadores de notificaciones ya leídas por el usuario
+  Future<void> _loadReadIds() async {
+    if (_readIdsLoaded) return;
+    try {
+      if (storage != null) {
+        final raw = await storage!.read(_kReadNotificationsKey);
+        if (raw != null && raw.trim().isNotEmpty) {
+          _readNotificationIds.addAll(
+            raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty),
+          );
+        }
+      }
+    } catch (_) {}
+    _readIdsLoaded = true;
+  }
+
+  // Persiste en almacenamiento local los identificadores leídos
+  Future<void> _saveReadIds() async {
+    try {
+      if (storage != null) {
+        await storage!.write(
+          _kReadNotificationsKey,
+          _readNotificationIds.join(','),
+        );
+      }
+    } catch (_) {}
+  }
+
+  static dynamic _unwrap(dynamic body) =>
+      body is Map && body.containsKey('data') ? body['data'] : body;
+
+  @override
+  Future<DailySnapshot> getTodaySnapshot() async {
+    try {
+      final response = await client.get(
+        '/api/v1/analytics/dashboard',
+        queryParameters: {'period': 'TODAY', 'compare_previous': true},
+      );
+      final raw = _unwrap(response.data);
+      if (raw is! Map) {
+        throw const DashboardException('Respuesta inválida recibida del servidor.');
+      }
+      final snapshot = DailySnapshot.fromJson(Map<String, dynamic>.from(raw));
+      _lastSnapshot = snapshot;
+      return snapshot;
+    } on DioException catch (e) {
+      throw DashboardException(
+        e.response?.statusCode == 401
+            ? 'Sesión expirada. Inicie sesión nuevamente.'
+            : 'No se pudo conectar con el servidor de Nexus. Revise su conexión.',
+      );
+    }
+  }
+
+  @override
+  Future<List<StoreNotification>> listNotifications() async {
+    await _loadReadIds();
+    DailySnapshot? snapshot = _lastSnapshot;
+    if (snapshot == null) {
+      try {
+        snapshot = await getTodaySnapshot();
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final List<StoreNotification> notifications = [];
+
+    // 1. Alertas de inventario crítico (productos agotados o con existencias bajas)
+    for (final alert in snapshot.lowStockAlerts) {
+      final notifId = 'stock-${alert.productId}';
+      notifications.add(
+        StoreNotification(
+          id: notifId,
+          kind: NotificationKind.lowStock,
+          title: alert.isOutOfStock
+              ? '${alert.productName} agotado'
+              : '${alert.productName} por agotarse',
+          body: alert.isOutOfStock
+              ? 'Sin existencias en almacén. Se requiere surtir inventario.'
+              : 'Quedan ${alert.availableStock} pzas (mínimo: ${alert.minStock}).',
+          createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
+          isRead: _readNotificationIds.contains(notifId),
+          productId: alert.productId,
+        ),
+      );
+    }
+
+    // 2. Alertas de órdenes de compra a proveedores (pendientes o vencidas)
+    for (final po in snapshot.pendingPurchasesAlerts) {
+      final notifId = 'po-${po.id}';
+      notifications.add(
+        StoreNotification(
+          id: notifId,
+          kind: NotificationKind.payableDue,
+          title: po.isOverdue
+              ? 'Orden de compra ${po.folio} vencida'
+              : 'Orden de compra ${po.folio} pendiente',
+          body: 'Proveedor: ${po.supplierName} · \$${po.totalMxn.toStringAsFixed(2)} MXN.',
+          createdAt: DateTime.now().subtract(Duration(days: po.daysPending)),
+          isRead: _readNotificationIds.contains(notifId),
+        ),
+      );
+    }
+
+    return notifications;
+  }
+
+  @override
+  Future<void> markRead(String id) async {
+    await _loadReadIds();
+    _readNotificationIds.add(id);
+    await _saveReadIds();
+  }
+
+  @override
+  Future<void> markAllRead() async {
+    await _loadReadIds();
+    final current = await listNotifications();
+    for (final n in current) {
+      _readNotificationIds.add(n.id);
+    }
+    await _saveReadIds();
+  }
+}
+
+class DashboardException implements Exception {
+  const DashboardException(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }
 
 // ---------------------------------------------------------------------------
