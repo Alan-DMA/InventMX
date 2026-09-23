@@ -36,10 +36,26 @@ Map<String, dynamic> _user({
       'commission_rate': rate, // Decimal → string con response_model
     };
 
+/// `permissions[]` tal como los manda `GET /roles` (seed `0002`): OWNER sin
+/// filas, CASHIER con sus 7, WAREHOUSE con sus 5.
+List<Map<String, String>> _perms(List<String> codes) =>
+    [for (final c in codes) {'id': 'p-$c', 'code': c, 'description': c}];
+
+const _cashierCodes = [
+  'inventory.view',
+  'sales.view',
+  'sales.checkout',
+  'cash.view',
+  'cash.open_session',
+  'cash.close_session',
+  'cash.manual_movement',
+];
+
 final _roles = [
-  {'id': _cashierRole, 'name': 'CASHIER', 'description': 'Cajero', 'permissions': []},
+  {'id': _cashierRole, 'name': 'CASHIER', 'description': 'Cajero', 'permissions': _perms(_cashierCodes)},
   {'id': _ownerRole, 'name': 'OWNER', 'description': 'Dueño', 'permissions': []},
-  {'id': 'r-wh', 'name': 'WAREHOUSE', 'description': 'Almacén', 'permissions': []},
+  {'id': 'r-wh', 'name': 'WAREHOUSE', 'description': 'Almacén',
+    'permissions': _perms(['inventory.view', 'inventory.create', 'inventory.adjust_stock', 'purchases.view', 'purchases.create'])},
   {'id': 'r-adm', 'name': 'ADMIN', 'description': 'Admin', 'permissions': []},
 ];
 
@@ -223,27 +239,43 @@ void main() {
   });
 
   group('roles', () {
-    test('mapea código, etiqueta y permisos por código, en orden fijo', () async {
+    test('mapea código, etiqueta y los permisos del servidor, en orden fijo', () async {
       stubGet('/api/v1/roles', _roles);
       final roles = await repo.listRoles();
       expect(roles.map((r) => r.code), ['OWNER', 'ADMIN', 'CASHIER', 'WAREHOUSE']);
       expect(roles.map((r) => r.label), ['Dueño', 'Encargado', 'Cajero', 'Almacenista']);
       expect(roles.first.id, _ownerRole);
       expect(roles.first.isOwner, isTrue);
-      expect(roles.first.can(Permissions.usuariosGestionar), isTrue);
+      // OWNER no trae filas: el catálogo completo, como `require_permission`.
+      expect(roles.first.permissions, Permissions.all);
       final cashier = roles.firstWhere((r) => r.code == RoleCodes.cashier);
-      expect(cashier.can(Permissions.ventasCobrar), isTrue);
-      expect(cashier.can(Permissions.usuariosGestionar), isFalse);
+      expect(cashier.permissions, _cashierCodes.toSet());
+      expect(cashier.can(Permissions.salesCheckout), isTrue);
+      expect(cashier.can(Permissions.settingsManageUsers), isFalse);
+      // ADMIN con lista vacía en el servidor queda sin nada: fail-closed.
+      final admin = roles.firstWhere((r) => r.code == RoleCodes.admin);
+      expect(admin.permissions, isEmpty);
     });
 
-    test('updateRolePermissions vive en memoria (el backend no lo expone)', () async {
-      stubGet('/api/v1/roles', _roles);
-      final updated = await repo.updateRolePermissions(
-          roleId: _cashierRole, permissions: {Permissions.inventarioVer});
-      expect(updated.permissions, {Permissions.inventarioVer});
-      final again = await repo.listRoles();
-      expect(again.firstWhere((r) => r.id == _cashierRole).permissions,
-          {Permissions.inventarioVer});
+    test('getCurrentMember trae los permisos de `role.permissions` (CA-01)', () async {
+      stubGet('/api/v1/auth/me', {
+        ..._user(id: 'me'),
+        'role': _roles.first,
+        'default_warehouse_id': 'wh-9',
+      });
+      final me = await repo.getCurrentMember();
+      expect(me.permissions, _cashierCodes.toSet());
+      expect(me.can(Permissions.salesCheckout), isTrue);
+      expect(me.can(Permissions.purchasesView), isFalse);
+      expect(me.defaultWarehouseId, 'wh-9');
+
+      stubGet('/api/v1/auth/me', {
+        ..._user(id: 'me', roleId: _ownerRole),
+        'role': _roles[1],
+      });
+      final owner = await repo.getCurrentMember();
+      expect(owner.permissions, Permissions.all);
+      expect(owner.permissions.length, 21);
     });
   });
 

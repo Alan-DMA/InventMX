@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/account_payable.dart';
+import '../../../management/presentation/management_provider.dart';
 import '../purchases_provider.dart';
 import '../widgets/account_payable_card.dart';
 import '../widgets/payment_modal.dart';
@@ -20,7 +21,10 @@ class AccountsPayableTab extends ConsumerWidget {
         if (state.hasError)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _ErrorBanner(error: state.error!, onRetry: () => ref.read(accountsPayableProvider.notifier).retry()),
+            child: _ErrorBanner(
+                error: state.error!,
+                onRetry: () =>
+                    ref.read(accountsPayableProvider.notifier).retry()),
           ),
         Expanded(child: _buildBody(context, ref, state)),
       ],
@@ -52,9 +56,11 @@ class AccountsPayableTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildBody(BuildContext context, WidgetRef ref, AccountsPayableState state) {
+  Widget _buildBody(
+      BuildContext context, WidgetRef ref, AccountsPayableState state) {
     if (state.isLoading && state.items.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.emerald));
+      return const Center(
+          child: CircularProgressIndicator(color: AppColors.emerald));
     }
 
     if (state.items.isEmpty) {
@@ -64,7 +70,8 @@ class AccountsPayableTab extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline_rounded, size: 56, color: AppColors.success),
+              Icon(Icons.check_circle_outline_rounded,
+                  size: 56, color: AppColors.success),
               SizedBox(height: 16),
               Text(
                 'No tienes cuentas por pagar pendientes',
@@ -85,7 +92,9 @@ class AccountsPayableTab extends ConsumerWidget {
         final payable = state.items[i];
         return AccountPayableCard(
           payable: payable,
-          onPay: () => showPaymentModal(context, payable),
+          onPay: ref.watch(canPayCreditProvider)
+              ? () => showPaymentModal(context, payable)
+              : null,
         );
       },
     );
@@ -93,7 +102,8 @@ class AccountsPayableTab extends ConsumerWidget {
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.label, required this.value, required this.color});
+  const _SummaryCard(
+      {required this.label, required this.value, required this.color});
 
   final String label;
   final String value;
@@ -111,9 +121,13 @@ class _SummaryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted)),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 11, color: AppColors.onSurfaceMuted)),
           const SizedBox(height: 2),
-          Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w700, color: color)),
         ],
       ),
     );
@@ -140,7 +154,9 @@ class _ErrorBanner extends StatelessWidget {
         children: [
           const Icon(Icons.wifi_off_rounded, size: 18, color: AppColors.error),
           const SizedBox(width: 10),
-          const Expanded(child: Text('Error de conexión. Revisa tu red.', style: TextStyle(fontSize: 13, color: AppColors.error))),
+          const Expanded(
+              child: Text('Error de conexión. Revisa tu red.',
+                  style: TextStyle(fontSize: 13, color: AppColors.error))),
           TextButton(onPressed: onRetry, child: const Text('Reintentar')),
         ],
       ),

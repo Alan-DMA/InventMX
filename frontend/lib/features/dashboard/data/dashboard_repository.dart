@@ -26,22 +26,36 @@ abstract class DashboardRepository {
 // ---------------------------------------------------------------------------
 
 class DashboardRepositoryImpl implements DashboardRepository {
-  DashboardRepositoryImpl({required this.client, this.storage});
+  DashboardRepositoryImpl({
+    required this.client,
+    this.storage,
+    this.ownerEmail,
+  });
 
   final DioClient client;
   final SecureStorage? storage;
+
+  /// Quién está en sesión. El provider lo observa, así que al cambiar de
+  /// usuario se construye otro repositorio y los avisos leídos en memoria
+  /// no se arrastran de una sesión a la siguiente (QA de Eduardo, Sep 23).
+  final String? ownerEmail;
   final Set<String> _readNotificationIds = {};
   bool _readIdsLoaded = false;
   DailySnapshot? _lastSnapshot;
 
   static const String _kReadNotificationsKey = 'nexus_read_notification_ids';
 
+  /// Clave con dueño: los avisos que marcó una persona no aparecen leídos
+  /// para la siguiente que entre en el mismo teléfono (QA de Eduardo, Sep 23).
+  String get _readKey =>
+      SecureStorage.scopedKey(_kReadNotificationsKey, ownerEmail);
+
   // Carga los identificadores de notificaciones ya leídas por el usuario
   Future<void> _loadReadIds() async {
     if (_readIdsLoaded) return;
     try {
       if (storage != null) {
-        final raw = await storage!.read(_kReadNotificationsKey);
+        final raw = await storage!.read(_readKey);
         if (raw != null && raw.trim().isNotEmpty) {
           _readNotificationIds.addAll(
             raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty),
@@ -57,7 +71,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
     try {
       if (storage != null) {
         await storage!.write(
-          _kReadNotificationsKey,
+          _readKey,
           _readNotificationIds.join(','),
         );
       }

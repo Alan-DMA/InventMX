@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../management/domain/app_permission.dart';
+import '../../management/presentation/management_provider.dart';
+import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
 import '../../auth/data/auth_repository.dart'
     show dioClientProvider, secureStorageProvider;
 import '../../sales_pos/data/sales_repository.dart';
@@ -18,6 +21,9 @@ final dashboardRepositoryProvider = Provider<DashboardRepository>(
   (ref) => DashboardRepositoryImpl(
     client: ref.watch(dioClientProvider),
     storage: ref.watch(secureStorageProvider),
+    // Cambiar de usuario reconstruye el repositorio: los avisos leídos son
+    // de cada quien, en memoria y en disco (QA Sep 23).
+    ownerEmail: ref.watch(currentUserNameProvider),
   ),
 );
 
@@ -51,14 +57,39 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
   /// reales (`storeOrdersProvider`, en vivo por WebSocket); los demás siguen
   /// en mock hasta que exista su backend. Un pedido cuenta como aviso mientras
   /// está en Nuevo; "leído" = alguien ya lo abrió (`seen`).
+  ///
+  /// Puertas por rol (Fase A, A9): cada aviso aparece sólo si el rol tiene el
+  /// permiso del dato que lo origina — y los pedidos ni se consultan sin
+  /// `sales.view` (el servidor los rechazaría y el socket no debe abrirse).
   @override
   Future<List<StoreNotification>> build() async {
+    final permissions = ref.watch(myPermissionsProvider);
     final base = await ref.watch(dashboardRepositoryProvider).listNotifications();
-    final orders = ref.watch(storeOrdersProvider).valueOrNull;
-    return mergeOrderNotifications(base, orders);
+    final orders = permissions.contains(Permissions.salesView)
+        ? ref.watch(storeOrdersProvider).valueOrNull
+        : null;
+    return filterByPermissions(
+        mergeOrderNotifications(base, orders), permissions);
   }
 
   static const orderIdPrefix = 'order-';
+
+  /// Permiso que hace visible cada tipo de aviso. Coincide con el destino al
+  /// tocarlo: nadie recibe un aviso cuyo destino el router le rebotaría.
+  static String permissionFor(NotificationKind kind) => switch (kind) {
+        NotificationKind.lowStock => Permissions.inventoryView,
+        NotificationKind.payableDue => Permissions.purchasesView,
+        NotificationKind.whatsappOrder => Permissions.salesView,
+        NotificationKind.salesMilestone => Permissions.reportsViewBasic,
+      };
+
+  static List<StoreNotification> filterByPermissions(
+    List<StoreNotification> items,
+    Set<String> permissions,
+  ) =>
+      items
+          .where((n) => permissions.contains(permissionFor(n.kind)))
+          .toList();
 
   static List<StoreNotification> mergeOrderNotifications(
     List<StoreNotification> base,
@@ -105,9 +136,15 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
   }
 
   Future<void> _reload() async {
-    state = await AsyncValue.guard(() async => mergeOrderNotifications(
-          await _repo.listNotifications(),
-          ref.read(storeOrdersProvider).valueOrNull,
+    final permissions = ref.read(myPermissionsProvider);
+    state = await AsyncValue.guard(() async => filterByPermissions(
+          mergeOrderNotifications(
+            await _repo.listNotifications(),
+            permissions.contains(Permissions.salesView)
+                ? ref.read(storeOrdersProvider).valueOrNull
+                : null,
+          ),
+          permissions,
         ));
   }
 }

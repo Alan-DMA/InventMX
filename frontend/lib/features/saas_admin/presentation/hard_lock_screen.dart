@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../account/presentation/account_provider.dart';
 import '../../auth/presentation/login_provider.dart';
 import '../domain/subscription.dart';
 import 'saas_provider.dart';
@@ -122,23 +123,25 @@ class HardLockScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 20),
                 ],
-                SizedBox(
-                  height: 52,
-                  child: FilledButton.icon(
-                    key: const Key('hardLockPayButton'),
-                    onPressed: () => context.push(AppRoutes.subscription),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.emerald,
-                      foregroundColor: AppColors.darkSlate,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                // Pagar es del Dueño (A9); el empleado sólo puede cerrar sesión.
+                if (ref.watch(canSeeSubscriptionProvider))
+                  SizedBox(
+                    height: 52,
+                    child: FilledButton.icon(
+                      key: const Key('hardLockPayButton'),
+                      onPressed: () => context.push(AppRoutes.subscription),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.emerald,
+                        foregroundColor: AppColors.darkSlate,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.account_balance_outlined),
+                      label: const Text('Ver cómo pagar',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
                     ),
-                    icon: const Icon(Icons.account_balance_outlined),
-                    label: const Text('Ver cómo pagar',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700)),
                   ),
-                ),
                 const SizedBox(height: 10),
                 SizedBox(
                   height: 48,

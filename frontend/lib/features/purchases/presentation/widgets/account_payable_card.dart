@@ -13,7 +13,10 @@ class AccountPayableCard extends StatelessWidget {
   });
 
   final AccountPayable payable;
-  final VoidCallback onPay;
+
+  /// `null` cuando el rol no puede abonar (`purchases.pay_credit`): el botón
+  /// no se pinta (Permisos por rol, Fase A).
+  final VoidCallback? onPay;
 
   Color get _urgencyColor => switch (payable.urgency) {
         PayableUrgency.onTime => AppColors.success,
@@ -44,7 +47,8 @@ class AccountPayableCard extends StatelessWidget {
           Container(
             width: 4,
             height: 64,
-            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+            decoration: BoxDecoration(
+                color: color, borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -56,19 +60,26 @@ class AccountPayableCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         payable.supplierName,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.onSurface),
+                        style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.onSurface),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: color.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         _urgencyLabel,
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: color),
                       ),
                     ),
                   ],
@@ -76,7 +87,8 @@ class AccountPayableCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   'Vence: ${formatPurchaseDate(payable.dueDate)}',
-                  style: const TextStyle(fontSize: 12, color: AppColors.onSurfaceMuted),
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.onSurfaceMuted),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -89,33 +101,46 @@ class AccountPayableCard extends StatelessWidget {
                         children: [
                           const Text(
                             'SALDO',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.onSurfaceMuted, letterSpacing: 0.5),
+                            style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.onSurfaceMuted,
+                                letterSpacing: 0.5),
                           ),
                           Text(
                             '\$${payable.balanceMxn.toStringAsFixed(2)} MXN',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.onSurface),
+                            style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.onSurface),
                             overflow: TextOverflow.ellipsis,
                           ),
                           if (payable.paidAmountMxn > 0)
                             Text(
                               'Abonado: \$${payable.paidAmountMxn.toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.onSurfaceMuted),
                               overflow: TextOverflow.ellipsis,
                             ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: onPay,
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    if (onPay != null) ...[
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: onPay,
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          textStyle: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                        child: const Text('Registrar abono'),
                       ),
-                      child: const Text('Registrar abono'),
-                    ),
+                    ],
                   ],
                 ),
               ],
@@ -125,5 +150,4 @@ class AccountPayableCard extends StatelessWidget {
       ),
     );
   }
-
 }

@@ -1,21 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../management/presentation/management_provider.dart';
 import '../../saas_admin/presentation/subscription_lock_banner.dart';
 import '../../whatsapp_catalog/presentation/widgets/new_order_banner.dart';
 
-/// Shell de navegación principal — sustituye al _DashboardPlaceholder.
+/// Shell de navegación principal.
 ///
-/// Implementa un NavigationBar de 4 tabs usando ShellRoute de GoRouter,
-/// lo que garantiza que la barra persiste entre tabs sin reconstruirse.
+/// NavigationBar sobre el `StatefulShellRoute` de GoRouter: la barra persiste
+/// entre pestañas sin reconstruirse. Las **ramas** son fijas (5, en el orden
+/// de [ShellTab]); las **pestañas visibles** dependen del rol
+/// (`visibleTabsProvider`, Permisos por rol Fase A): Cajero sin Compras,
+/// Almacenista sin Ventas ni Caja. Por eso el índice de la barra se traduce
+/// a índice de rama y viceversa.
 ///
-/// Tabs:
+/// Ramas:
 ///   0 — Inicio      (/dashboard/home)         ← Centro de mando, N-08
 ///   1 — Inventario  (/dashboard/inventory)
 ///   2 — Ventas      (/dashboard/sales)        ← CheckoutScreen D6
-///   3 — Caja        (/dashboard/cash)         ← Tarea 9.2
-///   4 — Reportes    (/dashboard/reports)      ← Tarea 15.2.3
-class DashboardShell extends StatelessWidget {
+///   3 — Compras     (/dashboard/inventory/purchases)
+///   4 — Caja        (/dashboard/cash)         ← Tarea 9.2
+class DashboardShell extends ConsumerWidget {
   const DashboardShell({
     super.key,
     required this.navigationShell,
@@ -24,36 +30,39 @@ class DashboardShell extends StatelessWidget {
   /// Shell de GoRouter — maneja el stack de navegación de cada tab.
   final StatefulNavigationShell navigationShell;
 
-  static const _tabs = [
-    _TabItem(
+  static const _tabs = <ShellTab, _TabItem>{
+    ShellTab.home: _TabItem(
       icon: Icons.home_outlined,
       activeIcon: Icons.home_rounded,
       label: 'Inicio',
     ),
-    _TabItem(
+    ShellTab.inventory: _TabItem(
       icon: Icons.inventory_2_outlined,
       activeIcon: Icons.inventory_2_rounded,
       label: 'Inventario',
     ),
-    _TabItem(
+    ShellTab.sales: _TabItem(
       icon: Icons.point_of_sale_outlined,
       activeIcon: Icons.point_of_sale_rounded,
       label: 'Ventas',
     ),
-    _TabItem(
+    ShellTab.purchases: _TabItem(
       icon: Icons.local_shipping_outlined,
       activeIcon: Icons.local_shipping_rounded,
       label: 'Compras',
     ),
-    _TabItem(
+    ShellTab.cash: _TabItem(
       icon: Icons.account_balance_wallet_outlined,
       activeIcon: Icons.account_balance_wallet_rounded,
       label: 'Caja',
     ),
-  ];
+  };
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final visible = ref.watch(visibleTabsProvider);
+    final canViewSales = ref.watch(canViewSalesProvider);
+
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
       body: Column(
@@ -61,41 +70,53 @@ class DashboardShell extends StatelessWidget {
           // Solo lectura por morosidad — visible en todas las pestañas (14.2.3)
           const SubscriptionLockBanner(),
           // Pedido web nuevo: se ve en cualquier tab y mantiene vivo el socket.
-          const NewOrderBanner(),
+          // Sólo para quien puede atenderlo (sales.view): montarlo abre el
+          // WebSocket, y a un almacenista el servidor se lo rechazaría.
+          if (canViewSales) const NewOrderBanner(),
           Expanded(child: navigationShell),
         ],
       ),
-      bottomNavigationBar: _buildNavigationBar(),
+      bottomNavigationBar: _buildNavigationBar(visible),
     );
   }
 
-  Widget _buildNavigationBar() {
+  Widget _buildNavigationBar(List<ShellTab> visible) {
+    final current = ShellTab.values[navigationShell.currentIndex];
+    // Si el rol no ve la rama activa (deep link, o permisos aún cargando),
+    // la barra no resalta nada en vez de resaltar una pestaña ajena.
+    final selected = visible.indexOf(current);
+
     return NavigationBar(
-      selectedIndex: navigationShell.currentIndex,
-      onDestinationSelected: _onTabSelected,
+      selectedIndex: selected < 0 ? 0 : selected,
+      onDestinationSelected: (i) => _onTabSelected(visible[i]),
       backgroundColor: AppColors.surface,
-      indicatorColor: AppColors.emerald.withValues(alpha: 0.15),
+      indicatorColor: selected < 0
+          ? Colors.transparent
+          : AppColors.emerald.withValues(alpha: 0.15),
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       elevation: 0,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      destinations: _tabs
-          .map(
-            (tab) => NavigationDestination(
-              icon: Icon(tab.icon, color: AppColors.onSurfaceMuted),
-              selectedIcon: Icon(tab.activeIcon, color: AppColors.emerald),
-              label: tab.label,
-            ),
-          )
-          .toList(),
+      destinations: [
+        for (final tab in visible)
+          NavigationDestination(
+            key: Key('shellTab-${tab.name}'),
+            icon: Icon(_tabs[tab]!.icon, color: AppColors.onSurfaceMuted),
+            selectedIcon: Icon(_tabs[tab]!.activeIcon,
+                color: selected < 0
+                    ? AppColors.onSurfaceMuted
+                    : AppColors.emerald),
+            label: _tabs[tab]!.label,
+          ),
+      ],
     );
   }
 
-  void _onTabSelected(int index) {
+  void _onTabSelected(ShellTab tab) {
     navigationShell.goBranch(
-      index,
+      tab.index,
       // Vuelve a la raíz del branch si se toca el tab ya activo
-      initialLocation: index == navigationShell.currentIndex,
+      initialLocation: tab.index == navigationShell.currentIndex,
     );
   }
 }

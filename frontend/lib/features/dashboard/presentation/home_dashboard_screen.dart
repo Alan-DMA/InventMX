@@ -59,6 +59,12 @@ class HomeDashboardScreen extends ConsumerWidget {
     final snapshot = ref.watch(dailySnapshotProvider);
     // Observa el contador de notificaciones no leídas para la campana de avisos
     final unread = ref.watch(unreadNotificationsProvider);
+    // Recorte por rol (D11): pedidos web y "Cómo va el día" sólo para quien
+    // vende o cobra; el Almacenista se queda con acciones y alertas.
+    final canViewSales = ref.watch(canViewSalesProvider);
+    final showDaySummary = canViewSales ||
+        ref.watch(canCheckoutProvider) ||
+        ref.watch(canSeeReportsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
@@ -95,7 +101,7 @@ class HomeDashboardScreen extends ConsumerWidget {
             onPressed: () => context.push(AppRoutes.account),
             icon: const Icon(Icons.account_circle_outlined,
                 color: AppColors.onSurface),
-            tooltip: 'Mi cuenta',
+            tooltip: 'Mi perfil',
           ),
           const SizedBox(width: 4),
         ],
@@ -149,9 +155,12 @@ class HomeDashboardScreen extends ConsumerWidget {
             const _QuickActions(),
             const SizedBox(height: 14),
 
-            // Tarjeta de pedidos web recibidos desde el catálogo WhatsApp
-            const _WebOrdersCard(),
-            const SizedBox(height: 24),
+            // Tarjeta de pedidos web: sólo para quien puede atenderlos.
+            if (canViewSales) ...[
+              const _WebOrdersCard(),
+              const SizedBox(height: 24),
+            ] else
+              const SizedBox(height: 10),
 
             // Sección de alertas operativas (Stock bajo y Órdenes de compra)
             const _SectionLabel('Alertas'),
@@ -161,16 +170,20 @@ class HomeDashboardScreen extends ConsumerWidget {
               error: (e, _) => _SectionError(e),
               data: (data) => _AlertsSection(snapshot: data),
             ),
-            const SizedBox(height: 24),
 
-            // Sección "Cómo va el día": Cuadrícula 2x2 de métricas y últimas ventas
-            const _SectionLabel('Cómo va el día'),
-            const SizedBox(height: 10),
-            snapshot.when(
-              loading: () => const _SectionSkeleton(),
-              error: (e, _) => _SectionError(e),
-              data: (data) => _DaySummary(snapshot: data),
-            ),
+            // "Cómo va el día" recortado por rol (D11): el Almacenista no
+            // vende ni cobra, así que la sección no existe para él; el
+            // Cajero la ve sin ganancia ni cuentas por pagar (_DaySummary).
+            if (showDaySummary) ...[
+              const SizedBox(height: 24),
+              const _SectionLabel('Cómo va el día'),
+              const SizedBox(height: 10),
+              snapshot.when(
+                loading: () => const _SectionSkeleton(),
+                error: (e, _) => _SectionError(e),
+                data: (data) => _DaySummary(snapshot: data),
+              ),
+            ],
           ],
         ),
       ),
@@ -205,11 +218,27 @@ String _greetingEmoji(DateTime now) {
 }
 
 const _weekdays = [
-  'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+  'lunes',
+  'martes',
+  'miércoles',
+  'jueves',
+  'viernes',
+  'sábado',
+  'domingo',
 ];
 const _months = [
-  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
 ];
 
 /// Formatea la fecha de forma legible en español (ej. "Miércoles 16 de septiembre").
@@ -338,8 +367,8 @@ class _QuickActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Lee la lista de accesos rápidos activos elegidos por el usuario
-    final activeActionIds = ref.watch(quickActionsProvider);
+    // Accesos rápidos elegidos por el usuario, ya filtrados por su rol.
+    final activeActionIds = ref.watch(visibleQuickActionsProvider);
 
     return Row(
       children: [
@@ -480,7 +509,9 @@ class _AlertsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasStockAlerts = snapshot.stockAlertCount > 0;
-    final hasPendingPurchases = snapshot.pendingPurchaseAlerts.isNotEmpty;
+    // Órdenes por recibir sólo para quien puede ver Compras (purchases.view).
+    final hasPendingPurchases = snapshot.pendingPurchaseAlerts.isNotEmpty &&
+        ref.watch(canViewPurchasesProvider);
 
     // Si no hay alertas de ningún tipo, muestra el estado tranquilo
     if (!hasStockAlerts && !hasPendingPurchases) {
@@ -547,7 +578,8 @@ class _AlertsSection extends ConsumerWidget {
             // Tope (QA de Eduardo, Sep 21): con muchos productos el Inicio se
             // volvía un scroll interminable. Se muestran los primeros; el
             // resto vive en "Ver todas" (Inventario filtrado).
-            for (final alert in snapshot.lowStockAlerts.take(_kMaxStockAlertRows))
+            for (final alert
+                in snapshot.lowStockAlerts.take(_kMaxStockAlertRows))
               _AlertRow(alert: alert),
             if (snapshot.lowStockAlerts.length > _kMaxStockAlertRows)
               _MoreAlertsRow(
@@ -587,12 +619,14 @@ class _AlertsSection extends ConsumerWidget {
                 ],
               ),
             ),
-            for (final po in snapshot.pendingPurchaseAlerts.take(_kMaxPurchaseAlertRows))
+            for (final po
+                in snapshot.pendingPurchaseAlerts.take(_kMaxPurchaseAlertRows))
               _PendingPurchaseAlertRow(alert: po),
             if (snapshot.pendingPurchaseAlerts.length > _kMaxPurchaseAlertRows)
               _MoreAlertsRow(
                 key: const Key('homePurchaseAlertsMore'),
-                count: snapshot.pendingPurchaseAlerts.length - _kMaxPurchaseAlertRows,
+                count: snapshot.pendingPurchaseAlerts.length -
+                    _kMaxPurchaseAlertRows,
                 onTap: () => context.go(AppRoutes.purchases),
               ),
           ],
@@ -631,7 +665,8 @@ class _MoreAlertsRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.skyBlue),
+            const Icon(Icons.chevron_right_rounded,
+                size: 16, color: AppColors.skyBlue),
           ],
         ),
       ),
@@ -756,58 +791,68 @@ class _PendingPurchaseAlertRow extends StatelessWidget {
 // Resumen del día: Cuadrícula 2x2 de métricas financieras y últimas ventas
 // ---------------------------------------------------------------------------
 
-class _DaySummary extends StatelessWidget {
+class _DaySummary extends ConsumerWidget {
   const _DaySummary({required this.snapshot});
 
   final DailySnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final delta = snapshot.salesDeltaPercent;
+    final canSeeReports = ref.watch(canSeeReportsProvider);
+    final canViewPurchases = ref.watch(canViewPurchasesProvider);
+    final canViewCash = ref.watch(canViewCashProvider);
+    final canViewSales = ref.watch(canViewSalesProvider);
+
+    // Tarjetas por permiso, en filas de dos: Dueño/Encargado ven la
+    // cuadrícula 2×2; el Cajero, "Vendido hoy" y "Caja" (D11).
+    final cards = <Widget>[
+      _SalesCard(
+        snapshot: snapshot,
+        delta: delta,
+        // Sin Reportes, tocar "Vendido hoy" abre el kardex, que sí puede ver.
+        destination: canSeeReports ? AppRoutes.reports : AppRoutes.salesHistory,
+      ),
+      if (canSeeReports) _MarginCard(snapshot: snapshot),
+      if (canViewPurchases)
+        _MetricCard(
+          itemKey: const Key('homePayables'),
+          icon: Icons.receipt_long_outlined,
+          tint: snapshot.payablesOverdueCount > 0
+              ? AppColors.error
+              : AppColors.onSurface,
+          value: mxn(snapshot.payablesDueMxn),
+          label: snapshot.payablesOverdueCount > 0
+              ? '${snapshot.payablesOverdueCount} '
+                  '${snapshot.payablesOverdueCount == 1 ? 'cuenta vencida' : 'cuentas vencidas'}'
+              : 'por pagar a proveedores',
+          onTap: () => context.go(AppRoutes.purchases),
+        ),
+      if (canViewCash) _CashCard(snapshot: snapshot),
+    ];
 
     return Column(
       children: [
-        // Cuadrícula 2x2 con diseño responsivo alineado a la imagen referencial
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _SalesCard(snapshot: snapshot, delta: delta),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _MarginCard(snapshot: snapshot),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _MetricCard(
-                itemKey: const Key('homePayables'),
-                icon: Icons.receipt_long_outlined,
-                tint: snapshot.payablesOverdueCount > 0
-                    ? AppColors.error
-                    : AppColors.onSurface,
-                value: mxn(snapshot.payablesDueMxn),
-                label: snapshot.payablesOverdueCount > 0
-                    ? '${snapshot.payablesOverdueCount} '
-                        '${snapshot.payablesOverdueCount == 1 ? 'cuenta vencida' : 'cuentas vencidas'}'
-                    : 'por pagar a proveedores',
-                onTap: () => context.go(AppRoutes.purchases),
+        for (var i = 0; i < cards.length; i += 2) ...[
+          if (i > 0) const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: cards[i]),
+              const SizedBox(width: 10),
+              Expanded(
+                child: i + 1 < cards.length
+                    ? cards[i + 1]
+                    : const SizedBox.shrink(),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _CashCard(snapshot: snapshot),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Kardex condensado de últimas transacciones
-        const _RecentSalesSection(),
+            ],
+          ),
+        ],
+        if (canViewSales) ...[
+          const SizedBox(height: 12),
+          // Kardex condensado de últimas transacciones
+          const _RecentSalesSection(),
+        ],
       ],
     );
   }
@@ -815,10 +860,15 @@ class _DaySummary extends StatelessWidget {
 
 /// Tarjeta 1 del Grid 2x2: Ventas del día con comparación porcentual
 class _SalesCard extends StatelessWidget {
-  const _SalesCard({required this.snapshot, required this.delta});
+  const _SalesCard({
+    required this.snapshot,
+    required this.delta,
+    required this.destination,
+  });
 
   final DailySnapshot snapshot;
   final double? delta;
+  final String destination;
 
   @override
   Widget build(BuildContext context) {
@@ -827,7 +877,7 @@ class _SalesCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         key: const Key('homeSalesCard'),
-        onTap: () => context.push(AppRoutes.reports),
+        onTap: () => context.push(destination),
         borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(14),
@@ -856,10 +906,9 @@ class _SalesCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
-                        color: (delta! >= 0
-                                ? AppColors.emerald
-                                : AppColors.error)
-                            .withValues(alpha: 0.15),
+                        color:
+                            (delta! >= 0 ? AppColors.emerald : AppColors.error)
+                                .withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Row(
@@ -973,8 +1022,8 @@ class _MarginCard extends StatelessWidget {
               const SizedBox(height: 3),
               const Text(
                 'Ganancia bruta',
-                style: TextStyle(
-                    fontSize: 11.5, color: AppColors.onSurfaceMuted),
+                style:
+                    TextStyle(fontSize: 11.5, color: AppColors.onSurfaceMuted),
               ),
             ],
           ),
@@ -1365,8 +1414,8 @@ class _SectionSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-            child: CircularProgressIndicator(color: AppColors.emerald)),
+        child:
+            Center(child: CircularProgressIndicator(color: AppColors.emerald)),
       );
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../management/presentation/management_provider.dart';
 import 'inventory_provider.dart';
 import 'widgets/add_product_modal.dart';
 import 'widgets/barcode_search_modal.dart';
@@ -126,7 +127,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           ),
         ],
       ),
-      floatingActionButton: _buildFab(context),
+      // Alta de producto exige `inventory.create` (Fase A): sin él, sin FAB.
+      floatingActionButton:
+          ref.watch(canCreateInventoryProvider) ? _buildFab(context) : null,
     );
   }
 
@@ -148,47 +151,43 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         ),
       ),
       actions: [
-        // Catálogo digital: enlace, QR y compartir (Tarea 13.2.3)
-        IconButton(
-          key: const Key('catalogShareButton'),
-          tooltip: 'Mi catálogo digital',
-          icon: const Icon(
-            Icons.storefront_outlined,
-            color: AppColors.onSurface,
-            size: 24,
+        // Catálogo digital: enlace, QR y compartir (Tarea 13.2.3) — D16
+        if (ref.watch(canManageStoreProvider))
+          IconButton(
+            key: const Key('catalogShareButton'),
+            tooltip: 'Mi catálogo digital',
+            icon: const Icon(
+              Icons.storefront_outlined,
+              color: AppColors.onSurface,
+              size: 24,
+            ),
+            onPressed: () => context.push(AppRoutes.catalogShare),
           ),
-          onPressed: () => context.push(AppRoutes.catalogShare),
-        ),
-        // Compras, Proveedores y CxP (Tarea 11.2)
-        IconButton(
-          tooltip: 'Compras y Proveedores',
-          icon: const Icon(
-            Icons.local_shipping_outlined,
-            color: AppColors.onSurface,
-            size: 24,
+        // Compras ya no vive en esta barra: es pestaña del shell desde el
+        // merge con Alan (Sep 21) y el botón duplicaba el acceso — se ve el
+        // doble en el rol Almacenista (QA de Eduardo, Sep 23).
+        // Modo Góndola — escaneo continuo (Tarea 5.2) — inventory.adjust_stock
+        if (ref.watch(canAdjustStockProvider))
+          IconButton(
+            tooltip: 'Modo Góndola — Escaneo continuo',
+            icon: const Icon(
+              Icons.document_scanner_rounded,
+              color: AppColors.skyBlue,
+              size: 24,
+            ),
+            onPressed: () => context.push(AppRoutes.gondola),
           ),
-          onPressed: () => context.push(AppRoutes.purchases),
-        ),
-        // Modo Góndola — escaneo continuo de góndola (Tarea 5.2)
-        IconButton(
-          tooltip: 'Modo Góndola — Escaneo continuo',
-          icon: const Icon(
-            Icons.document_scanner_rounded,
-            color: AppColors.skyBlue,
-            size: 24,
+        // Importar desde Excel/CSV (Tarea 5.2) — inventory.create
+        if (ref.watch(canCreateInventoryProvider))
+          IconButton(
+            tooltip: 'Importar desde Excel o CSV',
+            icon: const Icon(
+              Icons.upload_file_rounded,
+              color: AppColors.onSurface,
+              size: 24,
+            ),
+            onPressed: () => context.push(AppRoutes.import),
           ),
-          onPressed: () => context.push(AppRoutes.gondola),
-        ),
-        // Importar desde Excel/CSV (Tarea 5.2)
-        IconButton(
-          tooltip: 'Importar desde Excel o CSV',
-          icon: const Icon(
-            Icons.upload_file_rounded,
-            color: AppColors.onSurface,
-            size: 24,
-          ),
-          onPressed: () => context.push(AppRoutes.import),
-        ),
         // Mi cuenta: suscripción, panel de fundadores, cerrar sesión (14.2)
         IconButton(
           key: const Key('accountButton'),

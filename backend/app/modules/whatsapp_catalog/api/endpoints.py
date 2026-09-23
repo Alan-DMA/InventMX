@@ -190,7 +190,7 @@ async def get_og_metadata(
 )
 async def get_catalog_settings(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("settings.manage_store")),
 ) -> CatalogSettingsResponse:
     """Retorna la configuración operativa del catálogo del tenant actual (RF-26)."""
     service = CatalogSettingsService(db)
@@ -206,7 +206,7 @@ async def get_catalog_settings(
 async def update_catalog_settings(
     request: CatalogSettingsUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("settings.manage_store")),
 ) -> CatalogSettingsResponse:
     """Modifica el número de WhatsApp, mensaje de bienvenida, pedido mínimo y costo de envío."""
     service = CatalogSettingsService(db)

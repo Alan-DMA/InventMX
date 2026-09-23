@@ -121,7 +121,25 @@ class SecureStorage {
     await saveRefreshToken(refreshToken);
   }
 
-  /// Borra ambos tokens. Se llama al hacer logout o cuando el refresh falla.
+  /// Borra **sólo las llaves de sesión** (tokens y correo).
+  ///
+  /// Antes borraba todo el almacén (`deleteAll`), lo que tiraba también las
+  /// preferencias locales de cada persona: quien cerraba sesión perdía sus
+  /// accesos rápidos y sus avisos leídos. Desde el QA de Eduardo (Sep 23)
+  /// esas preferencias van con el correo en la clave y sobreviven al logout
+  /// sin mezclarse entre usuarios (`scopedKey`).
+  Future<void> clearSession() async {
+    for (final key in const [_keyAccessToken, _keyRefreshToken, _keyUserEmail]) {
+      try {
+        if (!kIsWeb) await _storage.delete(key: key);
+      } catch (_) {}
+      final box = await _getWebBox();
+      await box?.delete(key);
+    }
+  }
+
+  /// Borra **todo** el almacén, preferencias incluidas. Sólo para reinicios
+  /// de fábrica o diagnóstico; el logout usa [clearSession].
   Future<void> clearAll() async {
     try {
       if (!kIsWeb) {
@@ -131,6 +149,12 @@ class SecureStorage {
     final box = await _getWebBox();
     await box?.clear();
   }
+
+  /// Clave de una preferencia **con dueño**: la misma preferencia guardada
+  /// por dos personas en el mismo teléfono no se pisa. Sin sesión resuelta
+  /// cae en un espacio anónimo que nadie más lee.
+  static String scopedKey(String key, String? owner) =>
+      '$key::${(owner ?? '').trim().toLowerCase()}';
 
   /// Devuelve true si existe un access token guardado (no valida expiración).
   Future<bool> hasSession() async {

@@ -201,7 +201,7 @@ Future<void> _pump(
         dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock()),
         if (inventoryRepo != null)
           inventoryRepositoryProvider.overrideWithValue(inventoryRepo),
-        hasPermissionProvider(Permissions.ventasEliminar).overrideWithValue(canRefund),
+        hasPermissionProvider(Permissions.salesCancel).overrideWithValue(canRefund),
       ],
       child: MaterialApp(
         theme: AppTheme.dark,

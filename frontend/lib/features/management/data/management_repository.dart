@@ -13,12 +13,14 @@ import '../domain/warehouse.dart';
 /// Es scope de **un solo tenant** — nada que ver con el panel de fundadores
 /// (`saas.manage`, Tarea 14.2), que administra la plataforma entera.
 ///
-/// Estado del backend (Sep 21, 2026 — Fase B de Reportes): el modular ya
-/// expone `GET/POST /users`, `PUT /users/{id}`, `PATCH /users/{id}/status`,
-/// `GET /roles` y `GET /permissions`. **Personas y roles corren contra el
-/// real** (`ManagementRepositoryImpl`, decisión D6a de Eduardo); almacenes,
-/// categorías y la edición de permisos por rol siguen en el mock hasta que
-/// Alan los entregue — la Impl delega esas partes al mock.
+/// Estado del backend (Sep 22, 2026 — Permisos por rol, Fase A): el modular
+/// expone `GET/POST /users`, `PUT /users/{id}` (incluye `default_warehouse_id`),
+/// `PATCH /users/{id}/status`, `GET /roles` (con `permissions[]`) y
+/// `GET /permissions`. **Personas, roles y permisos corren contra el real**
+/// (`ManagementRepositoryImpl`); almacenes y categorías siguen en el mock
+/// hasta que Alan los entregue — la Impl delega esas partes al mock. La
+/// edición de permisos por rol no existe en el servidor (Fase B): los roles
+/// son de sólo lectura.
 abstract class ManagementRepository {
   /// Quién está usando la app ahora mismo.
   Future<TenantMember> getCurrentMember();
@@ -48,10 +50,12 @@ abstract class ManagementRepository {
     required String password,
     CommissionType commissionType = CommissionType.percentageSale,
     double commissionRate = 0,
+    String? defaultWarehouseId,
   });
 
   /// PUT /users/{id}. El correo no se puede cambiar en el backend real
   /// (`UserUpdate` no lo acepta): la UI lo muestra bloqueado al editar.
+  /// `defaultWarehouseId` asigna el almacén donde opera la persona (D15).
   Future<TenantMember> updateMember({
     required String id,
     String? name,
@@ -59,6 +63,7 @@ abstract class ManagementRepository {
     String? roleId,
     CommissionType? commissionType,
     double? commissionRate,
+    String? defaultWarehouseId,
   });
 
   Future<void> deactivateMember(String id);
@@ -76,12 +81,9 @@ abstract class ManagementRepository {
   Future<void> deleteCategory(String id);
 
   // ── Roles y permisos ───────────────────────────────────────────────────
+  /// GET /roles — los cuatro roles globales con sus permisos. Sólo lectura:
+  /// personalizarlos por comercio es la Fase B.
   Future<List<TenantRole>> listRoles();
-
-  Future<TenantRole> updateRolePermissions({
-    required String roleId,
-    required Set<String> permissions,
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -111,10 +113,13 @@ class ManagementRepositoryMock implements ManagementRepository {
   @override
   Future<TenantMember> getCurrentMember() async {
     await Future.delayed(_fakeDelay);
-    return _members.firstWhere(
+    final me = _members.firstWhere(
       (m) => m.email == currentEmail,
       orElse: () => _members.first,
     );
+    // Igual que `/auth/me`: los permisos efectivos son los del rol.
+    final role = _roles.firstWhere((r) => r.id == me.roleId);
+    return me.copyWith(permissions: role.permissions);
   }
 
   // ── Almacenes ──────────────────────────────────────────────────────────
@@ -191,6 +196,7 @@ class ManagementRepositoryMock implements ManagementRepository {
     required String password,
     CommissionType commissionType = CommissionType.percentageSale,
     double commissionRate = 0,
+    String? defaultWarehouseId,
   }) async {
     await Future.delayed(_fakeDelay);
     final cleanEmail = email.trim().toLowerCase();
@@ -205,6 +211,7 @@ class ManagementRepositoryMock implements ManagementRepository {
       createdAt: DateTime.now(),
       commissionType: commissionType,
       commissionRate: commissionRate,
+      defaultWarehouseId: defaultWarehouseId,
     );
     _members.add(member);
     return member;
@@ -218,6 +225,7 @@ class ManagementRepositoryMock implements ManagementRepository {
     String? roleId,
     CommissionType? commissionType,
     double? commissionRate,
+    String? defaultWarehouseId,
   }) async {
     await Future.delayed(_fakeDelay);
     final index = _members.indexWhere((m) => m.id == id);
@@ -228,7 +236,7 @@ class ManagementRepositoryMock implements ManagementRepository {
     if (cleanEmail != null) _assertEmailFree(cleanEmail, exceptId: id);
 
     // Degradar al último Dueño activo dejaría el comercio sin quien administre.
-    if (roleId != null && roleId != TenantRoles.owner) {
+    if (roleId != null && roleId != RoleCodes.owner) {
       _assertNotLastOwner(current);
     }
 
@@ -238,6 +246,7 @@ class ManagementRepositoryMock implements ManagementRepository {
       roleId: roleId,
       commissionType: commissionType,
       commissionRate: commissionRate,
+      defaultWarehouseId: defaultWarehouseId,
     );
     _members[index] = updated;
     return updated;
@@ -259,10 +268,9 @@ class ManagementRepositoryMock implements ManagementRepository {
   }
 
   void _assertNotLastOwner(TenantMember member) {
-    if (member.roleId != TenantRoles.owner || !member.isActive) return;
-    final owners = _members
-        .where((m) => m.roleId == TenantRoles.owner && m.isActive)
-        .length;
+    if (member.roleId != RoleCodes.owner || !member.isActive) return;
+    final owners =
+        _members.where((m) => m.roleId == RoleCodes.owner && m.isActive).length;
     if (owners <= 1) throw const LastOwnerException();
   }
 
@@ -331,24 +339,6 @@ class ManagementRepositoryMock implements ManagementRepository {
     return List.unmodifiable(_roles);
   }
 
-  @override
-  Future<TenantRole> updateRolePermissions({
-    required String roleId,
-    required Set<String> permissions,
-  }) async {
-    await Future.delayed(_fakeDelay);
-    final required = TenantRoles.undroppable[roleId];
-    if (required != null && !permissions.contains(required)) {
-      throw const RoleLockoutException();
-    }
-
-    final index = _roles.indexWhere((r) => r.id == roleId);
-    if (index < 0) throw Exception('Rol no encontrado: $roleId');
-    final updated = _roles[index].copyWith(permissions: Set.of(permissions));
-    _roles[index] = updated;
-    return updated;
-  }
-
   // ── Semillas ───────────────────────────────────────────────────────────
 
   /// Los tres almacenes que `TransferStockModal` trae hoy hardcodeados
@@ -394,7 +384,7 @@ class ManagementRepositoryMock implements ManagementRepository {
         id: 'usr-001',
         name: _nameFromEmail(ownerEmail),
         email: ownerEmail,
-        roleId: TenantRoles.owner,
+        roleId: RoleCodes.owner,
         isActive: true,
         createdAt: base,
       ),
@@ -402,7 +392,7 @@ class ManagementRepositoryMock implements ManagementRepository {
         id: 'usr-002',
         name: 'María Hernández',
         email: 'maria.hernandez@nexus.mx',
-        roleId: TenantRoles.manager,
+        roleId: RoleCodes.admin,
         isActive: true,
         createdAt: base.add(const Duration(days: 12)),
       ),
@@ -410,7 +400,7 @@ class ManagementRepositoryMock implements ManagementRepository {
         id: 'usr-003',
         name: 'José Luis Ramírez',
         email: 'jose.ramirez@nexus.mx',
-        roleId: TenantRoles.cashier,
+        roleId: RoleCodes.cashier,
         isActive: true,
         createdAt: base.add(const Duration(days: 30)),
         commissionType: CommissionType.percentageSale,
@@ -420,7 +410,7 @@ class ManagementRepositoryMock implements ManagementRepository {
         id: 'usr-004',
         name: 'Ana Torres',
         email: 'ana.torres@nexus.mx',
-        roleId: TenantRoles.cashier,
+        roleId: RoleCodes.cashier,
         isActive: true,
         createdAt: base.add(const Duration(days: 96)),
       ),
@@ -428,7 +418,7 @@ class ManagementRepositoryMock implements ManagementRepository {
         id: 'usr-005',
         name: 'Carlos Mendoza',
         email: 'carlos.mendoza@nexus.mx',
-        roleId: TenantRoles.salesperson,
+        roleId: RoleCodes.warehouse,
         isActive: false,
         createdAt: base.add(const Duration(days: 140)),
       ),
@@ -445,55 +435,55 @@ class ManagementRepositoryMock implements ManagementRepository {
         const Category(id: 'cat-005', name: 'Otros', productCount: 0),
       ];
 
-  /// Los cuatro roles sembrados en `backend/app/seed.py`, con sus mismos
-  /// permisos. Única desviación: `inventario.gestionar_almacenes` (propuesto,
-  /// decisión #11) se le da sólo al Dueño — crear almacenes es una decisión
-  /// estructural del negocio, no de la operación diaria.
-  List<TenantRole> _seedRoles() {
-    final todos = Permissions.catalog.map((p) => p.name).toSet();
-    return [
-      TenantRole(
-        id: TenantRoles.owner,
-        code: RoleCodes.owner,
-        label: 'Dueño',
-        description: 'Control total del negocio, incluidos usuarios y permisos',
-        permissions: todos,
-      ),
-      TenantRole(
-        id: TenantRoles.manager,
-        code: RoleCodes.admin,
-        label: 'Encargado',
-        description: 'Opera y administra el día a día, sin tocar los almacenes',
-        permissions: todos
-            .where((p) => p != Permissions.inventarioGestionarAlmacenes)
-            .toSet(),
-      ),
-      const TenantRole(
-        id: TenantRoles.cashier,
-        code: RoleCodes.cashier,
-        label: 'Cajero',
-        description: 'Cobra, abre y cierra su turno de caja',
-        permissions: {
-          Permissions.inventarioVer,
-          Permissions.ventasVer,
-          Permissions.ventasCrear,
-          Permissions.ventasCobrar,
-          Permissions.cajaVer,
-          Permissions.cajaArquear,
-          Permissions.cajaMovimientos,
-        },
-      ),
-      const TenantRole(
-        id: TenantRoles.salesperson,
-        label: 'Vendedor',
-        description: 'Arma la venta, pero no la cobra',
-        permissions: {
-          Permissions.inventarioVer,
-          Permissions.ventasCrear,
-        },
-      ),
-    ];
-  }
+  /// Los cuatro roles globales del seed (`0002_seed_rbac_permissions.py`)
+  /// con exactamente sus permisos; el id es el código porque el mock no
+  /// tiene UUIDs. OWNER lleva el catálogo completo, como en el servidor.
+  List<TenantRole> _seedRoles() => [
+        TenantRole(
+          id: RoleCodes.owner,
+          code: RoleCodes.owner,
+          label: 'Dueño',
+          description: 'Dueño del comercio con acceso total',
+          permissions: Permissions.all,
+        ),
+        TenantRole(
+          id: RoleCodes.admin,
+          code: RoleCodes.admin,
+          label: 'Encargado',
+          description: 'Administrador de tienda y catálogo',
+          permissions: Permissions.all
+              .where((p) => p != Permissions.settingsBilling)
+              .toSet(),
+        ),
+        const TenantRole(
+          id: RoleCodes.cashier,
+          code: RoleCodes.cashier,
+          label: 'Cajero',
+          description: 'Cajero para punto de venta y corte de caja',
+          permissions: {
+            Permissions.inventoryView,
+            Permissions.salesView,
+            Permissions.salesCheckout,
+            Permissions.cashView,
+            Permissions.cashOpenSession,
+            Permissions.cashCloseSession,
+            Permissions.cashManualMovement,
+          },
+        ),
+        const TenantRole(
+          id: RoleCodes.warehouse,
+          code: RoleCodes.warehouse,
+          label: 'Almacenista',
+          description: 'Encargado de almacén y recepción de compras',
+          permissions: {
+            Permissions.inventoryView,
+            Permissions.inventoryCreate,
+            Permissions.inventoryAdjustStock,
+            Permissions.purchasesView,
+            Permissions.purchasesCreate,
+          },
+        ),
+      ];
 
   /// "eduardo.cristancho@nexus.mx" → "Eduardo Cristancho". El backend legacy
   /// no expone nombre completo en `/saas/me` (sólo email/username/role_name),

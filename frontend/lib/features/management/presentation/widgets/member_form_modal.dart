@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../account/presentation/account_provider.dart'
+    show operatingWarehouseOptionsProvider;
 import '../../domain/tenant_member.dart';
+import '../../domain/warehouse.dart';
 import '../../domain/tenant_role.dart';
 import '../management_provider.dart';
 
@@ -49,6 +52,10 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
   /// Esquema de comisión. `null` = "No comisiona" (valor por defecto, sin
   /// sugerir ninguno: la tasa la decide el dueño).
   CommissionType? _commissionType;
+
+  /// Almacén donde opera (D15): lo asigna quien administra la tienda. `null`
+  /// = sin cambio; con el backend real viaja como `default_warehouse_id`.
+  String? _warehouseId;
   bool _isSaving = false;
   bool _isValid = false;
   String? _error;
@@ -60,12 +67,12 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
     _nameController.text = initial?.name ?? '';
     _emailController.text = initial?.email ?? '';
     _roleId = initial?.roleId ?? '';
+    _warehouseId = initial?.defaultWarehouseId;
     if (initial != null && initial.hasCommission) {
       _commissionType = initial.commissionType;
       final r = initial.commissionRate;
-      _rateController.text = r == r.roundToDouble()
-          ? r.toStringAsFixed(0)
-          : r.toStringAsFixed(2);
+      _rateController.text =
+          r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(2);
     }
 
     _nameController.addListener(_validate);
@@ -90,7 +97,8 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
   }
 
   /// Tasa tecleada, o null si está vacía o no es número.
-  double? get _rate => double.tryParse(_rateController.text.trim().replaceAll(',', '.'));
+  double? get _rate =>
+      double.tryParse(_rateController.text.trim().replaceAll(',', '.'));
 
   /// Con esquema elegido, la tasa tiene que ser un número > 0 (y ≤ 100 si es
   /// porcentaje) — el backend rechaza lo demás con 400.
@@ -120,8 +128,10 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
   String? get _commissionExample {
     final r = _rate;
     if (_commissionType == null || r == null || r <= 0) return null;
-    String money(double v) => '\$${v.toStringAsFixed(v == v.roundToDouble() ? 0 : 2)}';
-    final pct = r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(2);
+    String money(double v) =>
+        '\$${v.toStringAsFixed(v == v.roundToDouble() ? 0 : 2)}';
+    final pct =
+        r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(2);
     return switch (_commissionType!) {
       CommissionType.percentageSale =>
         'Con $pct %, una venta de \$200 le deja ${money(200 * r / 100)}.',
@@ -152,6 +162,7 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
           roleId: _roleId,
           commissionType: commissionType,
           commissionRate: commissionRate,
+          defaultWarehouseId: _warehouseId,
         );
       } else {
         await notifier.create(
@@ -161,6 +172,7 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
           password: _passwordController.text.trim(),
           commissionType: commissionType,
           commissionRate: commissionRate,
+          defaultWarehouseId: _warehouseId,
         );
       }
       if (mounted) Navigator.of(context).pop();
@@ -177,10 +189,14 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
     final mq = MediaQuery.of(context);
     final bottomInset = max(mq.viewInsets.bottom, mq.padding.bottom);
     final roles = ref.watch(rolesProvider).valueOrNull ?? const <TenantRole>[];
+    final warehouses =
+        ref.watch(operatingWarehouseOptionsProvider).valueOrNull ??
+            const <Warehouse>[];
     if (_roleId.isEmpty && roles.isNotEmpty) {
       // Cajero por defecto: es el rol que más se da de alta en una tiendita.
       _roleId = roles
-          .firstWhere((r) => r.code == RoleCodes.cashier, orElse: () => roles.first)
+          .firstWhere((r) => r.code == RoleCodes.cashier,
+              orElse: () => roles.first)
           .id;
       WidgetsBinding.instance.addPostFrameCallback((_) => _validate());
     }
@@ -261,8 +277,9 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
                 readOnly: widget.isEditing,
                 enabled: !widget.isEditing,
                 keyboardType: TextInputType.emailAddress,
-                textInputAction:
-                    widget.isEditing ? TextInputAction.done : TextInputAction.next,
+                textInputAction: widget.isEditing
+                    ? TextInputAction.done
+                    : TextInputAction.next,
                 style:
                     const TextStyle(color: AppColors.onSurface, fontSize: 15),
                 decoration: const InputDecoration(
@@ -291,8 +308,8 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
                   focusNode: _passwordFocus,
                   obscureText: true,
                   textInputAction: TextInputAction.done,
-                  style: const TextStyle(
-                      color: AppColors.onSurface, fontSize: 15),
+                  style:
+                      const TextStyle(color: AppColors.onSurface, fontSize: 15),
                   decoration: const InputDecoration(
                     hintText: 'Mínimo 6 caracteres',
                     prefixIcon: Icon(Icons.lock_outline_rounded, size: 18),
@@ -333,6 +350,36 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
                         fontWeight: FontWeight.w600),
                   ),
                 ),
+              // Almacén donde opera (D15). Visible siempre que haya almacenes,
+              // aunque sea uno: al editar a alguien se ve dónde opera sin
+              // tener que adivinarlo (QA de Eduardo, Sep 23).
+              if (warehouses.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _label('Almacén donde opera'),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  key: const Key('memberWarehouse'),
+                  initialValue: warehouses.any((w) => w.id == _warehouseId)
+                      ? _warehouseId
+                      : null,
+                  dropdownColor: AppColors.surface,
+                  style:
+                      const TextStyle(color: AppColors.onSurface, fontSize: 14),
+                  decoration: const InputDecoration(
+                    hintText: 'Sin asignar',
+                    isDense: true,
+                  ),
+                  items: [
+                    for (final w in warehouses)
+                      DropdownMenuItem(
+                        key: Key('memberWarehouse-${w.id}'),
+                        value: w.id,
+                        child: Text(w.name),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _warehouseId = value),
+                ),
+              ],
               const SizedBox(height: 16),
               _label('Comisión'),
               const SizedBox(height: 6),
@@ -370,8 +417,8 @@ class _MemberFormModalState extends ConsumerState<MemberFormModal> {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   textInputAction: TextInputAction.done,
-                  style: const TextStyle(
-                      color: AppColors.onSurface, fontSize: 15),
+                  style:
+                      const TextStyle(color: AppColors.onSurface, fontSize: 15),
                   decoration: InputDecoration(
                     hintText: _commissionType == CommissionType.fixedPerSale
                         ? 'Ej: 15'

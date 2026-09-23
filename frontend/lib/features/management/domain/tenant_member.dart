@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../analytics/domain/employee_performance.dart' show CommissionType;
+import 'tenant_role.dart' show RoleCodes;
 
 export '../../analytics/domain/employee_performance.dart' show CommissionType;
 
@@ -16,12 +17,20 @@ class TenantMember extends Equatable {
     required this.createdAt,
     this.commissionType = CommissionType.percentageSale,
     this.commissionRate = 0,
-  });
+    this.permissions = const <String>{},
+    this.defaultWarehouseId,
+    String? roleCode,
+  }) : roleCode = roleCode ?? roleId;
 
   final String id;
   final String name;
   final String email;
   final String roleId;
+
+  /// Código del rol (`OWNER`, `ADMIN`…) tal como lo manda `role.name`. En el
+  /// mock coincide con `roleId`. Sirve para "es el Dueño" sin esperar a que
+  /// cargue la lista de roles.
+  final String roleCode;
   final bool isActive;
   final DateTime createdAt;
 
@@ -30,6 +39,19 @@ class TenantMember extends Equatable {
   /// registra el asiento con estos valores cada vez que la persona cobra.
   final CommissionType commissionType;
   final double commissionRate;
+
+  /// Permisos efectivos de la persona = los de su rol, tal como los manda
+  /// `GET /auth/me → role.permissions[].code` (OWNER → catálogo completo).
+  /// Sólo se llena para quien está en sesión; en el listado de Usuarios
+  /// viaja vacío porque ahí lo que importa es el rol.
+  final Set<String> permissions;
+
+  /// Almacén operativo asignado por quien administra la tienda (D15).
+  final String? defaultWarehouseId;
+
+  bool can(String permission) => permissions.contains(permission);
+
+  bool get isOwner => roleCode == RoleCodes.owner;
 
   bool get hasCommission => commissionRate > 0;
 
@@ -64,6 +86,8 @@ class TenantMember extends Equatable {
     bool? isActive,
     CommissionType? commissionType,
     double? commissionRate,
+    Set<String>? permissions,
+    String? defaultWarehouseId,
   }) =>
       TenantMember(
         id: id,
@@ -74,6 +98,9 @@ class TenantMember extends Equatable {
         createdAt: createdAt,
         commissionType: commissionType ?? this.commissionType,
         commissionRate: commissionRate ?? this.commissionRate,
+        permissions: permissions ?? this.permissions,
+        defaultWarehouseId: defaultWarehouseId ?? this.defaultWarehouseId,
+        roleCode: roleId == null ? roleCode : null,
       );
 
   @override
@@ -86,6 +113,9 @@ class TenantMember extends Equatable {
         createdAt,
         commissionType,
         commissionRate,
+        permissions,
+        defaultWarehouseId,
+        roleCode,
       ];
 }
 

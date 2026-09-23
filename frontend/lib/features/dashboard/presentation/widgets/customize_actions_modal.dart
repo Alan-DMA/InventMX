@@ -23,7 +23,25 @@ class _CustomizeActionsSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selected = ref.watch(quickActionsProvider);
+    // Se marca y se cuenta sobre lo que el Inicio muestra de verdad (ya
+    // filtrado por rol): con el state crudo el contador decía "3/3" aunque
+    // en la lista sólo hubiera dos opciones (QA de Eduardo, Sep 23).
+    final selected = ref.watch(visibleQuickActionsProvider);
+    final catalog = ref.watch(allowedQuickActionsProvider);
+
+    // Conmuta sobre la selección visible y la guarda: lo elegido es
+    // exactamente lo que se verá, sin relleno automático.
+    void toggle(QuickActionId id) {
+      final next = List<QuickActionId>.from(selected);
+      if (next.contains(id)) {
+        if (next.length > 1) next.remove(id);
+      } else if (next.length < 3) {
+        next.add(id);
+      } else {
+        next[2] = id;
+      }
+      ref.read(quickActionsProvider.notifier).setActions(next);
+    }
 
     return SafeArea(
       child: Padding(
@@ -82,13 +100,13 @@ class _CustomizeActionsSheet extends ConsumerWidget {
             Flexible(
               child: ListView.separated(
                 shrinkWrap: true,
-                itemCount: QuickActionDefinition.catalog.length,
+                itemCount: catalog.length,
                 separatorBuilder: (_, __) => const Divider(
                   height: 1,
                   color: AppColors.border,
                 ),
                 itemBuilder: (context, index) {
-                  final action = QuickActionDefinition.catalog[index];
+                  final action = catalog[index];
                   final isSelected = selected.contains(action.id);
 
                   return ListTile(
@@ -126,17 +144,9 @@ class _CustomizeActionsSheet extends ConsumerWidget {
                     trailing: Checkbox(
                       value: isSelected,
                       activeColor: AppColors.emerald,
-                      onChanged: (val) {
-                        ref
-                            .read(quickActionsProvider.notifier)
-                            .toggleAction(action.id);
-                      },
+                      onChanged: (_) => toggle(action.id),
                     ),
-                    onTap: () {
-                      ref
-                          .read(quickActionsProvider.notifier)
-                          .toggleAction(action.id);
-                    },
+                    onTap: () => toggle(action.id),
                   );
                 },
               ),

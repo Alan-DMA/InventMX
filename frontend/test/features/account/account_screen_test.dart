@@ -85,12 +85,14 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 void main() {
-  group('Página índice', () {
-    testWidgets('el Dueño ve su identidad y los dos grupos', (tester) async {
+  group('Mi perfil (Fase A: sólo lo propio, igual para todos)', () {
+    testWidgets('el Dueño ve su identidad y sus cinco entradas (CA-04)',
+        (tester) async {
       final container = _container();
       await tester.pumpWidget(_app(container, const AccountScreen()));
       await _settle(tester);
 
+      expect(find.text('Mi perfil'), findsOneWidget);
       expect(find.text('Eduardo Cristancho'), findsOneWidget);
       expect(find.byKey(const Key('accountRoleChip')), findsOneWidget);
 
@@ -98,10 +100,16 @@ void main() {
       expect(find.byKey(const Key('accountRowData')), findsOneWidget);
       expect(find.byKey(const Key('accountRowPassword')), findsOneWidget);
       expect(find.byKey(const Key('accountRowWarehouse')), findsOneWidget);
+      // El dueño de la semilla no comisiona: la entrada no aparece.
+      expect(find.byKey(const Key('accountRowCommissions')), findsNothing);
 
-      expect(find.text('Mi negocio'.toUpperCase()), findsOneWidget);
-      expect(find.byKey(const Key('accountRowUsers')), findsOneWidget);
-      expect(find.byKey(const Key('accountRowPreferences')), findsOneWidget);
+      // Lo administrativo se fue al menú ☰: aquí no hay grupo de negocio
+      // ni panel de fundadores, ni siquiera para el Dueño.
+      expect(find.text('Mi negocio'.toUpperCase()), findsNothing);
+      expect(find.byKey(const Key('accountRowUsers')), findsNothing);
+      expect(find.byKey(const Key('accountRowPreferences')), findsNothing);
+      expect(find.byKey(const Key('accountRowSubscription')), findsNothing);
+      expect(find.byKey(const Key('accountRowSystem')), findsNothing);
 
       // Cerrar sesión cierra la página: hay que bajar hasta construirlo.
       await tester.scrollUntilVisible(
@@ -112,44 +120,32 @@ void main() {
       expect(find.byKey(const Key('accountLogout')), findsOneWidget);
     });
 
-    testWidgets('un Cajero solo ve lo suyo: no hay grupo de negocio',
+    testWidgets('un Cajero con comisión ve "Mis comisiones" con su esquema',
         (tester) async {
       final container = _container(email: _cashier);
       await tester.pumpWidget(_app(container, const AccountScreen()));
       await _settle(tester);
 
       expect(find.byKey(const Key('accountRowData')), findsOneWidget);
-      expect(find.text('Mi negocio'.toUpperCase()), findsNothing);
+      expect(find.byKey(const Key('accountRowCommissions')), findsOneWidget);
+      expect(find.text('5 % de lo que vende'), findsOneWidget);
       expect(find.byKey(const Key('accountRowUsers')), findsNothing);
-      expect(find.byKey(const Key('accountRowPreferences')), findsNothing);
     });
 
-    testWidgets('solo el Dueño ve cuánto paga el negocio', (tester) async {
+    testWidgets('solo el Dueño puede ver cuánto paga el negocio', (tester) async {
       final owner = _container();
       await tester.pumpWidget(_app(owner, const AccountScreen()));
       await _settle(tester);
       expect(owner.read(canSeeSubscriptionProvider), isTrue);
-      expect(find.byKey(const Key('accountRowSubscription')), findsOneWidget);
+      expect(owner.read(isOwnerProvider), isTrue);
 
       final manager = _container(email: _manager);
       await tester.pumpWidget(_app(manager, const AccountScreen()));
       await _settle(tester);
       expect(manager.read(canSeeSubscriptionProvider), isFalse);
-      expect(find.byKey(const Key('accountRowSubscription')), findsNothing);
-      // El Encargado sí administra gente, pero no toca los almacenes.
-      expect(find.byKey(const Key('accountRowUsers')), findsOneWidget);
-      expect(find.byKey(const Key('accountRowPreferences')), findsNothing);
-    });
-
-    testWidgets('la administración del sistema no existe para un comerciante',
-        (tester) async {
-      final container = _container();
-      await tester.pumpWidget(_app(container, const AccountScreen()));
-      await _settle(tester);
-
-      expect(
-          find.text('Administración del sistema'.toUpperCase()), findsNothing);
-      expect(find.byKey(const Key('accountRowSystem')), findsNothing);
+      // El Encargado administra gente y preferencias (D10), sin suscripción.
+      expect(manager.read(canManageMembersProvider), isTrue);
+      expect(manager.read(canManageStoreProvider), isTrue);
     });
   });
 
@@ -269,7 +265,7 @@ void main() {
           .pumpWidget(_app(container, const OperatingWarehouseScreen()));
       await _settle(tester);
 
-      expect(container.read(canManageWarehousesProvider), isFalse);
+      expect(container.read(canManageStoreProvider), isFalse);
       expect(find.byKey(const Key('warehouseLockedHint')), findsOneWidget);
       expect(find.byKey(const Key('warehouseManageLink')), findsNothing);
 
@@ -290,9 +286,11 @@ void main() {
       expect(find.byKey(const Key('warehouseManageLink')), findsOneWidget);
       expect(
         container.read(myPermissionsProvider),
-        contains(Permissions.inventarioGestionarAlmacenes),
+        contains(Permissions.settingsManageStore),
       );
-      expect(container.read(myRoleProvider)?.id, TenantRoles.owner);
+      expect(container.read(currentMemberProvider).valueOrNull?.roleCode,
+          RoleCodes.owner);
+      expect(container.read(isOwnerProvider), isTrue);
     });
   });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../management/domain/app_permission.dart';
 
 /// Identificadores de las acciones operativas disponibles en el catálogo de Nexus.
 enum QuickActionId {
@@ -96,6 +97,19 @@ class QuickActionDefinition {
     QuickActionId.addProduct,
     QuickActionId.adjustStock,
   ];
+
+  /// Permiso del seed que exige cada acción (Permisos por rol, Fase A): una
+  /// acción sin permiso no se ofrece — ni en el Inicio ni en "Personalizar".
+  static String permissionFor(QuickActionId id) => switch (id) {
+        QuickActionId.sell => Permissions.salesCheckout,
+        QuickActionId.adjustStock => Permissions.inventoryAdjustStock,
+        QuickActionId.newPurchase => Permissions.purchasesCreate,
+        QuickActionId.addProduct => Permissions.inventoryCreate,
+        QuickActionId.gondola => Permissions.inventoryAdjustStock,
+        QuickActionId.webCatalog => Permissions.salesView,
+        QuickActionId.importExcel => Permissions.inventoryCreate,
+        QuickActionId.purchasesHub => Permissions.purchasesView,
+      };
 
   static QuickActionDefinition fromId(QuickActionId id) {
     return catalog.firstWhere(

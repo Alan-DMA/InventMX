@@ -10,6 +10,8 @@ import 'package:nexus_app/features/inventory/presentation/inventory_provider.dar
 import 'package:nexus_app/features/inventory/presentation/product_detail_screen.dart';
 import 'package:nexus_app/features/inventory/presentation/widgets/action_grid.dart';
 import 'package:nexus_app/features/inventory/presentation/widgets/stock_card.dart';
+import 'package:nexus_app/features/management/domain/app_permission.dart';
+import 'package:nexus_app/features/management/presentation/management_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Mock
@@ -60,6 +62,7 @@ Product _makeProduct({
 Widget _buildWidget(
   Product product, {
   MockInventoryRepository? mockRepo,
+  Set<String>? permissions,
 }) {
   final repo = mockRepo ?? MockInventoryRepository();
 
@@ -89,6 +92,9 @@ Widget _buildWidget(
       productDetailProvider(product.id).overrideWith(
         (ref) async => product,
       ),
+      // Puertas por rol (Fase A): sin sesión no hay permisos y la ficha
+      // esconde Editar/Ajustar/Trasladar. Por defecto, Dueño.
+      myPermissionsProvider.overrideWithValue(permissions ?? Permissions.all),
     ],
     child: MaterialApp(
       theme: AppTheme.dark,
@@ -254,6 +260,28 @@ void main() {
     expect(find.text('Trasladar'), findsOneWidget);
     expect(find.text('Ver Kardex'), findsOneWidget);
     expect(find.text('Etiqueta'), findsOneWidget);
+    expect(find.byTooltip('Editar producto'), findsOneWidget);
+  });
+
+  testWidgets(
+      'un Cajero ve precio, costo y kardex, pero no edita ni ajusta (CA-07)',
+      (tester) async {
+    final product = _makeProduct();
+
+    await tester.pumpWidget(_buildWidget(
+      product,
+      permissions: const {Permissions.inventoryView, Permissions.salesCheckout},
+    ));
+    await tester.pumpAndSettle();
+
+    // Costo visible para todos los roles (D12).
+    expect(find.text('COSTO'), findsOneWidget);
+    expect(find.text('MARGEN'), findsOneWidget);
+    expect(find.text('Ver Kardex'), findsOneWidget);
+    expect(find.text('Etiqueta'), findsOneWidget);
+    expect(find.text('Ajustar stock'), findsNothing);
+    expect(find.text('Trasladar'), findsNothing);
+    expect(find.byTooltip('Editar producto'), findsNothing);
   });
 
   // ── Skeleton durante carga ────────────────────────────────────────────────

@@ -19,8 +19,10 @@ class ActionGrid extends StatelessWidget {
     required this.onLabel,
   });
 
-  final VoidCallback onAdjustStock;
-  final VoidCallback onTransfer;
+  /// Ajustar y trasladar exigen `inventory.adjust_stock`: sin él el botón
+  /// no se pinta (Permisos por rol, Fase A — ocultar, no deshabilitar).
+  final VoidCallback? onAdjustStock;
+  final VoidCallback? onTransfer;
   final VoidCallback onKardex;
   final VoidCallback onLabel;
 
@@ -54,6 +56,10 @@ class ActionGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final callbacks = [onAdjustStock, onTransfer, onKardex, onLabel];
+    final visible = [
+      for (var i = 0; i < _actions.length; i++)
+        if (callbacks[i] != null) (_actions[i], callbacks[i]!),
+    ];
 
     return GridView.builder(
       shrinkWrap: true,
@@ -64,10 +70,10 @@ class ActionGrid extends StatelessWidget {
         crossAxisSpacing: 10,
         childAspectRatio: 2.4,
       ),
-      itemCount: _actions.length,
+      itemCount: visible.length,
       itemBuilder: (context, index) => _ActionButton(
-        item: _actions[index],
-        onTap: callbacks[index],
+        item: visible[index].$1,
+        onTap: visible[index].$2,
       ),
     );
   }

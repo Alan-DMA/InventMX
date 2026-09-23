@@ -161,7 +161,7 @@ class _SaleReceiptScreenState extends ConsumerState<SaleReceiptScreen> {
                 ),
               ] else if (!result.isRefunded &&
                   ref.watch(
-                      hasPermissionProvider(Permissions.ventasEliminar))) ...[
+                      hasPermissionProvider(Permissions.salesCancel))) ...[
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,

@@ -101,9 +101,10 @@ final maxMarginPercentProvider =
 /// Quién puede ver cuánto paga el negocio.
 ///
 /// Decisión de Eduardo (Sep 16): sólo el Dueño — un cajero no tiene por qué
-/// enterarse de la facturación de su patrón. No existe permiso para esto en
-/// `seed.py`; se propone `saas.ver_suscripcion` y mientras tanto se resuelve
-/// por rol. Falso mientras carga (fail-closed).
+/// enterarse de la facturación de su patrón. El seed tiene `settings.billing`
+/// pero se lo niega incluso al Encargado, así que equivale a "es el Dueño";
+/// se resuelve por rol para no depender de que el servidor lo exija. Falso
+/// mientras carga (fail-closed).
 final canSeeSubscriptionProvider = Provider<bool>((ref) {
-  return ref.watch(myRoleProvider)?.isOwner ?? false;
+  return ref.watch(isOwnerProvider);
 });

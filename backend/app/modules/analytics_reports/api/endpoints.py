@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de dependencias de infraestructura y seguridad
 from app.core.database.session import get_db
-from app.core.security.deps import get_current_user
+from app.core.security.deps import get_current_user, require_permission
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.analytics_reports.schemas.analytics_schemas import (
     CashFlowSummaryResponse,
@@ -76,7 +76,7 @@ async def get_financial_summary(
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> ExecutiveFinancialSummaryResponse:
     """Retorna los KPIs ejecutivos de rentabilidad en Pesos Mexicanos ($ MXN) (RF-18 / Const. Art. 7.6)."""
     service = FinancialAnalyticsService(db)
@@ -99,7 +99,7 @@ async def get_cash_flow(
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> CashFlowSummaryResponse:
     """Retorna el flujo de caja neto conciliando ventas de contado, cobranza y pagos a proveedores (RF-19)."""
     service = FinancialAnalyticsService(db)
@@ -122,7 +122,7 @@ async def get_inventory_health(
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> InventoryHealthResponse:
     """Retorna la valuación total del inventario, top 10 productos vendidos y alertas de stock crítico (RF-20)."""
     service = FinancialAnalyticsService(db)
@@ -145,7 +145,7 @@ async def get_sales_trends(
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> SalesTrendsResponse:
     """Alimenta la gráfica diaria del dashboard de Reportes; misma base que `/financial-summary` (RF-21)."""
     service = FinancialAnalyticsService(db)
@@ -165,7 +165,7 @@ async def get_sales_trends(
 )
 async def get_working_capital(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> WorkingCapitalResponse:
     """Retorna el balance de liquidez neta (Efectivo en caja + Cuentas por cobrar - Cuentas por pagar) (RF-21)."""
     service = FinancialAnalyticsService(db)

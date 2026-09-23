@@ -50,6 +50,10 @@ class UserUpdate(BaseModel):
         decimal_places=2,
         description="Porcentaje (0-100) o monto fijo en $ MXN por venta; 0 desactiva la comisión",
     )
+    default_warehouse_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="Almacén operativo asignado al empleado por quien administra la tienda (settings.manage_users)",
+    )
 
 
 class UserRead(UserBase):

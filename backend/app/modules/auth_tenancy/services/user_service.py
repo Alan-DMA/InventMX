@@ -168,6 +168,12 @@ class UserService:
             if effective_type != CommissionType.FIXED_PER_SALE and data.commission_rate > Decimal("100"):
                 raise BadRequestException("El porcentaje de comisión no puede ser mayor a 100 %.")
 
+        # Almacén operativo asignado por el administrador: debe ser del mismo tenant
+        if data.default_warehouse_id is not None:
+            warehouse = await self.warehouse_repo.get_by_id(data.default_warehouse_id)
+            if not warehouse or warehouse.tenant_id != tenant_id:
+                raise NotFoundException(f"Almacén con ID '{data.default_warehouse_id}' no encontrado.")
+
         # Hashear nueva contraseña si fue provista
         hashed_pwd = get_password_hash(data.password) if data.password else None
 
@@ -180,6 +186,7 @@ class UserService:
             is_active=data.is_active,
             commission_type=data.commission_type,
             commission_rate=data.commission_rate,
+            default_warehouse_id=data.default_warehouse_id,
         )
 
         # Persistir cambios en base de datos

@@ -14,6 +14,9 @@ import 'package:nexus_app/features/inventory/domain/product.dart';
 import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart'
     show WarehouseOption, warehousesProvider;
 import 'package:nexus_app/features/inventory/presentation/widgets/product_list_tile.dart';
+import 'package:nexus_app/features/management/data/management_repository.dart';
+import 'package:nexus_app/features/management/presentation/management_provider.dart'
+    show managementRepositoryProvider;
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
 import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart';
@@ -92,6 +95,10 @@ Widget _buildApp(MockInventoryRepository mock) {
       // El Dashboard pide métricas al backend real — en tests de integración
       // de inventario se usa el mock determinista.
       dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock()),
+      // Pestañas por rol (Fase A): sin quién soy no hay permisos y el shell
+      // sólo muestra Inicio e Inventario. El mock entra como Dueño.
+      managementRepositoryProvider
+          .overrideWith((ref) => ManagementRepositoryMock()),
     ],
     child: Consumer(
       builder: (_, ref, __) => MaterialApp.router(

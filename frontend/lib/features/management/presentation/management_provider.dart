@@ -114,6 +114,7 @@ class MembersNotifier extends AsyncNotifier<List<TenantMember>> {
     required String password,
     CommissionType commissionType = CommissionType.percentageSale,
     double commissionRate = 0,
+    String? defaultWarehouseId,
   }) async {
     await _repo.createMember(
       name: name,
@@ -122,6 +123,7 @@ class MembersNotifier extends AsyncNotifier<List<TenantMember>> {
       password: password,
       commissionType: commissionType,
       commissionRate: commissionRate,
+      defaultWarehouseId: defaultWarehouseId,
     );
     await _reload();
   }
@@ -133,6 +135,7 @@ class MembersNotifier extends AsyncNotifier<List<TenantMember>> {
     String? roleId,
     CommissionType? commissionType,
     double? commissionRate,
+    String? defaultWarehouseId,
   }) async {
     await _repo.updateMember(
       id: id,
@@ -141,9 +144,10 @@ class MembersNotifier extends AsyncNotifier<List<TenantMember>> {
       roleId: roleId,
       commissionType: commissionType,
       commissionRate: commissionRate,
+      defaultWarehouseId: defaultWarehouseId,
     );
     await _reload();
-    // Cambiarse el rol a sí mismo repinta los permisos de toda la sesión.
+    // Cambiarse el rol o el almacén a sí mismo repinta toda la sesión.
     ref.invalidate(currentMemberProvider);
   }
 
@@ -202,35 +206,12 @@ final categoriesProvider =
 // Roles y permisos
 // ---------------------------------------------------------------------------
 
+/// Sólo lectura: los cuatro roles globales con los permisos que manda el
+/// servidor. Personalizarlos por comercio es la Fase B.
 class RolesNotifier extends AsyncNotifier<List<TenantRole>> {
   @override
   Future<List<TenantRole>> build() =>
       ref.watch(managementRepositoryProvider).listRoles();
-
-  ManagementRepository get _repo => ref.read(managementRepositoryProvider);
-
-  Future<void> setPermissions({
-    required String roleId,
-    required Set<String> permissions,
-  }) async {
-    await _repo.updateRolePermissions(roleId: roleId, permissions: permissions);
-    state = await AsyncValue.guard(_repo.listRoles);
-  }
-
-  /// Prende o apaga un permiso suelto de la matriz.
-  Future<void> toggle({
-    required TenantRole role,
-    required String permission,
-    required bool granted,
-  }) {
-    final next = Set.of(role.permissions);
-    if (granted) {
-      next.add(permission);
-    } else {
-      next.remove(permission);
-    }
-    return setPermissions(roleId: role.id, permissions: next);
-  }
 }
 
 final rolesProvider = AsyncNotifierProvider<RolesNotifier, List<TenantRole>>(
@@ -246,17 +227,26 @@ final rolesByIdProvider = Provider<Map<String, TenantRole>>((ref) {
 // Puertas de permiso
 // ---------------------------------------------------------------------------
 
-/// Permisos efectivos de quien está en sesión = los de su rol.
+/// Permisos efectivos de quien está en sesión, tal como los manda
+/// `GET /auth/me → role.permissions[].code` (OWNER → catálogo completo).
 ///
 /// Vacío mientras carga o sin sesión: fail-closed. Nunca se ofrece una acción
 /// para después negarla (mismo criterio que `isCorporativoPlanProvider`).
 final myPermissionsProvider = Provider<Set<String>>((ref) {
-  return ref.watch(myRoleProvider)?.permissions ?? const <String>{};
+  return ref.watch(currentMemberProvider).valueOrNull?.permissions ??
+      const <String>{};
 });
 
-/// Los roles se observan **antes** de resolver quién soy, a propósito: si se
-/// leyeran después de `currentMember` la carga sería en cascada (una espera
-/// tras otra) en vez de en paralelo.
+/// `true` cuando `/auth/me` ya respondió (con o sin permisos). El router
+/// sólo rebota rutas con permisos conocidos; la UI, en cambio, es fail-closed
+/// desde el primer frame.
+final permissionsKnownProvider = Provider<bool>(
+  (ref) => ref.watch(currentMemberProvider).valueOrNull != null,
+);
+
+/// El rol de quien está en sesión (para la etiqueta del perfil y del menú).
+/// Los roles se observan **antes** de resolver quién soy, a propósito: así
+/// las dos cargas van en paralelo y no en cascada.
 final myRoleProvider = Provider<TenantRole?>((ref) {
   final rolesById = ref.watch(rolesByIdProvider);
   final member = ref.watch(currentMemberProvider).valueOrNull;
@@ -268,18 +258,95 @@ final hasPermissionProvider = Provider.family<bool, String>(
   (ref, permission) => ref.watch(myPermissionsProvider).contains(permission),
 );
 
-/// Decisión técnica #11: el almacén operativo se cambia por **permiso**, no
-/// por un cheque fijo "solo dueño".
-final canManageWarehousesProvider = Provider<bool>(
-  (ref) => ref
-      .watch(hasPermissionProvider(Permissions.inventarioGestionarAlmacenes)),
+/// Dueño del comercio. El servidor no le siembra permisos: los tiene todos
+/// por definición, y hay cosas que sólo son suyas (suscripción, clonar).
+/// Sale de `/auth/me` (`role.name`), no de la lista de roles: el router lo
+/// consulta y no debe arrastrar una carga extra.
+final isOwnerProvider = Provider<bool>(
+  (ref) => ref.watch(currentMemberProvider).valueOrNull?.isOwner ?? false,
+);
+
+// Operación ------------------------------------------------------------------
+
+final canCheckoutProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.salesCheckout)),
+);
+
+final canViewSalesProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.salesView)),
+);
+
+final canCancelSalesProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.salesCancel)),
+);
+
+final canViewCashProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.cashView)),
+);
+
+final canViewInventoryProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.inventoryView)),
+);
+
+final canCreateInventoryProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.inventoryCreate)),
+);
+
+final canEditPriceProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.inventoryEditPrice)),
+);
+
+final canAdjustStockProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.inventoryAdjustStock)),
+);
+
+final canViewPurchasesProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.purchasesView)),
+);
+
+final canCreatePurchasesProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.purchasesCreate)),
+);
+
+final canPayCreditProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.purchasesPayCredit)),
+);
+
+// Administración -------------------------------------------------------------
+
+final canSeeReportsProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.reportsViewBasic)),
 );
 
 final canManageMembersProvider = Provider<bool>(
-  (ref) => ref.watch(hasPermissionProvider(Permissions.usuariosGestionar)),
+  (ref) => ref.watch(hasPermissionProvider(Permissions.settingsManageUsers)),
 );
 
-/// Entrada al hub de Gestión: basta con poder administrar algo.
-final canOpenManagementProvider = Provider<bool>((ref) =>
-    ref.watch(canManageWarehousesProvider) ||
-    ref.watch(canManageMembersProvider));
+/// Preferencias operativas (almacenes, categorías, margen), catálogo web y
+/// asignar el almacén donde opera cada quien (D15).
+final canManageStoreProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.settingsManageStore)),
+);
+
+/// La sección "Administración" del menú existe si hay algo que mostrar en ella.
+final canOpenAdministrationProvider = Provider<bool>((ref) =>
+    ref.watch(canSeeReportsProvider) ||
+    ref.watch(canManageMembersProvider) ||
+    ref.watch(canManageStoreProvider) ||
+    ref.watch(isOwnerProvider));
+
+// Pestañas del shell ---------------------------------------------------------
+
+/// Ramas del `StatefulShellRoute`, en el orden en que están declaradas.
+enum ShellTab { home, inventory, sales, purchases, cash }
+
+/// Qué pestañas ve quien está en sesión. Inicio e Inventario siempre (todo
+/// rol tiene `inventory.view`); las demás por permiso. Mientras carga sólo
+/// quedan esas dos: fail-closed, nunca una pestaña que luego se esconda.
+final visibleTabsProvider = Provider<List<ShellTab>>((ref) => [
+      ShellTab.home,
+      ShellTab.inventory,
+      if (ref.watch(canCheckoutProvider)) ShellTab.sales,
+      if (ref.watch(canViewPurchasesProvider)) ShellTab.purchases,
+      if (ref.watch(canViewCashProvider)) ShellTab.cash,
+    ]);

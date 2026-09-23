@@ -6,21 +6,19 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/settings_group.dart';
 import '../../auth/presentation/login_provider.dart';
-import '../../inventory/presentation/widgets/clone_catalog_sheet.dart';
 import '../../management/domain/tenant_member.dart';
 import '../../management/domain/tenant_role.dart';
 import '../../management/presentation/management_provider.dart';
-import '../../saas_admin/domain/subscription.dart' show mxn;
-import '../../saas_admin/presentation/saas_provider.dart';
 import 'account_provider.dart';
 
-/// "Mi cuenta" — página índice hacia todo lo que se configura.
+/// "Mi perfil" — sólo lo propio de quien está en sesión, igual para todos
+/// los roles: mis datos, mi contraseña, dónde opero, mis comisiones (si las
+/// tiene) y cerrar sesión.
 ///
-/// Sustituye a la hoja modal de 14.2, que mezclaba cinco dominios sin
-/// jerarquía y se desbordaba al crecer. El agrupamiento sigue la propiedad de
-/// cada cosa: lo **mío** (mis datos, mi contraseña, dónde opero), lo del
-/// **negocio** (gente, almacenes, suscripción) y, sólo para quien opera la
-/// plataforma, el **sistema** — que ningún comerciante llega a ver.
+/// Lo administrativo (Usuarios, Preferencias, Suscripción, Clonar catálogo,
+/// Panel de fundadores) vive en el menú ☰ con puertas por rol (Permisos por
+/// rol, Fase A — decisión de Eduardo del Sep 21): aquí no hay nada que un
+/// cajero no deba ver, así que la página no cambia según quién la abra.
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
 
@@ -30,53 +28,11 @@ class AccountScreen extends ConsumerWidget {
     final role = ref.watch(myRoleProvider);
     final warehouse = ref.watch(operatingWarehouseProvider).valueOrNull;
 
-    final canMembers = ref.watch(canManageMembersProvider);
-    final canWarehouses = ref.watch(canManageWarehousesProvider);
-    final canSubscription = ref.watch(canSeeSubscriptionProvider);
-    final isCorporativo = ref.watch(isCorporativoPlanProvider);
-    final isFounder = ref.watch(isFounderProvider);
-
-    final businessRows = <Widget>[
-      if (canMembers)
-        SettingsRow(
-          rowKey: const Key('accountRowUsers'),
-          icon: Icons.groups_outlined,
-          title: 'Usuarios y permisos',
-          subtitle: 'Quién trabaja aquí y qué puede hacer',
-          onTap: () => context.push(AppRoutes.manageMembers),
-        ),
-      if (canWarehouses)
-        SettingsRow(
-          rowKey: const Key('accountRowPreferences'),
-          icon: Icons.tune_rounded,
-          title: 'Preferencias operativas',
-          subtitle: 'Almacenes y categorías del negocio',
-          onTap: () => context.push(AppRoutes.preferences),
-        ),
-      if (canSubscription)
-        SettingsRow(
-          rowKey: const Key('accountRowSubscription'),
-          icon: Icons.receipt_long_outlined,
-          title: 'Mi suscripción',
-          subtitle: _planLine(ref),
-          onTap: () => context.push(AppRoutes.subscription),
-        ),
-      // RF-31, sólo Plan Corporativo (15.2.2): no se ofrece para luego negar.
-      if (isCorporativo)
-        SettingsRow(
-          rowKey: const Key('accountRowClone'),
-          icon: Icons.copy_all_rounded,
-          title: 'Clonar catálogo',
-          subtitle: 'Llevar tus productos a otra tienda, con stock en cero',
-          onTap: () => showCloneCatalogSheet(context),
-        ),
-    ];
-
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
       appBar: AppBar(
         backgroundColor: AppColors.darkSlate,
-        title: const Text('Mi cuenta'),
+        title: const Text('Mi perfil'),
       ),
       body: member == null
           ? const Center(
@@ -111,37 +67,22 @@ class AccountScreen extends ConsumerWidget {
                       subtitle: warehouse?.name ?? 'Sin almacén asignado',
                       onTap: () => context.push(AppRoutes.accountWarehouse),
                     ),
+                    // Sólo si le pagan comisión: sin esquema no hay nada que
+                    // consultar y una pantalla en ceros confunde.
+                    if (member.hasCommission)
+                      SettingsRow(
+                        rowKey: const Key('accountRowCommissions'),
+                        icon: Icons.payments_outlined,
+                        title: 'Mis comisiones',
+                        subtitle: member.commissionLabel!,
+                        onTap: () => context.push(AppRoutes.accountCommissions),
+                      ),
                   ],
                 ),
-                if (businessRows.isNotEmpty)
-                  SettingsGroup(label: 'Mi negocio', rows: businessRows),
-                // Operar la plataforma no es cosa de ningún comercio: sólo
-                // aparece para quien administra Nexus.
-                if (isFounder)
-                  SettingsGroup(
-                    label: 'Administración del sistema',
-                    rows: [
-                      SettingsRow(
-                        rowKey: const Key('accountRowSystem'),
-                        icon: Icons.admin_panel_settings_outlined,
-                        title: 'Panel de fundadores',
-                        subtitle: 'MRR, pagos por validar y comercios',
-                        tint: AppColors.skyBlue,
-                        onTap: () => context.push(AppRoutes.founderAdmin),
-                      ),
-                    ],
-                  ),
                 _LogoutButton(),
               ],
             ),
     );
-  }
-
-  String _planLine(WidgetRef ref) {
-    final sub = ref.watch(subscriptionProvider).valueOrNull;
-    final plan = sub?.plan;
-    if (plan == null) return 'Tu plan y tus pagos';
-    return 'Plan ${plan.name} · ${mxn(plan.priceMxn)}/mes';
   }
 }
 

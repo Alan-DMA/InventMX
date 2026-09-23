@@ -8,9 +8,12 @@ import 'management_provider.dart';
 
 /// Gestión → Permisos: qué puede hacer cada rol del comercio.
 ///
-/// Se edita por **rol**, no por persona: es como está modelado en el backend
-/// (`role_permissions`), y evita que dos cajeros terminen con accesos
-/// distintos sin que nadie sepa por qué.
+/// **Sólo lectura** (Permisos por rol, Fase A): muestra los permisos reales
+/// que manda el servidor por rol. Se organiza por **rol**, no por persona,
+/// porque así está modelado el backend (`role_permissions`) y evita que dos
+/// cajeros terminen con accesos distintos sin que nadie sepa por qué.
+/// Personalizarlos por comercio (clone-on-write de los roles globales) es la
+/// Fase B — hasta entonces no se ofrecen switches que luego no guardarían.
 class PermissionsScreen extends ConsumerStatefulWidget {
   const PermissionsScreen({super.key});
 
@@ -120,6 +123,24 @@ class _Matrix extends ConsumerWidget {
                 fontSize: 12.5, color: AppColors.onSurfaceMuted),
           ),
         ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Row(
+            children: [
+              Icon(Icons.lock_outline_rounded,
+                  size: 14, color: AppColors.onSurfaceMuted),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Los roles son estándar en esta versión',
+                  key: Key('permissionsReadOnly'),
+                  style: TextStyle(
+                      fontSize: 11.5, color: AppColors.onSurfaceMuted),
+                ),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
@@ -144,19 +165,14 @@ class _Matrix extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: AppColors.border),
                   ),
-                  // El SwitchListTile pinta su tinta sobre el Material más
-                  // cercano; sin éste el fondo de la tarjeta la taparía.
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: Column(
-                      children: [
-                        for (final permission in Permissions.ofModule(module))
-                          _PermissionRow(
-                            role: selected,
-                            permission: permission,
-                          ),
-                      ],
-                    ),
+                  child: Column(
+                    children: [
+                      for (final permission in Permissions.ofModule(module))
+                        _PermissionRow(
+                          role: selected,
+                          permission: permission,
+                        ),
+                    ],
                   ),
                 ),
               ],
@@ -168,56 +184,32 @@ class _Matrix extends ConsumerWidget {
   }
 }
 
-class _PermissionRow extends ConsumerWidget {
+class _PermissionRow extends StatelessWidget {
   const _PermissionRow({required this.role, required this.permission});
 
   final TenantRole role;
   final AppPermission permission;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final granted = role.can(permission.name);
-    // El permiso que sostiene la administración del negocio no se puede
-    // apagar en el rol que lo garantiza: se muestra bloqueado en vez de
-    // dejar intentarlo para después rechazarlo.
-    final locked = TenantRoles.undroppable[role.code] == permission.name;
 
-    return SwitchListTile(
+    return ListTile(
       key: Key('perm-${role.id}-${permission.name}'),
-      value: granted,
-      onChanged: locked ? null : (value) => _toggle(context, ref, value),
       dense: true,
-      activeThumbColor: AppColors.emerald,
-      contentPadding: const EdgeInsets.fromLTRB(14, 0, 8, 0),
+      contentPadding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+      leading: Icon(
+        granted ? Icons.check_circle_rounded : Icons.remove_circle_outline,
+        size: 20,
+        color: granted ? AppColors.emerald : AppColors.onSurfaceMuted,
+      ),
       title: Text(
         permission.description,
         style: TextStyle(
           fontSize: 13.5,
-          color: locked ? AppColors.onSurfaceMuted : AppColors.onSurface,
+          color: granted ? AppColors.onSurface : AppColors.onSurfaceMuted,
         ),
       ),
-      subtitle: locked
-          ? const Text(
-              'Sin esto nadie podría repartir accesos',
-              style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
-            )
-          : null,
     );
-  }
-
-  Future<void> _toggle(
-      BuildContext context, WidgetRef ref, bool granted) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(rolesProvider.notifier).toggle(
-            role: role,
-            permission: permission.name,
-            granted: granted,
-          );
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
-    }
   }
 }

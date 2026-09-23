@@ -124,6 +124,23 @@ void main() {
     expect(find.byType(SubscriptionCheckoutScreen), findsOneWidget);
   });
 
+  testWidgets('A9: un Cajero ve el banner de Soft Lock sin "Pagar ahora" y con el aviso a quien administra', (tester) async {
+    await pumpApp(tester, tenant: 't-lupita', email: 'jose.ramirez@nexus.mx');
+    // Quién soy (rol) carga con retardo del mock de Gestión.
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('softLockBanner')), findsOneWidget);
+    expect(find.text('Solo lectura · día 4 de 10'), findsOneWidget);
+    expect(find.byKey(const Key('softLockPayNow')), findsNothing);
+    expect(find.textContaining('avísale a quien administra la tienda'), findsOneWidget);
+
+    // Tocar el banner tampoco lo manda a una pantalla que el router rebotaría.
+    await tester.tap(find.byKey(const Key('softLockBannerTitle')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SubscriptionCheckoutScreen), findsNothing);
+  });
+
   testWidgets('CA-09: sin morosidad no hay banner', (tester) async {
     await pumpApp(tester, tenant: 't-sol');
     expect(find.byKey(const Key('softLockBanner')), findsNothing);
@@ -200,21 +217,44 @@ void main() {
     expect(find.byType(FounderAdminDashboardScreen), findsOneWidget);
   });
 
-  testWidgets('Mi cuenta: página con suscripción, sistema solo para fundador y cerrar sesión', (tester) async {
+  testWidgets('menú ☰: suscripción y panel de fundadores viven en el menú, no en Mi perfil (CA-03/CA-04)', (tester) async {
     await pumpApp(tester, tenant: 't-sol', email: 'eduardo@nexus.mx');
-    // La app abre en Inicio; el avatar lleva a la página de cuenta (ya no a
-    // una hoja modal). Los datos del miembro cargan con retardo del mock.
+    // Los datos del miembro (rol, permisos) cargan con retardo del mock.
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    // Mi perfil: sólo lo propio, ni siquiera para el Dueño fundador.
     await tester.tap(find.byKey(const Key('homeAccountButton')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
+    expect(find.text('Mi perfil'), findsOneWidget);
+    expect(find.byKey(const Key('accountRowSubscription')), findsNothing);
+    expect(find.byKey(const Key('accountRowSystem')), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
-    expect(find.text('Mi suscripción'), findsOneWidget);
-    expect(find.textContaining('Plan Comercio'), findsOneWidget);
-    // Operar la plataforma es un apartado aparte, solo para el fundador.
-    expect(find.byKey(const Key('accountRowSystem')), findsOneWidget);
+    // Menú ☰: Administración con "Mi suscripción" y Sistema con fundadores.
+    await tester.tap(find.byKey(const Key('homeDrawerButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('ADMINISTRACIÓN'), findsOneWidget);
+    expect(find.byKey(const Key('drawerSubscription')), findsOneWidget);
+    // Sistema queda al final de la lista del menú: hay que bajar.
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('drawerFounders')),
+      200,
+      scrollable: find.descendant(
+          of: find.byType(Drawer), matching: find.byType(Scrollable)),
+    );
+    expect(find.byKey(const Key('drawerFounders')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('drawerSubscription')),
+      -200,
+      scrollable: find.descendant(
+          of: find.byType(Drawer), matching: find.byType(Scrollable)),
+    );
 
-    await tester.tap(find.byKey(const Key('accountRowSubscription')));
+    await tester.tap(find.byKey(const Key('drawerSubscription')));
     await tester.pumpAndSettle();
     expect(find.byType(SubscriptionCheckoutScreen), findsOneWidget);
   });

@@ -243,8 +243,8 @@ void main() {
       await tester.enterText(
           find.byKey(const Key('memberPasswordField')), 'lucia123');
       await tester.pump();
-      await tester.ensureVisible(find.byKey(const Key('memberRole-SALESPERSON')));
-      await tester.tap(find.byKey(const Key('memberRole-SALESPERSON')));
+      await tester.ensureVisible(find.byKey(const Key('memberRole-WAREHOUSE')));
+      await tester.tap(find.byKey(const Key('memberRole-WAREHOUSE')));
       await tester.pump();
       await tester.ensureVisible(find.byKey(const Key('memberSaveButton')));
       await tester.pump();
@@ -256,7 +256,7 @@ void main() {
           .valueOrNull!
           .firstWhere((m) => m.email == 'lucia@minegocio.mx');
       expect(nueva.name, 'Lucía Fernández');
-      expect(nueva.roleId, TenantRoles.salesperson);
+      expect(nueva.roleId, RoleCodes.warehouse);
     });
 
     testWidgets('un correo repetido se explica dentro del modal',
@@ -358,56 +358,31 @@ void main() {
     });
   });
 
-  group('Permisos', () {
-    testWidgets('prender un permiso se lo da al rol', (tester) async {
-      final container = _container();
-      await tester.pumpWidget(_app(container, const PermissionsScreen()));
-      await _settle(tester);
-
-      await tester.tap(find.byKey(const Key('roleChip-CASHIER')));
-      await _settle(tester);
-
-      const key = Key('perm-CASHIER-inventario.crear');
-      expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isFalse);
-
-      await tester.tap(find.byKey(key));
-      await _settle(tester);
-
-      final cashier = container.read(rolesByIdProvider)[TenantRoles.cashier]!;
-      expect(cashier.can(Permissions.inventarioCrear), isTrue);
-    });
-
-    testWidgets('el permiso que sostiene la administración no se puede apagar',
+  group('Permisos (sólo lectura, Fase A)', () {
+    testWidgets('muestra los permisos reales de cada rol sin switches (CA-10)',
         (tester) async {
       final container = _container();
       await tester.pumpWidget(_app(container, const PermissionsScreen()));
       await _settle(tester);
 
-      // El Dueño es el primer rol, ya seleccionado. El módulo de Usuarios
-      // es el último de la matriz: hay que bajar hasta construirlo.
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('perm-TENANT_OWNER-usuarios.gestionar')),
-        300,
-        scrollable: find.byType(Scrollable).last,
-      );
-      final tile = tester.widget<SwitchListTile>(
-        find.byKey(const Key('perm-TENANT_OWNER-usuarios.gestionar')),
-      );
-      expect(tile.value, isTrue);
-      expect(tile.onChanged, isNull);
+      expect(find.byKey(const Key('permissionsReadOnly')), findsOneWidget);
+      expect(find.byType(SwitchListTile), findsNothing);
 
-      // El mismo permiso sí es editable en otro rol.
-      await tester.tap(find.byKey(const Key('roleChip-MANAGER')));
+      // El Dueño (primer rol) tiene todo.
+      expect(container.read(rolesByIdProvider)[RoleCodes.owner]!.permissions,
+          Permissions.all);
+
+      await tester.tap(find.byKey(const Key('roleChip-CASHIER')));
       await _settle(tester);
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('perm-MANAGER-usuarios.gestionar')),
-        300,
-        scrollable: find.byType(Scrollable).last,
+      final cashier = container.read(rolesByIdProvider)[RoleCodes.cashier]!;
+      expect(cashier.can(Permissions.salesCheckout), isTrue);
+      expect(cashier.can(Permissions.inventoryCreate), isFalse);
+      expect(find.byKey(const Key('perm-CASHIER-sales.checkout')), findsOneWidget);
+      // Nada que tocar: ninguna fila responde.
+      final tile = tester.widget<ListTile>(
+        find.byKey(const Key('perm-CASHIER-sales.checkout')),
       );
-      final managerTile = tester.widget<SwitchListTile>(
-        find.byKey(const Key('perm-MANAGER-usuarios.gestionar')),
-      );
-      expect(managerTile.onChanged, isNotNull);
+      expect(tile.onTap, isNull);
     });
   });
 }

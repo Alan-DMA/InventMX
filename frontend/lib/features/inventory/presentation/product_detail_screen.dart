@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'package:nexus_app/core/widgets/product_image_widget.dart';
+import '../../management/presentation/management_provider.dart';
 import '../domain/product.dart';
 import 'inventory_provider.dart';
 import 'kardex_provider.dart';
@@ -52,9 +53,10 @@ class ProductDetailScreen extends ConsumerWidget {
       data: (product) => _buildScaffold(
         context,
         title: product.name,
-        editAction: () => context.push(
-          AppRoutes.productEditPath(product.id),
-        ),
+        // Editar (precio, costo, datos) exige `inventory.edit_price`.
+        editAction: ref.watch(canEditPriceProvider)
+            ? () => context.push(AppRoutes.productEditPath(product.id))
+            : null,
         body: _DetailBody(product: product),
       ),
     );
@@ -115,6 +117,7 @@ class _DetailBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final canAdjust = ref.watch(canAdjustStockProvider);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
@@ -173,38 +176,44 @@ class _DetailBody extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 ActionGrid(
-                  onAdjustStock: () =>
-                      showAdjustStockModal(context, product).then((adjusted) {
-                    if (adjusted == true) {
-                      ref.invalidate(productDetailProvider(product.id));
-                      ref.invalidate(inventoryProvider);
-                      ref.invalidate(kardexProvider(product.id));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('✓ Stock ajustado correctamente'),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-                      }
-                    }
-                  }),
-                  onTransfer: () => showTransferStockModal(context, product)
-                      .then((transferred) {
-                    if (transferred == true) {
-                      ref.invalidate(productDetailProvider(product.id));
-                      ref.invalidate(inventoryProvider);
-                      ref.invalidate(kardexProvider(product.id));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('✓ Traslado registrado correctamente'),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-                      }
-                    }
-                  }),
+                  onAdjustStock: !canAdjust
+                      ? null
+                      : () => showAdjustStockModal(context, product)
+                              .then((adjusted) {
+                            if (adjusted == true) {
+                              ref.invalidate(productDetailProvider(product.id));
+                              ref.invalidate(inventoryProvider);
+                              ref.invalidate(kardexProvider(product.id));
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content:
+                                        Text('✓ Stock ajustado correctamente'),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            }
+                          }),
+                  onTransfer: !canAdjust
+                      ? null
+                      : () => showTransferStockModal(context, product)
+                              .then((transferred) {
+                            if (transferred == true) {
+                              ref.invalidate(productDetailProvider(product.id));
+                              ref.invalidate(inventoryProvider);
+                              ref.invalidate(kardexProvider(product.id));
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        '✓ Traslado registrado correctamente'),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            }
+                          }),
                   onKardex: () => showKardexBottomSheet(
                     context,
                     productId: product.id,
@@ -663,7 +672,8 @@ class _InfoRow extends StatelessWidget {
                         caption!,
                         style: TextStyle(
                           fontSize: 10,
-                          color: AppColors.onSurfaceMuted.withValues(alpha: 0.8),
+                          color:
+                              AppColors.onSurfaceMuted.withValues(alpha: 0.8),
                         ),
                         textAlign: TextAlign.end,
                       ),

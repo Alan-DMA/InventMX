@@ -6,14 +6,15 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../management/domain/warehouse.dart';
 import '../../management/presentation/management_provider.dart'
-    show canManageWarehousesProvider;
+    show canManageStoreProvider;
 import 'account_provider.dart';
 
 /// "Dónde opero" — en qué almacén se registran mis ventas y movimientos.
 ///
 /// Es configuración personal, no administración: elegir dónde trabajo es
 /// distinto de crear o dar de baja los almacenes del negocio (eso vive en
-/// Preferencias operativas). Cambiarlo exige permiso — decisión técnica #11.
+/// Preferencias operativas). Cambiarlo exige `settings.manage_store` (D15):
+/// a un cajero se lo asigna quien administra la tienda, desde Usuarios.
 class OperatingWarehouseScreen extends ConsumerWidget {
   const OperatingWarehouseScreen({super.key});
 
@@ -22,7 +23,7 @@ class OperatingWarehouseScreen extends ConsumerWidget {
     final current = ref.watch(operatingWarehouseProvider);
     final warehouses =
         ref.watch(operatingWarehouseOptionsProvider).valueOrNull ?? const [];
-    final canChange = ref.watch(canManageWarehousesProvider);
+    final canChange = ref.watch(canManageStoreProvider);
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
@@ -88,8 +89,7 @@ class OperatingWarehouseScreen extends ConsumerWidget {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Lo asigna quien administra los almacenes del '
-                          'negocio.',
+                          'Te lo asigna quien administra la tienda.',
                           key: Key('warehouseLockedHint'),
                           style: TextStyle(
                               fontSize: 12, color: AppColors.onSurfaceMuted),

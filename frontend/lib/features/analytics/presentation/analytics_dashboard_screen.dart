@@ -7,7 +7,6 @@ import '../../saas_admin/domain/subscription.dart' show mxn;
 import '../../saas_admin/presentation/saas_provider.dart';
 import '../domain/analytics_dashboard.dart';
 import 'analytics_dashboard_provider.dart';
-import 'employee_performance_screen.dart';
 import 'widgets/daily_sales_chart.dart';
 
 /// Dashboard analítico — Tarea 15.2.3 (RF-20 rentabilidad real, RF-21
@@ -44,17 +43,6 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
           'Reportes',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.onSurface),
         ),
-        actions: [
-          IconButton(
-            key: const Key('commissionsButton'),
-            tooltip: 'Mis comisiones',
-            icon: const Icon(Icons.badge_outlined, color: AppColors.onSurface),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const EmployeePerformanceScreen()),
-            ),
-          ),
-          const SizedBox(width: 4),
-        ],
       ),
       body: SafeArea(
         child: Column(

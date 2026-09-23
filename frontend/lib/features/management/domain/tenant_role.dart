@@ -22,7 +22,7 @@ class TenantRole extends Equatable {
   /// que la app compara, nunca el id — el UUID cambia por instalación.
   final String code;
 
-  bool get isOwner => code == RoleCodes.owner || code == TenantRoles.owner;
+  bool get isOwner => code == RoleCodes.owner;
 
   /// Cómo se le llama al rol en la tienda ("Dueño", "Cajero").
   final String label;
@@ -51,29 +51,13 @@ abstract final class RoleCodes {
   static const warehouse = 'WAREHOUSE';
 }
 
-abstract final class TenantRoles {
-  static const owner = 'TENANT_OWNER';
-  static const manager = 'MANAGER';
-  static const cashier = 'CASHIER';
-  static const salesperson = 'SALESPERSON';
-
-  /// El dueño no puede quedarse sin la llave de la casa: si se le quita
-  /// `usuarios.gestionar` nadie podría volver a repartir permisos y el
-  /// comercio queda bloqueado sin salida (ver [RoleLockoutException]).
-  static const undroppable = <String, String>{
-    owner: Permissions.usuariosGestionar,
-    RoleCodes.owner: Permissions.usuariosGestionar,
-  };
-}
-
-/// Se intentó dejar al comercio sin nadie que pueda administrar permisos.
-class RoleLockoutException implements Exception {
-  const RoleLockoutException();
-
-  String get message =>
-      'El rol Dueño debe conservar "Dar de alta usuarios y cambiar sus '
-      'permisos". Sin él nadie podría volver a repartir accesos.';
-
-  @override
-  String toString() => message;
+/// Etiquetas de tendero para los cuatro roles globales del seed.
+extension RoleCodeLabel on String {
+  String get roleLabel => switch (this) {
+        RoleCodes.owner => 'Dueño',
+        RoleCodes.admin => 'Encargado',
+        RoleCodes.cashier => 'Cajero',
+        RoleCodes.warehouse => 'Almacenista',
+        _ => this,
+      };
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
+import 'package:nexus_app/features/management/domain/app_permission.dart';
+import 'package:nexus_app/features/management/presentation/management_provider.dart';
 import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
 import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
 import 'package:nexus_app/features/purchases/presentation/tabs/accounts_payable_tab.dart';
@@ -13,12 +15,14 @@ void _setPhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Widget _buildApp() {
+Widget _buildApp({Set<String>? permissions}) {
   return ProviderScope(
     // `purchasesRepositoryProvider` ya apunta al backend real (retome de
     // Compras) — estos tests siguen ejercitando el mock a propósito.
     overrides: [
       purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
+      // "Registrar abono" exige purchases.pay_credit (Fase A): aquí, Dueño.
+      myPermissionsProvider.overrideWithValue(permissions ?? Permissions.all),
     ],
     child: MaterialApp(
       theme: AppTheme.dark,
@@ -63,5 +67,15 @@ void main() {
 
     // Una cuenta menos en el tablero tras la liquidación total.
     expect(find.widgetWithText(ElevatedButton, 'Registrar abono'), findsNWidgets(2));
+  });
+
+  testWidgets('sin purchases.pay_credit no se ofrece "Registrar abono" (CA-07)',
+      (tester) async {
+    await tester.pumpWidget(_buildApp(
+      permissions: const {Permissions.purchasesView, Permissions.purchasesCreate},
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Registrar abono'), findsNothing);
   });
 }

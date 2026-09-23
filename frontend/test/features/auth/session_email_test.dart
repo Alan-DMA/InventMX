@@ -29,6 +29,9 @@ class _FakeStorage extends SecureStorage {
   Future<String?> readUserEmail() async => savedEmail;
 
   @override
+  Future<void> clearSession() async => savedEmail = null;
+
+  @override
   Future<void> clearAll() async => savedEmail = null;
 }
 

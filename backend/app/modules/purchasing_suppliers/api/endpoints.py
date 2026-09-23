@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Importación de dependencias de sesión y autenticación
 from app.core.database.session import get_db
 from app.modules.auth_tenancy.domain.user import User
-from app.core.security.deps import get_current_user
+from app.core.security.deps import get_current_user, require_permission
 # Importación de dominios y esquemas
 from app.modules.purchasing_suppliers.domain.account_payable import AccountPayableStatus
 from app.modules.purchasing_suppliers.domain.purchase_order import PurchaseOrderStatus
@@ -71,7 +71,7 @@ router = APIRouter(tags=["Compras & Proveedores"])
 async def create_supplier(
     request: SupplierCreateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> SupplierResponse:
     """Registra un nuevo proveedor en el sistema (RF-15)."""
     service = PurchasingService(db)
@@ -90,7 +90,7 @@ async def list_suppliers(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> List[SupplierResponse]:
     """Retorna la lista de proveedores asociados al comercio."""
     service = PurchasingService(db)
@@ -113,7 +113,7 @@ async def list_suppliers(
 async def get_supplier(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> SupplierResponse:
     """Retorna la información completa de un proveedor."""
     service = PurchasingService(db)
@@ -130,7 +130,7 @@ async def update_supplier(
     supplier_id: uuid.UUID,
     request: SupplierUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> SupplierResponse:
     """Actualiza datos de contacto o condiciones de crédito del proveedor."""
     service = PurchasingService(db)
@@ -146,7 +146,7 @@ async def update_supplier(
 async def deactivate_supplier(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> SupplierResponse:
     """Marca como inactivo al proveedor."""
     service = PurchasingService(db)
@@ -166,7 +166,7 @@ async def deactivate_supplier(
 async def create_purchase_order(
     request: PurchaseOrderCreateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> PurchaseOrderResponse:
     """Emite una nueva orden de compra a proveedor en Pesos Mexicanos (RF-15)."""
     service = PurchasingService(db)
@@ -187,7 +187,7 @@ async def list_purchase_orders(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> List[PurchaseOrderResponse]:
     """Retorna las órdenes de compra con filtros opcionales."""
     service = PurchasingService(db)
@@ -212,7 +212,7 @@ async def list_purchase_orders(
 async def get_purchase_order(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> PurchaseOrderResponse:
     """Retorna los datos de la orden y sus renglones."""
     service = PurchasingService(db)
@@ -229,7 +229,7 @@ async def update_purchase_order(
     order_id: uuid.UUID,
     request: PurchaseOrderUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> PurchaseOrderResponse:
     """
     Cambia proveedor, almacén, fecha esperada, notas o renglones de una orden
@@ -250,7 +250,7 @@ async def cancel_purchase_order(
     order_id: uuid.UUID,
     request: PurchaseOrderCancelRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> PurchaseOrderResponse:
     """
     Deja la orden en `CANCELLED` sin borrarla, para que el historial siga
@@ -270,7 +270,7 @@ async def receive_purchase_order(
     order_id: uuid.UUID,
     request: PurchaseOrderReceiveRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> PurchaseOrderReceiveResponse:
     """
     Registra la entrada física de mercancía al almacén, actualiza el Kardex (PURCHASE_ENTRY)
@@ -297,7 +297,7 @@ async def list_accounts_payable(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> List[AccountPayableResponse]:
     """Retorna el listado de cuentas por pagar (RF-16)."""
     service = AccountsPayableService(db)
@@ -320,7 +320,7 @@ async def list_accounts_payable(
 )
 async def get_accounts_payable_summary(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> AccountsPayableSummaryResponse:
     """Retorna totales pendientes, pagados y montos vencidos en $ MXN."""
     service = AccountsPayableService(db)
@@ -336,7 +336,7 @@ async def get_accounts_payable_summary(
 async def get_account_payable(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> AccountPayableResponse:
     """Consulta una cuenta por pagar específica."""
     service = AccountsPayableService(db)
@@ -353,7 +353,7 @@ async def pay_account_payable(
     account_id: uuid.UUID,
     request: SupplierPaymentRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.pay_credit")),
 ) -> SupplierPaymentResponse:
     """Registra un egreso de dinero para abonar o liquidar deuda con un proveedor (RF-16)."""
     service = AccountsPayableService(db)
@@ -369,7 +369,7 @@ async def pay_account_payable(
 async def list_account_payments(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.view")),
 ) -> List[SupplierPaymentLedgerResponse]:
     """Retorna todos los abonos registrados para la cuenta por pagar."""
     service = AccountsPayableService(db)
@@ -389,7 +389,7 @@ async def list_account_payments(
 async def parse_receipt(
     request: ReceiptOcrParseRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> ReceiptOcrParseResponse:
     """
     Interpreta el texto extraído por Google ML Kit en el dispositivo cliente, detecta productos,
@@ -407,7 +407,7 @@ async def parse_receipt(
 )
 async def parse_voice_dictation(
     request: VoiceDictationParseRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("purchases.create")),
 ) -> VoiceDictationParseResponse:
     """
     Procesa el texto dictado por voz en español y extrae los 3 Campos Vitales: Nombre, Precio y Stock (SR-09).

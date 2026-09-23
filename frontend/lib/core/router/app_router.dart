@@ -42,6 +42,9 @@ import '../../features/saas_admin/presentation/hard_lock_screen.dart';
 import '../../features/saas_admin/presentation/saas_provider.dart';
 import '../../features/saas_admin/presentation/subscription_checkout_screen.dart';
 import '../../features/analytics/presentation/analytics_dashboard_screen.dart';
+import '../../features/analytics/presentation/employee_performance_screen.dart';
+import '../../features/management/domain/app_permission.dart';
+import '../../features/management/presentation/management_provider.dart';
 import '../theme/app_colors.dart';
 
 // ---------------------------------------------------------------------------
@@ -94,6 +97,7 @@ abstract final class AppRoutes {
   static const accountData = '/cuenta/datos';
   static const accountPassword = '/cuenta/contrasena';
   static const accountWarehouse = '/cuenta/almacen';
+  static const accountCommissions = '/cuenta/comisiones';
 
   // Administración del propio comercio. Scope de un solo tenant — distinto
   // del panel de fundadores (`/admin`), que opera la plataforma.
@@ -144,6 +148,7 @@ abstract final class AppRoutes {
 ///   3. Con sesión + onb. done  → /dashboard/home
 ///   4. HARD_LOCK (Tarea 14.2)  → /locked (solo deja pasar /subscription)
 ///   5. /admin sin `saas.manage` → /dashboard/home
+///   6. Ruta sin el permiso del rol (Permisos por rol, Fase A) → /dashboard/home
 ///
 /// Usa StatefulShellRoute para que cada branch mantenga su propio
 /// stack de navegación y la NavigationBar persista entre tabs.
@@ -158,6 +163,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final onboardingDone = ref.read(onboardingCompleteProvider);
       final subscriptionStatus = ref.read(subscriptionStatusProvider);
       final isFounder = ref.read(isFounderProvider);
+      final permissionsKnown = ref.read(permissionsKnownProvider);
+      final permissions = ref.read(myPermissionsProvider);
+      final isOwner = ref.read(isOwnerProvider);
       final location = routerState.matchedLocation;
 
       // ── Diagnóstico interno: exento del flujo de auth/onboarding ──────
@@ -208,6 +216,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // ── Panel de fundadores: solo con `saas.manage` (D7) ──────────────
       if (location == AppRoutes.founderAdmin && !isFounder) {
         return AppRoutes.home;
+      }
+
+      // ── Puertas por rol (A5) ──────────────────────────────────────────
+      // Cierra deep links y `push` desde código que no pase por el menú.
+      // Sólo actúa con permisos **conocidos**: mientras `/auth/me` carga no
+      // se rebota a nadie (un spinner no decide, mismo criterio que el Hard
+      // Lock); en cuanto llegan, el refreshListenable re-evalúa la ruta.
+      if (permissionsKnown) {
+        final required = requiredPermissionFor(location);
+        if (required == _ownerOnly && !isOwner) return AppRoutes.home;
+        if (required != null &&
+            required != _ownerOnly &&
+            !permissions.contains(required)) {
+          return AppRoutes.home;
+        }
       }
 
       return null;
@@ -264,6 +287,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: 'almacen',
             name: 'account-warehouse',
             builder: (_, __) => const OperatingWarehouseScreen(),
+          ),
+          // Tablero personal: el endpoint ya viene acotado al usuario (A7).
+          GoRoute(
+            path: 'comisiones',
+            name: 'account-commissions',
+            builder: (_, __) => const EmployeePerformanceScreen(),
           ),
         ],
       ),
@@ -569,5 +598,40 @@ class _CompositeRefreshListenable extends ChangeNotifier {
     ref.listen(onboardingCompleteProvider, (_, __) => notifyListeners());
     ref.listen(subscriptionStatusProvider, (_, __) => notifyListeners());
     ref.listen(isFounderProvider, (_, __) => notifyListeners());
+    ref.listen(myPermissionsProvider, (_, __) => notifyListeners());
   }
+}
+
+// ---------------------------------------------------------------------------
+// Puertas por rol — qué permiso exige cada ruta (Permisos por rol, Fase A).
+// Misma matriz que el menú ☰ y las pestañas; aquí sólo para deep links.
+// ---------------------------------------------------------------------------
+
+/// Centinela para "sólo el Dueño" (suscripción): no es un permiso del seed.
+const _ownerOnly = '__owner__';
+
+/// Permiso que exige [location], o `null` si es libre para cualquier rol.
+/// Prefijos más específicos primero (Compras cuelga de Inventario).
+String? requiredPermissionFor(String location) {
+  bool under(String base) =>
+      location == base || location.startsWith('$base/');
+
+  if (location == AppRoutes.subscription) return _ownerOnly;
+  if (under(AppRoutes.reports)) return Permissions.reportsViewBasic;
+  if (under(AppRoutes.manageMembers)) return Permissions.settingsManageUsers;
+  if (under(AppRoutes.preferences)) return Permissions.settingsManageStore;
+  if (under(AppRoutes.catalogShare)) return Permissions.settingsManageStore;
+  if (location == AppRoutes.purchaseCreate) return Permissions.purchasesCreate;
+  if (under(AppRoutes.purchases)) return Permissions.purchasesView;
+  if (under(AppRoutes.import)) return Permissions.inventoryCreate;
+  if (under(AppRoutes.gondola)) return Permissions.inventoryAdjustStock;
+  if (location.startsWith('${AppRoutes.inventory}/products/') &&
+      location.endsWith('/edit')) {
+    return Permissions.inventoryEditPrice;
+  }
+  if (under(AppRoutes.sales)) return Permissions.salesCheckout;
+  if (under(AppRoutes.cash)) return Permissions.cashView;
+  if (under(AppRoutes.salesHistory)) return Permissions.salesView;
+  if (under(AppRoutes.storeOrders)) return Permissions.salesView;
+  return null;
 }

@@ -93,7 +93,9 @@ class LoginNotifier extends Notifier<LoginState> {
 
   Future<void> logout() async {
     final storage = ref.read(secureStorageProvider);
-    await storage.clearAll();
+    // Sólo la sesión: las preferencias de cada quien llevan su correo en la
+    // clave y se conservan para la próxima vez que entre (QA Sep 23).
+    await storage.clearSession();
     ref.read(sessionProvider.notifier).state = false;
     ref.read(currentUserNameProvider.notifier).state = null;
     state = const LoginState();

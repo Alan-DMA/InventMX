@@ -263,16 +263,11 @@ void main() {
     expect(failing.calls, 2);
   });
 
-  testWidgets('el botón de comisiones abre "Mis Comisiones"', (tester) async {
+  testWidgets('Reportes ya no lleva a "Mis comisiones": vive en Mi perfil (A7)',
+      (tester) async {
     await tester.pumpWidget(_build());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('commissionsButton')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-
-    expect(find.text('Mis Comisiones'), findsOneWidget);
-    // Vacía el Future.delayed del mock de comisiones (reloj falso).
-    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const Key('commissionsButton')), findsNothing);
   });
 }
