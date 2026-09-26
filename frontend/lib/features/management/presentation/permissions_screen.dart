@@ -5,15 +5,20 @@ import '../../../core/theme/app_colors.dart';
 import '../domain/app_permission.dart';
 import '../domain/tenant_role.dart';
 import 'management_provider.dart';
+import 'widgets/role_customize_dialog.dart';
 
 /// Gestión → Permisos: qué puede hacer cada rol del comercio.
 ///
-/// **Sólo lectura** (Permisos por rol, Fase A): muestra los permisos reales
-/// que manda el servidor por rol. Se organiza por **rol**, no por persona,
-/// porque así está modelado el backend (`role_permissions`) y evita que dos
-/// cajeros terminen con accesos distintos sin que nadie sepa por qué.
-/// Personalizarlos por comercio (clone-on-write de los roles globales) es la
-/// Fase B — hasta entonces no se ofrecen switches que luego no guardarían.
+/// Se organiza por **rol**, no por persona: es como está modelado el backend
+/// (`role_permissions`) y evita que dos cajeros terminen con accesos distintos
+/// sin que nadie sepa por qué.
+///
+/// Desde la Fase B (Sep 2026) el **dueño** puede ajustar los roles a su tienda:
+/// la primera edición de un rol de fábrica crea su propia versión y los
+/// empleados que lo tenían pasan a ella (clone-on-write, con confirmación).
+/// El Encargado entra pero sólo lee — si pudiera editar, se ampliaría sus
+/// propios accesos. El rol Dueño no se toca y ningún rol pierde
+/// `inventory.view`.
 class PermissionsScreen extends ConsumerStatefulWidget {
   const PermissionsScreen({super.key});
 
@@ -78,6 +83,12 @@ class _Matrix extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final modules = Permissions.moduleLabels.keys.toList();
+    final canEdit = ref.watch(canEditPermissionsProvider);
+    // Se observa la plantilla aunque no se pinte: el aviso de "esto afecta a N
+    // personas" la necesita cargada en el momento del toque, no después.
+    ref.watch(membersProvider);
+    // Editable de verdad: el dueño, y sobre un rol que no sea el suyo.
+    final editable = canEdit && selected.isEditable;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -117,30 +128,38 @@ class _Matrix extends ConsumerWidget {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: Text(
-            selected.description,
-            style: const TextStyle(
-                fontSize: 12.5, color: AppColors.onSurfaceMuted),
-          ),
-        ),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
           child: Row(
             children: [
-              Icon(Icons.lock_outline_rounded,
-                  size: 14, color: AppColors.onSurfaceMuted),
-              SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Los roles son estándar en esta versión',
-                  key: Key('permissionsReadOnly'),
-                  style: TextStyle(
-                      fontSize: 11.5, color: AppColors.onSurfaceMuted),
+                  selected.description,
+                  style: const TextStyle(
+                      fontSize: 12.5, color: AppColors.onSurfaceMuted),
                 ),
               ),
+              // Distintivo del rol ajustado a esta tienda
+              if (selected.isCustom)
+                Container(
+                  key: const Key('roleCustomChip'),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.emerald.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'Ajustado a tu tienda',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.emerald,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
+        _Hint(role: selected, canEdit: canEdit),
         Expanded(
           child: ListView(
             padding: EdgeInsets.fromLTRB(
@@ -165,14 +184,37 @@ class _Matrix extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: AppColors.border),
                   ),
-                  child: Column(
-                    children: [
-                      for (final permission in Permissions.ofModule(module))
-                        _PermissionRow(
-                          role: selected,
-                          permission: permission,
-                        ),
-                    ],
+                  // El SwitchListTile pinta su tinta sobre el Material más
+                  // cercano; sin éste el fondo de la tarjeta la taparía.
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: Column(
+                      children: [
+                        for (final permission in Permissions.ofModule(module))
+                          _PermissionRow(
+                            role: selected,
+                            permission: permission,
+                            editable: editable,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (selected.isCustom && canEdit) ...[
+                const SizedBox(height: 20),
+                TextButton.icon(
+                  key: const Key('roleResetButton'),
+                  onPressed: () => _reset(context, ref, selected),
+                  icon: const Icon(Icons.restart_alt_rounded,
+                      size: 18, color: AppColors.warning),
+                  label: const Text(
+                    'Restablecer al estándar',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.warning,
+                    ),
                   ),
                 ),
               ],
@@ -182,34 +224,156 @@ class _Matrix extends ConsumerWidget {
       ],
     );
   }
+
+  Future<void> _reset(
+      BuildContext context, WidgetRef ref, TenantRole role) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await confirmRoleReset(
+      context,
+      role: role,
+      affectedMembers: ref.read(membersWithRoleProvider(role.id)),
+    );
+    if (!confirmed) return;
+    try {
+      await ref.read(rolesProvider.notifier).reset(role.id);
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
 }
 
-class _PermissionRow extends StatelessWidget {
-  const _PermissionRow({required this.role, required this.permission});
+/// Explica en una línea por qué esta pantalla se comporta como se comporta.
+class _Hint extends StatelessWidget {
+  const _Hint({required this.role, required this.canEdit});
 
   final TenantRole role;
-  final AppPermission permission;
+  final bool canEdit;
 
   @override
   Widget build(BuildContext context) {
-    final granted = role.can(permission.name);
+    final (icon, text) = switch ((canEdit, role.isEditable)) {
+      (false, _) => (
+          Icons.lock_outline_rounded,
+          'Sólo el dueño puede cambiar los permisos de un rol',
+        ),
+      (true, false) => (
+          Icons.verified_user_outlined,
+          'El dueño tiene acceso a todo por definición: este rol no se ajusta',
+        ),
+      (true, true) => (
+          Icons.tune_rounded,
+          'Ajusta lo que puede hacer este rol en tu tienda',
+        ),
+    };
 
-    return ListTile(
-      key: Key('perm-${role.id}-${permission.name}'),
-      dense: true,
-      contentPadding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
-      leading: Icon(
-        granted ? Icons.check_circle_rounded : Icons.remove_circle_outline,
-        size: 20,
-        color: granted ? AppColors.emerald : AppColors.onSurfaceMuted,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: AppColors.onSurfaceMuted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              key: const Key('permissionsHint'),
+              style: const TextStyle(
+                  fontSize: 11.5, color: AppColors.onSurfaceMuted),
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _PermissionRow extends ConsumerWidget {
+  const _PermissionRow({
+    required this.role,
+    required this.permission,
+    required this.editable,
+  });
+
+  final TenantRole role;
+  final AppPermission permission;
+  final bool editable;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final granted = role.can(permission.name);
+    // Sin "ver inventario" la app queda en blanco y el empleado no entiende
+    // qué le pasó: se muestra bloqueado en vez de dejar intentarlo para
+    // después rechazarlo desde el servidor.
+    final locked = permission.name == Permissions.inventoryView;
+
+    if (!editable) {
+      return ListTile(
+        key: Key('perm-${role.id}-${permission.name}'),
+        dense: true,
+        contentPadding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+        leading: Icon(
+          granted ? Icons.check_circle_rounded : Icons.remove_circle_outline,
+          size: 20,
+          color: granted ? AppColors.emerald : AppColors.onSurfaceMuted,
+        ),
+        title: Text(
+          permission.description,
+          style: TextStyle(
+            fontSize: 13.5,
+            color: granted ? AppColors.onSurface : AppColors.onSurfaceMuted,
+          ),
+        ),
+      );
+    }
+
+    return SwitchListTile(
+      key: Key('perm-${role.id}-${permission.name}'),
+      value: granted,
+      onChanged: locked ? null : (value) => _toggle(context, ref, value),
+      dense: true,
+      activeThumbColor: AppColors.emerald,
+      contentPadding: const EdgeInsets.fromLTRB(14, 0, 8, 0),
       title: Text(
         permission.description,
         style: TextStyle(
           fontSize: 13.5,
-          color: granted ? AppColors.onSurface : AppColors.onSurfaceMuted,
+          color: locked ? AppColors.onSurfaceMuted : AppColors.onSurface,
         ),
       ),
+      subtitle: locked
+          ? const Text(
+              'Sin esto la app se ve vacía',
+              style: TextStyle(fontSize: 11, color: AppColors.onSurfaceMuted),
+            )
+          : null,
     );
+  }
+
+  Future<void> _toggle(
+      BuildContext context, WidgetRef ref, bool granted) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    // La primera vez que se ajusta un rol de fábrica se avisa a quién afecta.
+    if (!role.isCustom) {
+      final confirmed = await confirmRoleCustomization(
+        context,
+        role: role,
+        affectedMembers: ref.read(membersWithRoleProvider(role.id)),
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      await ref.read(rolesProvider.notifier).toggle(
+            role: role,
+            permission: permission.name,
+            granted: granted,
+          );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
   }
 }

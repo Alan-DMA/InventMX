@@ -358,19 +358,17 @@ void main() {
     });
   });
 
-  group('Permisos (sólo lectura, Fase A)', () {
-    testWidgets('muestra los permisos reales de cada rol sin switches (CA-10)',
+  group('Permisos (Fase B: el dueño ajusta los roles a su tienda)', () {
+    testWidgets('el dueño ve los permisos reales de cada rol y puede ajustarlos',
         (tester) async {
       final container = _container();
       await tester.pumpWidget(_app(container, const PermissionsScreen()));
       await _settle(tester);
 
-      expect(find.byKey(const Key('permissionsReadOnly')), findsOneWidget);
-      expect(find.byType(SwitchListTile), findsNothing);
-
-      // El Dueño (primer rol) tiene todo.
+      // El Dueño (primer rol) tiene todo y no se ajusta: sin switches.
       expect(container.read(rolesByIdProvider)[RoleCodes.owner]!.permissions,
           Permissions.all);
+      expect(find.byType(SwitchListTile), findsNothing);
 
       await tester.tap(find.byKey(const Key('roleChip-CASHIER')));
       await _settle(tester);
@@ -378,11 +376,9 @@ void main() {
       expect(cashier.can(Permissions.salesCheckout), isTrue);
       expect(cashier.can(Permissions.inventoryCreate), isFalse);
       expect(find.byKey(const Key('perm-CASHIER-sales.checkout')), findsOneWidget);
-      // Nada que tocar: ninguna fila responde.
-      final tile = tester.widget<ListTile>(
-        find.byKey(const Key('perm-CASHIER-sales.checkout')),
-      );
-      expect(tile.onTap, isNull);
+      // Sobre un rol distinto al suyo, el dueño sí edita.
+      expect(find.byType(SwitchListTile), findsWidgets);
+      expect(container.read(canEditPermissionsProvider), isTrue);
     });
   });
 }

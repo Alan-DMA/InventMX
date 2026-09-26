@@ -81,9 +81,23 @@ abstract class ManagementRepository {
   Future<void> deleteCategory(String id);
 
   // ── Roles y permisos ───────────────────────────────────────────────────
-  /// GET /roles — los cuatro roles globales con sus permisos. Sólo lectura:
-  /// personalizarlos por comercio es la Fase B.
+  /// GET /roles — los cuatro roles que ve el comercio, con sus permisos. Si el
+  /// comercio personalizó alguno, viaja **su copia** en lugar del estándar.
   Future<List<TenantRole>> listRoles();
+
+  /// PUT /roles/{id}/permissions — deja el rol con exactamente [permissions].
+  ///
+  /// La primera vez que se personaliza un rol del sistema, el servidor crea la
+  /// copia del comercio y migra a los empleados que lo tenían (clone-on-write).
+  /// Rechaza el rol Dueño y cualquier lista sin `inventory.view`.
+  Future<TenantRole> updateRolePermissions({
+    required String roleId,
+    required Set<String> permissions,
+  });
+
+  /// DELETE /roles/{id} — borra la copia del comercio y devuelve a sus
+  /// empleados al rol estándar. Responde con el rol estándar.
+  Future<TenantRole> resetRole(String roleId);
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +351,41 @@ class ManagementRepositoryMock implements ManagementRepository {
   Future<List<TenantRole>> listRoles() async {
     await Future.delayed(_fakeDelay);
     return List.unmodifiable(_roles);
+  }
+
+  @override
+  Future<TenantRole> updateRolePermissions({
+    required String roleId,
+    required Set<String> permissions,
+  }) async {
+    await Future.delayed(_fakeDelay);
+    final index = _roles.indexWhere((r) => r.id == roleId);
+    if (index < 0) throw Exception('Rol no encontrado: $roleId');
+    final role = _roles[index];
+
+    // Mismas reglas que el servidor (`role_service.py`)
+    if (role.isOwner) throw const ProtectedRoleException();
+    if (!permissions.contains(Permissions.inventoryView)) {
+      throw const MinimumPermissionException();
+    }
+
+    // Clone-on-write: la copia conserva id y etiqueta, y se marca como propia
+    final updated = role.copyWith(
+      permissions: Set.of(permissions),
+      isCustom: true,
+    );
+    _roles[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<TenantRole> resetRole(String roleId) async {
+    await Future.delayed(_fakeDelay);
+    final index = _roles.indexWhere((r) => r.id == roleId);
+    if (index < 0) throw Exception('Rol no encontrado: $roleId');
+    final estandar = _seedRoles().firstWhere((r) => r.id == _roles[index].id);
+    _roles[index] = estandar;
+    return estandar;
   }
 
   // ── Semillas ───────────────────────────────────────────────────────────

@@ -119,6 +119,22 @@ async def require_unlocked_tenant(current_user: User = Depends(get_current_user)
     return current_user
 
 
+async def require_owner(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Reserva una acción al dueño del comercio.
+
+    Distinta de `require_permission("settings.manage_users")`: el Encargado
+    tiene ese permiso — da de alta empleados y les asigna rol — pero repartir
+    permisos no es suyo, o podría ampliarse sus propios accesos (Fase B,
+    decisión de Eduardo del Sep 23).
+    """
+    if not current_user.role or current_user.role.name != "OWNER":
+        raise ForbiddenException(
+            "Sólo el dueño del comercio puede cambiar los permisos de un rol."
+        )
+    return current_user
+
+
 def require_permission(permission_code: str) -> Callable:
     """
     Dependencia de seguridad RBAC granular (Doc. Maestro Sec. 9.2).

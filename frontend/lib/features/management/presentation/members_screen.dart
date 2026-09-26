@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/tenant_member.dart';
 import 'management_provider.dart';
@@ -23,6 +25,21 @@ class MembersScreen extends ConsumerWidget {
       appBar: AppBar(
         backgroundColor: AppColors.darkSlate,
         title: const Text('Usuarios'),
+        actions: [
+          // Qué puede hacer cada rol. Se llega desde aquí porque el menú ☰
+          // promete "Usuarios y permisos" y la pantalla se había quedado sin
+          // entrada al reorganizar el menú (QA de Eduardo, Sep 23). El
+          // Encargado también entra: la ve en lectura y le sirve para saber
+          // qué está asignando.
+          IconButton(
+            key: const Key('membersPermissionsButton'),
+            tooltip: 'Permisos por rol',
+            icon: const Icon(Icons.admin_panel_settings_outlined,
+                color: AppColors.onSurface),
+            onPressed: () => context.push(AppRoutes.managePermissions),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('memberAddFab'),

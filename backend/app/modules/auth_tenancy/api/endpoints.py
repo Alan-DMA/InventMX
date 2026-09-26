@@ -10,13 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Importación de generador de sesión e inyector de dependencias
 from app.core.database.session import get_db
 # Importación de dependencias de seguridad y control RBAC
-from app.core.security.deps import get_current_user, require_permission
+from app.core.security.deps import get_current_user, require_owner, require_permission
 # Importación de modelos de dominio
 from app.modules.auth_tenancy.domain.user import User
 # Importación de repositorios
 from app.modules.auth_tenancy.repositories.role_repository import RoleRepository
+from app.modules.auth_tenancy.services.role_service import RoleService
 # Importación de esquemas Pydantic
-from app.modules.auth_tenancy.schemas.role import PermissionRead, RoleRead
+from app.modules.auth_tenancy.schemas.role import (
+    PermissionRead,
+    RolePermissionsUpdate,
+    RoleRead,
+)
 from app.modules.auth_tenancy.schemas.tenant import (
     PricingSettingsResponse,
     PricingSettingsUpdateRequest,
@@ -300,6 +305,49 @@ async def list_roles(
     """
     repo = RoleRepository(db)
     return await repo.get_all_roles(current_user.tenant_id)
+
+
+@router.put(
+    "/roles/{role_id}/permissions",
+    response_model=RoleRead,
+    status_code=status.HTTP_200_OK,
+    summary="Personalizar los permisos de un rol dentro del comercio",
+)
+async def update_role_permissions(
+    role_id: uuid.UUID,
+    data: RolePermissionsUpdate,
+    current_user: User = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Deja el rol con exactamente los permisos indicados (Fase B).
+
+    La primera vez que se personaliza un rol del sistema, el comercio se queda
+    con su **propia copia** y los empleados que lo tenían pasan a ella; las
+    siguientes ediciones ya actúan sobre esa copia. El rol Dueño no se toca y
+    ningún rol se queda sin `inventory.view`.
+    """
+    service = RoleService(db)
+    return await service.update_permissions(role_id, data.permissions, current_user)
+
+
+@router.delete(
+    "/roles/{role_id}",
+    response_model=RoleRead,
+    status_code=status.HTTP_200_OK,
+    summary="Restablecer un rol personalizado al estándar del sistema",
+)
+async def reset_role(
+    role_id: uuid.UUID,
+    current_user: User = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Borra la copia del comercio y devuelve a sus empleados al rol estándar.
+    Responde con el rol estándar al que volvieron.
+    """
+    service = RoleService(db)
+    return await service.reset_role(role_id, current_user)
 
 
 @router.get(

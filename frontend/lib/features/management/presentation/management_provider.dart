@@ -206,12 +206,54 @@ final categoriesProvider =
 // Roles y permisos
 // ---------------------------------------------------------------------------
 
-/// Sólo lectura: los cuatro roles globales con los permisos que manda el
-/// servidor. Personalizarlos por comercio es la Fase B.
+/// Los cuatro roles que ve el comercio, con los permisos que manda el
+/// servidor. Desde la Fase B el dueño puede personalizarlos: la primera
+/// edición de un rol del sistema crea la copia de su tienda (clone-on-write).
 class RolesNotifier extends AsyncNotifier<List<TenantRole>> {
   @override
   Future<List<TenantRole>> build() =>
       ref.watch(managementRepositoryProvider).listRoles();
+
+  ManagementRepository get _repo => ref.read(managementRepositoryProvider);
+
+  /// Deja el rol con exactamente [permissions]. Las excepciones escapan a
+  /// propósito: la pantalla muestra el mensaje del dominio o del servidor tal
+  /// cual, sin inventar uno propio.
+  Future<void> setPermissions({
+    required String roleId,
+    required Set<String> permissions,
+  }) async {
+    await _repo.updateRolePermissions(roleId: roleId, permissions: permissions);
+    await _reload();
+  }
+
+  /// Prende o apaga un permiso suelto del rol.
+  Future<void> toggle({
+    required TenantRole role,
+    required String permission,
+    required bool granted,
+  }) {
+    final next = Set.of(role.permissions);
+    if (granted) {
+      next.add(permission);
+    } else {
+      next.remove(permission);
+    }
+    return setPermissions(roleId: role.id, permissions: next);
+  }
+
+  /// Devuelve el rol al estándar del sistema.
+  Future<void> reset(String roleId) async {
+    await _repo.resetRole(roleId);
+    await _reload();
+  }
+
+  Future<void> _reload() async {
+    state = await AsyncValue.guard(_repo.listRoles);
+    // Quien está en sesión puede haberse quedado con otros permisos (o su
+    // propio equipo): la identidad se recarga para que las puertas cuadren.
+    ref.invalidate(currentMemberProvider);
+  }
 }
 
 final rolesProvider = AsyncNotifierProvider<RolesNotifier, List<TenantRole>>(
@@ -326,6 +368,21 @@ final canManageMembersProvider = Provider<bool>(
 /// asignar el almacén donde opera cada quien (D15).
 final canManageStoreProvider = Provider<bool>(
   (ref) => ref.watch(hasPermissionProvider(Permissions.settingsManageStore)),
+);
+
+/// Cuántos empleados del comercio tienen ese rol asignado. Lo usa el aviso de
+/// "esto afecta a N personas" antes de ajustar un rol de fábrica; sale de la
+/// lista ya cargada, sin pedirle nada más al servidor.
+final membersWithRoleProvider = Provider.family<int, String>((ref, roleId) {
+  final members = ref.watch(membersProvider).valueOrNull ?? const <TenantMember>[];
+  return members.where((m) => m.roleId == roleId && m.isActive).length;
+});
+
+/// Repartir permisos es del dueño: el Encargado administra empleados y les
+/// asigna rol, pero si pudiera editar roles se ampliaría sus propios accesos
+/// (Fase B, decisión de Eduardo del Sep 23). Él sí ve la pantalla, en lectura.
+final canEditPermissionsProvider = Provider<bool>(
+  (ref) => ref.watch(isOwnerProvider),
 );
 
 /// La sección "Administración" del menú existe si hay algo que mostrar en ella.

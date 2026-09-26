@@ -144,6 +144,7 @@ class ManagementRepositoryImpl implements ManagementRepository {
           label: code.roleLabel,
           description: r['description']?.toString() ?? '',
           permissions: _permissionsFromJson(code, r['permissions']),
+          isCustom: r['tenant_id'] != null,
         );
       }).toList();
       // Orden fijo de lectura: dueño → encargado → cajero → almacén.
@@ -175,6 +176,44 @@ class ManagementRepositoryImpl implements ManagementRepository {
         .map((p) => p is Map ? p['code']?.toString() : p?.toString())
         .whereType<String>()
         .toSet();
+  }
+
+  @override
+  Future<TenantRole> updateRolePermissions({
+    required String roleId,
+    required Set<String> permissions,
+  }) async {
+    try {
+      final res = await client.put(
+        '/api/v1/roles/$roleId/permissions',
+        data: {'permissions': permissions.toList()},
+      );
+      return _roleFromJson(res.data as Map);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  @override
+  Future<TenantRole> resetRole(String roleId) async {
+    try {
+      final res = await client.delete('/api/v1/roles/$roleId');
+      return _roleFromJson(res.data as Map);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  static TenantRole _roleFromJson(Map r) {
+    final code = r['name']?.toString() ?? '';
+    return TenantRole(
+      id: r['id']?.toString() ?? code,
+      code: code,
+      label: code.roleLabel,
+      description: r['description']?.toString() ?? '',
+      permissions: _permissionsFromJson(code, r['permissions']),
+      isCustom: r['tenant_id'] != null,
+    );
   }
 
   // ── Delegado al mock ───────────────────────────────────────────────────
