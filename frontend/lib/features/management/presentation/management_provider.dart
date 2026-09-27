@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/data/auth_repository.dart';
 import '../../auth/presentation/login_provider.dart';
+import '../../inventory/presentation/inventory_provider.dart' as inventory;
 import '../data/management_repository.dart';
 import '../data/management_repository_impl.dart';
 import '../domain/app_permission.dart';
@@ -81,6 +82,9 @@ class WarehousesNotifier extends AsyncNotifier<List<Warehouse>> {
 
   Future<void> _reload() async {
     state = await AsyncValue.guard(_repo.listWarehouses);
+    // La leyenda, "Dónde opero" y los traslados leen la lista de Inventario:
+    // un almacén recién creado tiene que aparecer ahí también.
+    ref.invalidate(inventory.warehousesProvider);
   }
 }
 
@@ -348,6 +352,13 @@ final canViewPurchasesProvider = Provider<bool>(
 
 final canCreatePurchasesProvider = Provider<bool>(
   (ref) => ref.watch(hasPermissionProvider(Permissions.purchasesCreate)),
+);
+
+/// Ve los datos de todos los almacenes y elige en cuál registrar (aislamiento
+/// por almacén, D26): Dueño y Encargado por `reports.view_advanced`. El
+/// servidor aplica la misma regla (`resolve_data_scope`).
+final canViewAllWarehousesProvider = Provider<bool>(
+  (ref) => ref.watch(hasPermissionProvider(Permissions.reportsViewAdvanced)),
 );
 
 final canPayCreditProvider = Provider<bool>(

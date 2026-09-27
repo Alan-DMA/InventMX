@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/capture_frame_analyzer.dart';
 import '../../../core/utils/ocr_helper.dart';
 import '../../../core/utils/voice_dictation_helper.dart';
+import '../../account/presentation/data_scope_provider.dart';
 import '../../auth/data/auth_repository.dart' show dioClientProvider;
+import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
 import '../data/purchases_repository.dart';
 import '../data/receipt_file_source.dart';
 import '../data/receipt_mapping_store.dart';
@@ -20,7 +22,10 @@ import 'receipt_capture_screen.dart';
 /// (`ProductPickerField`/`product_name_matcher.dart`) o lo da de alta
 /// automáticamente antes de enviarlo — el backend real ya no responde 404.
 final purchasesRepositoryProvider = Provider<PurchasesRepository>(
-  (ref) => PurchasesRepositoryImpl(client: ref.watch(dioClientProvider)),
+  (ref) => PurchasesRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+    resolveScope: () => ref.read(dataScopeProvider),
+  ),
 );
 
 /// Reconocedor de texto on-device — Tarea 12.2.1.
@@ -141,6 +146,11 @@ class PurchaseOrdersState {
 class PurchaseOrdersNotifier extends Notifier<PurchaseOrdersState> {
   @override
   PurchaseOrdersState build() {
+    // Las órdenes están acotadas al almacén de quien está en sesión
+    // (aislamiento por almacén): al cambiar de usuario o de alcance en la
+    // leyenda se vuelven a pedir.
+    ref.watch(currentUserNameProvider);
+    ref.watch(dataScopeProvider);
     Future.microtask(_load);
     return const PurchaseOrdersState(isLoading: true);
   }
@@ -440,6 +450,10 @@ class AccountsPayableState {
 class AccountsPayableNotifier extends Notifier<AccountsPayableState> {
   @override
   AccountsPayableState build() {
+    // La deuda hereda el almacén de su orden: se vuelve a pedir por sesión
+    // y al cambiar de alcance.
+    ref.watch(currentUserNameProvider);
+    ref.watch(dataScopeProvider);
     Future.microtask(_load);
     return const AccountsPayableState(isLoading: true);
   }

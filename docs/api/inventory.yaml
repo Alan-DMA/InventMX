@@ -28,7 +28,10 @@ paths:
           in: query
           schema:
             type: boolean
-          description: Si true, solo productos con stock <= min_stock_alert.
+          description: |
+            Si true, solo productos con existencias <= min_stock_alert, evaluadas
+            contra el almacén de `warehouse_id` (o contra la suma si se omite).
+            Se filtra antes de paginar.
         - name: is_active
           in: query
           schema:
@@ -130,6 +133,7 @@ paths:
       summary: Obtener detalle de un producto
       parameters:
         - $ref: '../components.yaml#/components/parameters/UUIDPath'
+        - $ref: '../components.yaml#/components/parameters/WarehouseIdParam'
       responses:
         '200':
           description: Detalle completo del producto.

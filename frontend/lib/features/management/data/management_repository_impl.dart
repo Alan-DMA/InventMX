@@ -17,7 +17,8 @@ import 'management_repository.dart';
 /// | Quién soy + permisos  | `GET /auth/me` → `role.permissions[].code`       |
 /// | Personas              | `GET/POST /users`, `PUT /users/{id}`, `PATCH /users/{id}/status` |
 /// | Roles (lectura)       | `GET /roles` — 4 roles globales con `permissions[]` |
-/// | Almacenes, categorías | **mock** (decisión de Eduardo, sin cambio aquí)  |
+/// | Almacenes             | `GET/POST /inventory/warehouses` (aislamiento por almacén, Fase 1); renombrar y baja sin endpoint (D7) |
+/// | Categorías            | **mock** (decisión de Eduardo, sin cambio aquí)  |
 ///
 /// Los códigos de `Permissions.*` son exactamente los del servidor; a un
 /// `OWNER` el backend no le siembra filas (`require_permission` lo deja
@@ -216,23 +217,65 @@ class ManagementRepositoryImpl implements ManagementRepository {
     );
   }
 
-  // ── Delegado al mock ───────────────────────────────────────────────────
+  // ── Almacenes ──────────────────────────────────────────────────────────
 
   @override
-  Future<List<Warehouse>> listWarehouses() => fallback.listWarehouses();
+  Future<List<Warehouse>> listWarehouses() async {
+    try {
+      final res = await client.get('/api/v1/inventory/warehouses');
+      return (res.data as List? ?? const [])
+          .whereType<Map>()
+          .map(_warehouseFromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
 
+  /// El backend no exige nombre único, así que se revisa aquí: dos almacenes
+  /// iguales serían indistinguibles en la leyenda y en los selectores. El
+  /// nuevo nunca nace como principal (`is_default: false`) — el esquema lo
+  /// pone en `true` por omisión y dejaría dos principales.
   @override
-  Future<Warehouse> createWarehouse(String name) =>
-      fallback.createWarehouse(name);
+  Future<Warehouse> createWarehouse(String name) async {
+    final clean = name.trim();
+    final existing = await listWarehouses();
+    if (existing.any((w) => w.name.toLowerCase() == clean.toLowerCase())) {
+      throw DuplicateWarehouseNameException(clean);
+    }
+    try {
+      final res = await client.post(
+        '/api/v1/inventory/warehouses',
+        data: {'name': clean, 'is_default': false},
+      );
+      return _warehouseFromJson(res.data as Map);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
 
+  /// Sin `PUT /inventory/warehouses/{id}` todavía (Ajustes operativos, D7).
+  /// No se delega al mock: no conoce los ids reales y fallaría con un
+  /// "no encontrado" que confunde.
   @override
   Future<Warehouse> updateWarehouse(
-          {required String id, required String name}) =>
-      fallback.updateWarehouse(id: id, name: name);
+          {required String id, required String name}) async =>
+      throw Exception(
+          'Renombrar almacenes todavía no está disponible en el servidor.');
 
+  /// Sin baja lógica en el servidor todavía (D7).
   @override
-  Future<void> deactivateWarehouse(String id) =>
-      fallback.deactivateWarehouse(id);
+  Future<void> deactivateWarehouse(String id) async => throw Exception(
+      'Dar de baja almacenes todavía no está disponible en el servidor.');
+
+  static Warehouse _warehouseFromJson(Map json) => Warehouse(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? 'Almacén',
+        isActive: json['is_active'] != false,
+        createdAt: toDateTimeOrNull(json['created_at']) ?? DateTime.now(),
+      );
+
+  // ── Delegado al mock ───────────────────────────────────────────────────
 
   @override
   Future<List<Category>> listCategories() => fallback.listCategories();

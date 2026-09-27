@@ -38,6 +38,13 @@ async def get_dashboard_kpis(
     date_from: Optional[datetime] = Query(None, description="Fecha de inicio para CUSTOM"),
     date_to: Optional[datetime] = Query(None, description="Fecha de fin para CUSTOM"),
     compare_previous: bool = Query(True, description="Incluir comparación con periodo anterior"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las alertas de stock crítico. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -54,6 +61,7 @@ async def get_dashboard_kpis(
         date_from=date_from,
         date_to=date_to,
         compare_previous=compare_previous,
+        warehouse_id=warehouse_id,
     )
     # Serializar en diccionario Pydantic v2
     kpis_dict = kpis.model_dump(mode="json")

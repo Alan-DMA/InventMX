@@ -178,9 +178,18 @@ abstract class PurchasesRepository {
 // ---------------------------------------------------------------------------
 
 class PurchasesRepositoryImpl implements PurchasesRepository {
-  PurchasesRepositoryImpl({required this.client});
+  PurchasesRepositoryImpl({required this.client, this.resolveScope});
 
   final DioClient client;
+
+  /// Almacén elegido en la leyenda por quien puede ver todos (D28); `null` =
+  /// todos. A los demás el servidor les fija su almacén aunque se mande otro.
+  final String? Function()? resolveScope;
+
+  Map<String, dynamic> get _scopeQuery {
+    final warehouseId = resolveScope?.call();
+    return {if (warehouseId != null) 'warehouse_id': warehouseId};
+  }
 
   Supplier _supplierFromJson(Map<String, dynamic> json) => Supplier(
         id: json['id'].toString(),
@@ -367,6 +376,7 @@ class PurchasesRepositoryImpl implements PurchasesRepository {
     try {
       final response = await client.get<dynamic>('/api/v1/purchase-orders', queryParameters: {
         'limit': 200,
+        ..._scopeQuery,
       });
       final data = response.data;
       if (data is! List) return const [];
@@ -549,8 +559,10 @@ class PurchasesRepositoryImpl implements PurchasesRepository {
         client.get<dynamic>('/api/v1/accounts-payable', queryParameters: {
           'limit': 200,
           if (overdueOnly) 'overdue_only': true,
+          ..._scopeQuery,
         }),
-        client.get<dynamic>('/api/v1/accounts-payable/summary'),
+        client.get<dynamic>('/api/v1/accounts-payable/summary',
+            queryParameters: _scopeQuery),
       ]);
 
       final itemsData = results[0].data;

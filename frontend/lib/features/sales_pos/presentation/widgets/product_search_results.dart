@@ -5,6 +5,7 @@ import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../../inventory/domain/product.dart';
 import '../../../inventory/presentation/inventory_provider.dart';
 import '../../../inventory/presentation/widgets/add_product_modal.dart';
+import '../../../inventory/presentation/widgets/warehouse_stock_hint.dart';
 import '../../domain/ean_lookup_result.dart';
 import '../cart_provider.dart';
 import '../community_lookup_provider.dart';
@@ -96,8 +97,21 @@ class ProductSearchResults extends ConsumerWidget {
             return _ResultRow(
               product: entry.value,
               isLast: isLast,
+              otherWarehousesHint: otherWarehousesHint(
+                entry.value,
+                ref.watch(warehouseNamesProvider),
+              ),
               onAdd: () {
-                ref.read(cartProvider.notifier).addProduct(entry.value);
+                // El tope son las existencias de mi almacén: si no alcanza,
+                // se avisa aquí mismo y el buscador sigue abierto.
+                final notice =
+                    ref.read(cartProvider.notifier).addProduct(entry.value);
+                if (notice != null) {
+                  ScaffoldMessenger.of(context)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(SnackBar(content: Text(notice)));
+                  return;
+                }
                 onProductAdded();
               },
             );
@@ -117,15 +131,31 @@ class _ResultRow extends StatelessWidget {
     required this.product,
     required this.isLast,
     required this.onAdd,
+    this.otherWarehousesHint,
   });
 
   final Product product;
   final bool isLast;
   final VoidCallback onAdd;
 
+  /// "Hay N en Bodega" cuando aquí no hay (D24).
+  final String? otherWarehousesHint;
+
   @override
   Widget build(BuildContext context) {
+    final available = product.availableStock;
+    final outOfStock = available <= 0;
+    // Sin existencias aquí: visible pero no agregable (decisión de Eduardo,
+    // Sep 26). El toque sigue vivo para decir por qué no se agrega.
+    return Opacity(
+      opacity: outOfStock ? 0.55 : 1,
+      child: _row(context, available, outOfStock),
+    );
+  }
+
+  Widget _row(BuildContext context, int available, bool outOfStock) {
     return InkWell(
+      key: Key('posResult-${product.id}'),
       onTap: onAdd,
       borderRadius: BorderRadius.circular(14),
       child: Container(
@@ -180,6 +210,10 @@ class _ResultRow extends StatelessWidget {
                       color: AppColors.onSurfaceMuted,
                     ),
                   ),
+                  if (outOfStock && otherWarehousesHint != null) ...[
+                    const SizedBox(height: 2),
+                    OtherWarehousesHint(text: otherWarehousesHint!),
+                  ],
                 ],
               ),
             ),
@@ -197,25 +231,39 @@ class _ResultRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.emerald.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: AppColors.emerald.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: const Text(
-                    '+ Añadir',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.emerald,
-                    ),
+                Text(
+                  outOfStock ? 'Sin stock' : '$available disp.',
+                  key: Key('posResultStock-${product.id}'),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: outOfStock
+                        ? AppColors.error
+                        : AppColors.onSurfaceMuted,
                   ),
                 ),
+                if (!outOfStock) ...[
+                  const SizedBox(height: 2),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.emerald.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: AppColors.emerald.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: const Text(
+                      '+ Añadir',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.emerald,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
@@ -263,6 +311,7 @@ class _CommunitySuggestion extends ConsumerWidget {
     // widget ya no existe cuando el modal regresa. Por eso se trabaja con el
     // contenedor de providers (vive lo que la app) y no con `ref`/`context`.
     final container = ProviderScope.containerOf(context);
+    final messenger = ScaffoldMessenger.of(context);
 
     final createdName = await showAddProductModal(
       context,
@@ -277,7 +326,10 @@ class _CommunitySuggestion extends ConsumerWidget {
     final created = products.where((p) => p.barcode == barcode).firstOrNull ??
         products.where((p) => p.name == createdName).firstOrNull;
     if (created != null) {
-      container.read(cartProvider.notifier).addProduct(created);
+      final notice = container.read(cartProvider.notifier).addProduct(created);
+      if (notice != null) {
+        messenger.showSnackBar(SnackBar(content: Text(notice)));
+      }
     }
     onProductAdded();
   }

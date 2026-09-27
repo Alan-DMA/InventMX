@@ -9,6 +9,7 @@ import 'tabs/accounts_payable_tab.dart';
 import 'tabs/purchase_orders_tab.dart';
 import 'tabs/suppliers_tab.dart';
 import 'widgets/add_supplier_modal.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Hub de Compras — Tarea 11.2 (Figma nodo `1:2`): tabs "Compras /
 /// Proveedores / Por pagar" con badges de conteo, igual patrón de pantalla
@@ -70,7 +71,12 @@ class _PurchasesHubScreenState extends ConsumerState<PurchasesHubScreen>
       backgroundColor: AppColors.darkSlate,
       appBar: AppBar(
         backgroundColor: AppColors.darkSlate,
-        title: const Text('Compras'),
+        // Compras sigue el alcance: Dueño y Encargado filtran por almacén
+        // desde la leyenda (D28, QA de Eduardo Sep 27).
+        title: const ScopedAppBarTitle(
+          title: Text('Compras'),
+          switchable: true,
+        ),
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.skyBlue,

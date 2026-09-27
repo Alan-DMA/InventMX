@@ -18,6 +18,8 @@ from sqlalchemy.orm import selectinload
 
 # Importación de utilidades de base de datos e inyección RLS
 from app.core.database.session import set_tenant_context
+# Importación del alcance de datos por almacén (W1)
+from app.core.security.scope import resolve_data_scope
 # Importación de excepciones de negocio del sistema
 from app.core.exceptions.base import (
     BadRequestException,
@@ -120,13 +122,25 @@ class InventoryService:
         product: Product,
         suggested_max_price_mxn: Optional[Decimal] = None,
         suggested_max_price_source: Optional[str] = None,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> ProductResponse:
         """
         Método auxiliar para construir la respuesta completa de un Producto
         calculando existencias acumuladas, alertas de stock bajo y margen comercial en MXN.
+
+        Con `warehouse_id` (alcance de un almacén) `warehouse_stock` y
+        `is_low_stock` se calculan contra ese almacén; `total_stock` sigue
+        siendo la suma de todos (W2).
         """
         total_stock = sum((s.current_stock for s in product.stocks), Decimal("0.00"))
-        is_low_stock = total_stock <= product.min_stock_alert
+        if warehouse_id is None:
+            warehouse_stock = total_stock
+        else:
+            warehouse_stock = sum(
+                (s.current_stock for s in product.stocks if s.warehouse_id == warehouse_id),
+                Decimal("0.00"),
+            )
+        is_low_stock = warehouse_stock <= product.min_stock_alert
 
         margin_percentage: Optional[Decimal] = None
         if product.price_mxn > Decimal("0.00"):
@@ -162,6 +176,8 @@ class InventoryService:
             is_active=product.is_active,
             total_stock=total_stock,
             is_low_stock=is_low_stock,
+            warehouse_id=warehouse_id,
+            warehouse_stock=warehouse_stock,
             margin_percentage=margin_percentage,
             suggested_max_price_mxn=suggested_max_price_mxn,
             suggested_max_price_source=suggested_max_price_source,
@@ -321,31 +337,44 @@ class InventoryService:
         is_low_stock: Optional[bool] = None,
         skip: int = 0,
         limit: int = 100,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> List[ProductResponse]:
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
+        scope_warehouse_id = await resolve_data_scope(self.db, current_user, warehouse_id)
 
+        # El stock bajo depende del almacén, así que se filtra sobre la
+        # respuesta ya construida y se pagina después — si se paginara antes,
+        # un producto crítico fuera de la primera página no aparecería.
+        filter_low_stock = is_low_stock is True
         products = await self.product_repo.list_products(
             tenant_id=tenant_id,
             category_id=category_id,
             is_active=is_active,
             query=query,
-            skip=skip,
-            limit=limit,
+            skip=0 if filter_low_stock else skip,
+            limit=None if filter_low_stock else limit,
         )
 
-        responses = [self._build_product_response(p) for p in products]
+        responses = [
+            self._build_product_response(p, warehouse_id=scope_warehouse_id)
+            for p in products
+        ]
 
-        if is_low_stock is True:
-            responses = [r for r in responses if r.is_low_stock]
+        if filter_low_stock:
+            responses = [r for r in responses if r.is_low_stock][skip:skip + limit]
 
         return responses
 
     async def get_product_by_id(
-        self, product_id: uuid.UUID, current_user: User
+        self,
+        product_id: uuid.UUID,
+        current_user: User,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> ProductResponse:
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
+        scope_warehouse_id = await resolve_data_scope(self.db, current_user, warehouse_id)
 
         product = await self.product_repo.get_by_id(product_id)
         if not product or product.tenant_id != tenant_id:
@@ -358,6 +387,7 @@ class InventoryService:
             product,
             suggested_max_price_mxn=suggested_price,
             suggested_max_price_source=suggested_source,
+            warehouse_id=scope_warehouse_id,
         )
 
     async def _compute_suggested_max_price(

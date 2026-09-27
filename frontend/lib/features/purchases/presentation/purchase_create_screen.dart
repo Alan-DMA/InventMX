@@ -7,6 +7,8 @@ import '../../account/presentation/account_provider.dart';
 import '../../inventory/domain/product.dart';
 import '../../inventory/presentation/inventory_provider.dart'
     hide suppliersProvider;
+import '../../management/presentation/management_provider.dart'
+    show canViewAllWarehousesProvider;
 import '../data/purchases_repository.dart' show PurchasesException;
 import '../data/receipt_line_parser.dart';
 import '../domain/purchase_order.dart';
@@ -46,6 +48,11 @@ class PurchaseCreateScreen extends ConsumerStatefulWidget {
 
 class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
   Supplier? _supplier;
+
+  /// Almacén donde se recibe la orden. Por omisión, donde opero; Dueño y
+  /// Encargado pueden elegir otro (decisión de Eduardo, Sep 27). Editando se
+  /// queda el de la orden.
+  String? _warehouseId;
   DateTime? _expectedDeliveryDate;
   final _notesCtrl = TextEditingController();
 
@@ -365,6 +372,8 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
       // producto amarrado de la línea; el resto entra como producto por crear.
       final catalog = {
         for (final p in ref.read(inventoryProvider).products) p.id: p,
+        // Lo elegido en el buscador puede venir del servidor, no de memoria.
+        ...ref.read(pickedProductsProvider),
       };
       setState(() {
         for (final item in outcome.items) {
@@ -560,6 +569,7 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
         await notifier.createOrder(
           supplierId: _supplier!.id,
           items: items,
+          warehouseId: _warehouseId,
           expectedDeliveryDate: _expectedDeliveryDate,
           notes: notes,
         );
@@ -582,7 +592,10 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final suppliers = ref.watch(suppliersProvider).suppliers;
-    final catalog = ref.watch(inventoryProvider).products;
+    final catalog = [
+      ...ref.watch(inventoryProvider).products,
+      ...ref.watch(pickedProductsProvider).values,
+    ];
 
     // Editando: el proveedor llega por id, y la lista puede seguir cargando
     // cuando se abre la pantalla.
@@ -590,6 +603,8 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
     _supplier ??= initialSupplierId == null
         ? null
         : suppliers.where((s) => s.id == initialSupplierId).firstOrNull;
+    _warehouseId ??= widget.initial?.warehouseId ??
+        ref.watch(operatingWarehouseProvider).valueOrNull?.id;
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
@@ -641,6 +656,7 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
             decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.local_shipping_outlined, size: 18)),
           ),
+          _buildWarehouseField(),
           const SizedBox(height: 16),
           _sectionLabel('Fecha esperada de entrega'),
           InkWell(
@@ -743,6 +759,62 @@ class _PurchaseCreateScreenState extends ConsumerState<PurchaseCreateScreen> {
                 // Al confirmar aparecerán productos nuevos en el catálogo; el
                 // botón lo dice antes del toque, no después.
                 : Text(_submitLabel),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Almacén de recepción: selector para quien puede ver todos, lectura para
+  /// los demás (el servidor igual les fuerza su almacén). Una orden ya creada
+  /// no cambia de almacén desde aquí.
+  Widget _buildWarehouseField() {
+    final options = ref.watch(warehousesProvider).valueOrNull ?? const [];
+    final canChoose =
+        ref.watch(canViewAllWarehousesProvider) && !widget.isEditing;
+    final current = options.where((w) => w.id == _warehouseId).firstOrNull;
+
+    if (!canChoose || options.length < 2) {
+      final name = current?.name ?? widget.initial?.warehouseName;
+      if (name == null) return const SizedBox.shrink();
+      return Padding(
+        key: const Key('purchaseWarehouseReadOnly'),
+        padding: const EdgeInsets.only(top: 8, left: 4),
+        child: Row(
+          children: [
+            const Icon(Icons.warehouse_outlined,
+                size: 14, color: AppColors.onSurfaceMuted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Se recibirá en $name',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.onSurfaceMuted),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionLabel('Se recibirá en'),
+          DropdownButtonFormField<String>(
+            key: const Key('purchaseWarehouse'),
+            initialValue: current?.id,
+            isExpanded: true,
+            items: [
+              for (final w in options)
+                DropdownMenuItem(value: w.id, child: Text(w.name)),
+            ],
+            onChanged: (id) => setState(() => _warehouseId = id),
+            decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.warehouse_outlined, size: 18)),
           ),
         ],
       ),

@@ -16,6 +16,7 @@ class CartItem extends Equatable {
     this.productId,
     this.imageUrl,
     this.isOnTheFly = false,
+    this.maxQuantity,
   });
 
   /// ID único del ítem en el carrito (UUID local, no el del producto).
@@ -39,10 +40,21 @@ class CartItem extends Equatable {
   /// true si el producto fue creado al vuelo (sin registro previo).
   final bool isOnTheFly;
 
+  /// Existencias disponibles en el almacén donde opero al agregarlo: el tope
+  /// del renglón. Nulo = sin tope conocido (venta al vuelo, o todavía sin
+  /// leer para un pedido web). El servidor revalida al cobrar.
+  final int? maxQuantity;
+
   // ── Cálculos derivados ───────────────────────────────────────────────────
 
   /// Subtotal del ítem: quantity × unitPriceMxn.
   double get subtotalMxn => quantity * unitPriceMxn;
+
+  /// Pide más de lo que hay en el almacén (p. ej. un pedido web cargado).
+  bool get exceedsStock => maxQuantity != null && quantity > maxQuantity!;
+
+  /// Llegó al tope: el botón + se apaga.
+  bool get atStockLimit => maxQuantity != null && quantity >= maxQuantity!;
 
   // ── copyWith ─────────────────────────────────────────────────────────────
 
@@ -54,6 +66,7 @@ class CartItem extends Equatable {
     int? quantity,
     String? imageUrl,
     bool? isOnTheFly,
+    int? maxQuantity,
   }) {
     return CartItem(
       id: id ?? this.id,
@@ -63,9 +76,11 @@ class CartItem extends Equatable {
       quantity: quantity ?? this.quantity,
       imageUrl: imageUrl ?? this.imageUrl,
       isOnTheFly: isOnTheFly ?? this.isOnTheFly,
+      maxQuantity: maxQuantity ?? this.maxQuantity,
     );
   }
 
   @override
-  List<Object?> get props => [id, productId, name, unitPriceMxn, quantity, isOnTheFly];
+  List<Object?> get props =>
+      [id, productId, name, unitPriceMxn, quantity, isOnTheFly, maxQuantity];
 }

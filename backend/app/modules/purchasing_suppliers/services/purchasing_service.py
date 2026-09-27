@@ -17,6 +17,8 @@ from app.modules.inventory.domain.inventory_movement import MovementType
 from app.modules.inventory.domain.product import Product
 from app.modules.inventory.domain.product_stock import ProductStock
 from app.modules.inventory.domain.warehouse import Warehouse
+# Alcance de datos por almacén (W1)
+from app.core.security.scope import can_view_all_warehouses, resolve_data_scope
 from app.modules.inventory.repositories.movement_repository import MovementRepository
 from app.modules.purchasing_suppliers.domain.account_payable import (
     AccountPayable,
@@ -183,6 +185,31 @@ class PurchasingService:
     # Órdenes de Compra (Purchase Orders)
     # -------------------------------------------------------------------------
 
+    async def _get_scoped_order(self, order_id: uuid.UUID, current_user: User):
+        """
+        Orden del comercio dentro del alcance del usuario: la de otro almacén
+        es "no encontrada" para quien no puede ver todos (W1).
+        """
+        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        scope = await resolve_data_scope(self.session, current_user, None)
+        if order and scope and order.warehouse_id != scope:
+            return None
+        return order
+
+    async def _ensure_tenant_warehouse(self, warehouse_id: uuid.UUID, current_user: User) -> None:
+        """404 si el almacén no es del comercio."""
+        res_wh = await self.session.execute(
+            select(Warehouse).where(
+                Warehouse.id == warehouse_id,
+                Warehouse.tenant_id == current_user.tenant_id,
+            )
+        )
+        if not res_wh.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Almacén especificado no existe.",
+            )
+
     async def create_purchase_order(
         self,
         request: PurchaseOrderCreateRequest,
@@ -204,8 +231,12 @@ class PurchasingService:
                 detail="No se pueden emitir órdenes a un proveedor inactivo.",
             )
 
-        # 2. Validar o resolver almacén
-        warehouse_id = request.warehouse_id
+        # 2. Validar o resolver almacén. Con aislamiento por almacén, quien no
+        # puede ver todos compra para su almacén aunque pida otro (W1); Dueño
+        # y Encargado eligen, y sin elegir va al principal.
+        warehouse_id = await resolve_data_scope(self.session, current_user, request.warehouse_id)
+        if warehouse_id:
+            await self._ensure_tenant_warehouse(warehouse_id, current_user)
         if not warehouse_id:
             # Buscar almacén principal por defecto
             stmt_wh = select(Warehouse).where(
@@ -349,7 +380,7 @@ class PurchasingService:
         Sólo cambia lo que venga en la petición. Los renglones, si se mandan,
         sustituyen por completo a los anteriores y los totales se recalculan.
         """
-        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        order = await self._get_scoped_order(order_id, current_user)
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -373,17 +404,10 @@ class PurchasingService:
                 )
             order.supplier_id = supplier.id
 
-        if request.warehouse_id is not None:
-            stmt_wh = select(Warehouse).where(
-                Warehouse.id == request.warehouse_id,
-                Warehouse.tenant_id == current_user.tenant_id,
-            )
-            res_wh = await self.session.execute(stmt_wh)
-            if not res_wh.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Almacén especificado no existe.",
-                )
+        # Mover la orden a otro almacén es de quien puede ver todos; a los
+        # demás se les ignora (la orden sigue en su almacén).
+        if request.warehouse_id is not None and can_view_all_warehouses(current_user):
+            await self._ensure_tenant_warehouse(request.warehouse_id, current_user)
             order.warehouse_id = request.warehouse_id
 
         if request.items is not None:
@@ -418,7 +442,7 @@ class PurchasingService:
         No borra la orden: la deja en `CANCELLED` para que el historial siga
         contando lo que pasó.
         """
-        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        order = await self._get_scoped_order(order_id, current_user)
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -442,7 +466,7 @@ class PurchasingService:
         current_user: User,
     ) -> PurchaseOrderResponse:
         """Obtiene una orden de compra por su ID."""
-        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        order = await self._get_scoped_order(order_id, current_user)
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -459,10 +483,12 @@ class PurchasingService:
         date_to: Optional[date] = None,
         limit: int = 50,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[PurchaseOrderResponse], int]:
-        """Lista órdenes de compra con filtros y paginación."""
+        """Lista órdenes de compra con filtros y paginación, en el alcance del usuario."""
         orders, total = await self.po_repo.list_purchase_orders(
             tenant_id=current_user.tenant_id,
+            warehouse_id=await resolve_data_scope(self.session, current_user, warehouse_id),
             supplier_id=supplier_id,
             status=status_filter,
             date_from=date_from,
@@ -487,7 +513,7 @@ class PurchasingService:
         asienta movimientos de tipo PURCHASE_ENTRY en Kardex y genera la Cuenta por Pagar (CxP).
         """
         # 1. Obtener orden de compra con items
-        order = await self.po_repo.get_by_id(order_id, current_user.tenant_id)
+        order = await self._get_scoped_order(order_id, current_user)
         if not order:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -667,7 +693,7 @@ class PurchasingService:
             supplier_name=order.supplier.name if order.supplier else None,
             supplier_rfc=order.supplier.rfc if order.supplier else None,
             warehouse_id=order.warehouse_id,
-            warehouse_name=None,
+            warehouse_name=order.warehouse.name if order.warehouse else None,
             folio=order.folio,
             status=order.status,
             subtotal_mxn=order.subtotal_mxn,

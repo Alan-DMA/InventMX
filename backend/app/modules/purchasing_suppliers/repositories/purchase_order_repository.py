@@ -8,6 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.database.session import set_tenant_context
+
 # Importación de modelos de dominio
 from app.modules.purchasing_suppliers.domain.purchase_order import (
     PurchaseOrder,
@@ -44,6 +46,9 @@ class PurchaseOrderRepository:
         with_items: bool = True,
     ) -> Optional[PurchaseOrder]:
         """Obtiene una orden de compra por su ID con sus relaciones cargadas."""
+        # Tras un commit se pierde el contexto RLS y el almacén de la orden
+        # (tabla con RLS) llegaría vacío: se vuelve a fijar.
+        await set_tenant_context(self.session, tenant_id)
         stmt = select(PurchaseOrder).where(
             PurchaseOrder.id == order_id,
             PurchaseOrder.tenant_id == tenant_id,
@@ -53,6 +58,7 @@ class PurchaseOrderRepository:
                 selectinload(PurchaseOrder.items).selectinload(PurchaseOrderItem.product),
                 selectinload(PurchaseOrder.supplier),
             )
+        stmt = stmt.execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -65,10 +71,16 @@ class PurchaseOrderRepository:
         date_to: Optional[date] = None,
         limit: int = 50,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[PurchaseOrder], int]:
-        """Lista órdenes de compra con filtros y paginación."""
+        """Lista órdenes de compra con filtros y paginación (`warehouse_id` = alcance)."""
+        await set_tenant_context(self.session, tenant_id)
         base_query = select(PurchaseOrder).where(PurchaseOrder.tenant_id == tenant_id)
         count_query = select(func.count(PurchaseOrder.id)).where(PurchaseOrder.tenant_id == tenant_id)
+
+        if warehouse_id:
+            base_query = base_query.where(PurchaseOrder.warehouse_id == warehouse_id)
+            count_query = count_query.where(PurchaseOrder.warehouse_id == warehouse_id)
 
         if supplier_id:
             base_query = base_query.where(PurchaseOrder.supplier_id == supplier_id)

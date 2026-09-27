@@ -10,6 +10,8 @@ import 'widgets/barcode_search_modal.dart';
 import 'widgets/category_filter_bar.dart';
 import 'widgets/inventory_search_bar.dart';
 import 'widgets/product_list_tile.dart';
+import 'widgets/warehouse_stock_hint.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Pantalla principal de Inventario — Subtarea 3.2.1
 ///
@@ -142,12 +144,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       backgroundColor: AppColors.darkSlate,
       elevation: 0,
       automaticallyImplyLeading: false,
-      title: const Text(
-        'Inventario',
-        style: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-          color: AppColors.onSurface,
+      title: const ScopedAppBarTitle(
+        title: Text(
+          'Inventario',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.onSurface,
+          ),
         ),
       ),
       actions: [
@@ -263,6 +267,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         return ProductListTile(
           product: product,
           onTap: () => _goToDetail(context, product.id),
+          otherWarehousesHint: otherWarehousesHint(
+            product,
+            ref.watch(warehouseNamesProvider),
+          ),
         );
       },
     );

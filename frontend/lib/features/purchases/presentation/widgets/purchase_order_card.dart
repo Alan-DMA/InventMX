@@ -88,6 +88,28 @@ class PurchaseOrderCard extends StatelessWidget {
               ),
               overflow: TextOverflow.ellipsis,
             ),
+            // Almacén donde se recibe (aislamiento por almacén)
+            if (order.warehouseName != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                key: const Key('purchaseOrderWarehouse'),
+                children: [
+                  const Icon(Icons.warehouse_outlined,
+                      size: 13, color: AppColors.skyBlue),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      order.warehouseName!,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.skyBlue),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 6),
             Row(
               children: [

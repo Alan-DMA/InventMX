@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de entidades de dominio
+from app.core.security.scope import resolve_data_scope
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.purchasing_suppliers.domain.account_payable import (
     AccountPayable,
@@ -37,6 +38,16 @@ class AccountsPayableService:
         self.session = session
         self.ap_repo = AccountPayableRepository(session)
 
+    async def _scope(
+        self, current_user: User, requested: Optional[uuid.UUID] = None
+    ) -> Optional[uuid.UUID]:
+        """
+        Almacén cuyas deudas se ven: la deuda hereda el almacén de su orden
+        (decisión de Eduardo, Sep 27). Dueño y Encargado ven todas; los demás,
+        las de su almacén (W1).
+        """
+        return await resolve_data_scope(self.session, current_user, requested)
+
     async def list_accounts_payable(
         self,
         current_user: User,
@@ -45,10 +56,12 @@ class AccountsPayableService:
         overdue_only: bool = False,
         limit: int = 50,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[AccountPayableResponse], int]:
         """Lista cuentas por pagar aplicando filtros de vencimiento y proveedor."""
         items, total = await self.ap_repo.list_accounts_payable(
             tenant_id=current_user.tenant_id,
+            warehouse_id=await self._scope(current_user, warehouse_id),
             supplier_id=supplier_id,
             status=status_filter,
             overdue_only=overdue_only,
@@ -63,7 +76,9 @@ class AccountsPayableService:
         current_user: User,
     ) -> AccountPayableResponse:
         """Obtiene una cuenta por pagar por su ID."""
-        ap = await self.ap_repo.get_by_id(account_id, current_user.tenant_id)
+        ap = await self.ap_repo.get_by_id(
+            account_id, current_user.tenant_id, await self._scope(current_user)
+        )
         if not ap:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -81,7 +96,9 @@ class AccountsPayableService:
         Registra un abono o liquidación total de una cuenta por pagar a proveedor.
         """
         # 1. Obtener la cuenta por pagar bajo aislamiento de inquilino
-        ap = await self.ap_repo.get_by_id(account_id, current_user.tenant_id)
+        ap = await self.ap_repo.get_by_id(
+            account_id, current_user.tenant_id, await self._scope(current_user)
+        )
         if not ap:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -152,7 +169,9 @@ class AccountsPayableService:
         current_user: User,
     ) -> List[SupplierPaymentLedgerResponse]:
         """Lista el historial de abonos aplicados a una cuenta por pagar."""
-        ap = await self.ap_repo.get_by_id(account_id, current_user.tenant_id)
+        ap = await self.ap_repo.get_by_id(
+            account_id, current_user.tenant_id, await self._scope(current_user)
+        )
         if not ap:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -164,9 +183,12 @@ class AccountsPayableService:
     async def get_summary(
         self,
         current_user: User,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> AccountsPayableSummaryResponse:
-        """Obtiene el resumen financiero consolidado de deudas con proveedores."""
-        summary = await self.ap_repo.get_summary(current_user.tenant_id)
+        """Obtiene el resumen financiero de deudas con proveedores, en el alcance del usuario."""
+        summary = await self.ap_repo.get_summary(
+            current_user.tenant_id, await self._scope(current_user, warehouse_id)
+        )
         return AccountsPayableSummaryResponse(**summary)
 
     def _build_response(self, ap: AccountPayable) -> AccountPayableResponse:

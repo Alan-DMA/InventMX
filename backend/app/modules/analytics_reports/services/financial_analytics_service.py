@@ -10,6 +10,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de entidades de dominio
+from app.core.security.scope import resolve_data_scope
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.analytics_reports.repositories.financial_analytics_repository import FinancialAnalyticsRepository
 from app.modules.analytics_reports.schemas.analytics_schemas import (
@@ -213,6 +214,7 @@ class FinancialAnalyticsService:
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         compare_previous: bool = True,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> DashboardKPIResponse:
         """
         Calcula y consolida todos los indicadores de rendimiento (KPIs) en tiempo real
@@ -284,7 +286,12 @@ class FinancialAnalyticsService:
 
         # 4. Obtener valuación y productos con stock crítico
         val_data = await self.repo.get_inventory_valuation(current_user.tenant_id)
-        critical_stock_data = await self.repo.get_critical_stock_products(current_user.tenant_id)
+        # Las alertas de stock van contra el almacén (D25, aislamiento Fase 1);
+        # las cifras de dinero se acotan en la Fase 2.
+        stock_scope = await resolve_data_scope(self.repo.session, current_user, warehouse_id)
+        critical_stock_data = await self.repo.get_critical_stock_products(
+            current_user.tenant_id, stock_scope
+        )
         critical_alerts = [CriticalStockProductResponse(**c) for c in critical_stock_data]
 
         # 5. Obtener los 5 productos más vendidos
@@ -302,8 +309,12 @@ class FinancialAnalyticsService:
         ]
 
         # 6. Obtener alertas de órdenes de compra pendientes
+        # Las compras siguen el alcance del usuario, no el almacén del
+        # inventario: el Dueño ve las de todos (decisión de Eduardo, Sep 27).
         pending_po_data = await self.repo.get_pending_purchase_orders_alerts(
-            current_user.tenant_id, limit=5
+            current_user.tenant_id,
+            limit=5,
+            warehouse_id=await resolve_data_scope(self.repo.session, current_user, None),
         )
         pending_purchases = [PendingPurchaseAlertSchema(**p) for p in pending_po_data]
 

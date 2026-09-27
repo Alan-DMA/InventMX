@@ -63,7 +63,10 @@ components:
       schema:
         type: string
         format: uuid
-      description: Filtrar por almacén específico.
+      description: |
+        Almacén de la consulta. Quien no tiene `reports.view_advanced` (Cajero,
+        Almacenista) queda fijo en su almacén operativo aunque pida otro; el
+        servidor lo fuerza (aislamiento por almacén, W1).
 
     DateFromParam:
       name: date_from
@@ -519,6 +522,36 @@ components:
           nullable: true
         warehouse_id:
           $ref: '#/components/schemas/UUID'
+          nullable: true
+          description: |
+            Almacén al que se refiere `warehouse_stock` (alcance de la consulta).
+            Nulo = todos los almacenes. Sin `reports.view_advanced` el servidor
+            fuerza el almacén operativo del usuario (aislamiento por almacén, W1).
+        warehouse_stock:
+          type: number
+          format: decimal
+          description: Existencias en el almacén de la consulta; igual a `total_stock` si es de todos.
+        total_stock:
+          type: number
+          format: decimal
+          description: Suma de existencias de todos los almacenes.
+        is_low_stock:
+          type: boolean
+          description: Contra `warehouse_stock` (con alcance) o `total_stock` (sin alcance).
+        stocks:
+          type: array
+          description: Desglose de existencias por almacén.
+          items:
+            type: object
+            properties:
+              warehouse_id:
+                $ref: '#/components/schemas/UUID'
+              current_stock:
+                type: number
+                format: decimal
+              reserved_stock:
+                type: number
+                format: decimal
         is_active:
           type: boolean
         is_on_catalog:

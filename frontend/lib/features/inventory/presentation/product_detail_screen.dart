@@ -14,6 +14,7 @@ import 'widgets/kardex_bottom_sheet.dart';
 import 'widgets/product_label_modal.dart';
 import 'widgets/stock_card.dart';
 import 'widgets/transfer_stock_modal.dart';
+import 'widgets/warehouse_stock_hint.dart';
 
 /// Pantalla de detalle de producto — Subtarea 3.2.2
 ///
@@ -127,7 +128,10 @@ class _DetailBody extends ConsumerWidget {
           _ProductBanner(imageUrl: product.imageUrl),
 
           // ── Identificación ────────────────────────────────────────────
-          _buildIdentity(context),
+          _buildIdentity(
+            context,
+            ref.watch(warehouseNamesProvider)[product.warehouseId],
+          ),
 
           const _SectionDivider(),
 
@@ -142,7 +146,13 @@ class _DetailBody extends ConsumerWidget {
           // ── Tarjeta de stock disponible ────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: StockCard(product: product),
+            child: StockCard(
+              product: product,
+              otherWarehousesHint: otherWarehousesHint(
+                product,
+                ref.watch(warehouseNamesProvider),
+              ),
+            ),
           ),
 
           const SizedBox(height: 20),
@@ -237,7 +247,7 @@ class _DetailBody extends ConsumerWidget {
 
   // ── Sección de identificación ────────────────────────────────────────────
 
-  Widget _buildIdentity(BuildContext context) {
+  Widget _buildIdentity(BuildContext context, String? warehouseName) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Column(
@@ -284,10 +294,10 @@ class _DetailBody extends ConsumerWidget {
                 icon: Icons.folder_outlined,
                 label: product.category,
               ),
-              if (product.warehouseId != null)
-                const _InfoChip(
+              if (warehouseName != null)
+                _InfoChip(
                   icon: Icons.warehouse_outlined,
-                  label: 'Almacén Principal',
+                  label: warehouseName,
                 ),
             ],
           ),

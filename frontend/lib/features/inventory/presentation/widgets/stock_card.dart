@@ -4,13 +4,18 @@ import '../../domain/product.dart';
 
 /// Tarjeta de stock disponible para la ficha de detalle — ícono, label,
 /// cantidad y subtexto con semáforo según [StockStatus].
+///
+/// La cantidad es la del almacén donde se opera (D23); si aquí no hay y otra
+/// bodega sí, el subtexto lo dice con [otherWarehousesHint] (D24).
 class StockCard extends StatelessWidget {
   const StockCard({
     super.key,
     required this.product,
+    this.otherWarehousesHint,
   });
 
   final Product product;
+  final String? otherWarehousesHint;
 
   @override
   Widget build(BuildContext context) {
@@ -105,7 +110,9 @@ class StockCard extends StatelessWidget {
   String _availableSubtitle(Product p) {
     final threshold = p.minStockAlert;
     return switch (p.stockStatus) {
-      StockStatus.outOfStock => 'Sin stock disponible',
+      StockStatus.outOfStock => otherWarehousesHint == null
+          ? 'Sin stock disponible'
+          : 'Sin stock aquí · $otherWarehousesHint',
       StockStatus.lowStock => 'Stock bajo (mín. ${threshold ?? 0} pzs)',
       StockStatus.inStock => 'En anaquel o piso',
     };

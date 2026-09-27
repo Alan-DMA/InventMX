@@ -133,6 +133,10 @@ class CartState {
   bool get isEmpty => items.isEmpty;
   bool get hasError => error != null;
 
+  /// Renglones que piden más de lo que hay: mientras existan no se cobra.
+  List<CartItem> get stockConflicts =>
+      items.where((i) => i.exceedsStock).toList();
+
   CartState copyWith({
     List<CartItem>? items,
     bool? isProcessing,

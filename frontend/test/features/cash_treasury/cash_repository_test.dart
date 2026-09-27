@@ -116,7 +116,7 @@ void main() {
       );
 
       // Conteo físico de 7 billetes de 100
-      final count = const BanxicoCount({'bills_100': 7});
+      const count = BanxicoCount({'bills_100': 7});
 
       final mockResponse = {
         'shift_id': 'shift-uuid-001',

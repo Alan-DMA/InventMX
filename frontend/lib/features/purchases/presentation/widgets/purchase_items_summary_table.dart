@@ -359,6 +359,39 @@ class _ItemRowState extends State<_ItemRow> {
                         style: const TextStyle(
                             fontSize: 12, color: AppColors.onSurfaceMuted),
                       ),
+                      // Un renglón "Se creará" puede ser un producto que ya
+                      // existe con otro nombre: se invita a buscarlo (QA de
+                      // Eduardo, Sep 27 — el texto plano no decía que el
+                      // nombre se puede cambiar).
+                      if (willCreate)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: InkWell(
+                            key: Key('purchaseItemSearch-${_item.productId}'),
+                            onTap: _startEditing,
+                            borderRadius: BorderRadius.circular(6),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.search_rounded,
+                                    size: 14, color: AppColors.skyBlue),
+                                SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    '¿Ya existe? Búscalo',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.skyBlue,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -368,6 +401,15 @@ class _ItemRowState extends State<_ItemRow> {
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: AppColors.skyBlue),
+                ),
+                IconButton(
+                  key: Key('purchaseItemEdit-${_item.productId}'),
+                  onPressed: _startEditing,
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  color: AppColors.onSurfaceMuted,
+                  tooltip: 'Editar',
+                  padding: const EdgeInsets.only(left: 8),
+                  constraints: const BoxConstraints(),
                 ),
                 IconButton(
                   onPressed: widget.onRemove,

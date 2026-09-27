@@ -106,11 +106,12 @@ class ProductRepository:
         is_active: Optional[bool] = None,
         query: Optional[str] = None,
         skip: int = 0,
-        limit: int = 100,
+        limit: Optional[int] = 100,
     ) -> List[Product]:
         """
         Retorna la lista de productos del comercio aplicando filtros opcionales
         y búsqueda por texto difuso (pg_trgm) o código de barras.
+        `limit=None` omite la paginación (el filtro de stock bajo pagina después).
         """
         stmt = (
             select(Product)
@@ -144,7 +145,8 @@ class ProductRepository:
             )
 
         # Paginación
-        stmt = stmt.offset(skip).limit(limit)
+        if limit is not None:
+            stmt = stmt.offset(skip).limit(limit)
 
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

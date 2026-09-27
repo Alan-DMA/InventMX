@@ -110,6 +110,9 @@ void main() {
         expect(find.byType(OnboardingWizardScreen), findsNothing);
         // Con el nuevo ShellRoute, el dashboard muestra el NavigationBar
         expect(find.byType(NavigationBar), findsOneWidget);
+        // La campana espera el resumen del Inicio y luego su propia latencia
+        // simulada: se deja correr para no dejar timers vivos.
+        await tester.pump(const Duration(seconds: 1));
       },
     );
 
@@ -155,6 +158,7 @@ void main() {
           router.routeInformationProvider.value.uri.path,
           equals(AppRoutes.home),
         );
+        await tester.pump(const Duration(seconds: 1));
       },
     );
   });

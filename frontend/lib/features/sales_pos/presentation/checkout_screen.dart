@@ -16,6 +16,7 @@ import 'widgets/cart_totals_bar.dart';
 import 'widgets/on_the_fly_modal.dart';
 import 'widgets/payment_modal.dart';
 import 'widgets/product_search_results.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Pantalla principal del Punto de Venta (POS) — Tarea 6.2
 ///
@@ -229,7 +230,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             // ── Barra inferior ───────────────────────────────────────────
             CartTotalsBar(
               totalMxn: cart.totalMxn,
-              isEnabled: !cart.isEmpty,
+              // Un renglón que pide más de lo que hay no se cobra.
+              isEnabled: !cart.isEmpty && cart.stockConflicts.isEmpty,
               isProcessing: cart.isProcessing,
               onCobrar: _onCobrar,
             ),
@@ -253,12 +255,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       elevation: 0,
       scrolledUnderElevation: 0,
       automaticallyImplyLeading: false,
-      title: const Text(
-        'Ventas',
-        style: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.w800,
-          color: AppColors.onSurface,
+      title: const ScopedAppBarTitle(
+        title: Text(
+          'Ventas',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.onSurface,
+          ),
         ),
       ),
       actions: [

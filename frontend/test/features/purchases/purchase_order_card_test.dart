@@ -12,6 +12,7 @@ PurchaseOrder _order({
   PurchaseOrderStatus status = PurchaseOrderStatus.confirmed,
   DateTime? expectedDeliveryDate,
   DateTime? receivedDate,
+  String? warehouseName,
 }) =>
     PurchaseOrder(
       id: 'po-1',
@@ -33,6 +34,7 @@ PurchaseOrder _order({
       createdAt: DateTime(2026, 9, 10),
       expectedDeliveryDate: expectedDeliveryDate,
       receivedDate: receivedDate,
+      warehouseName: warehouseName,
     );
 
 Future<void> _pump(WidgetTester tester, PurchaseOrder order) async {
@@ -102,5 +104,17 @@ void main() {
     await _pump(tester, _order(expectedDeliveryDate: DateTime(2025, 12, 28)));
 
     expect(find.text('Llega: 28 dic 2025'), findsOneWidget);
+  });
+
+  testWidgets('la tarjeta dice en qué almacén se recibe (aislamiento por almacén)',
+      (tester) async {
+    await _pump(tester, _order(warehouseName: 'Bodega'));
+    expect(find.byKey(const Key('purchaseOrderWarehouse')), findsOneWidget);
+    expect(find.text('Bodega'), findsOneWidget);
+  });
+
+  testWidgets('sin almacén conocido no pinta la etiqueta', (tester) async {
+    await _pump(tester, _order());
+    expect(find.byKey(const Key('purchaseOrderWarehouse')), findsNothing);
   });
 }

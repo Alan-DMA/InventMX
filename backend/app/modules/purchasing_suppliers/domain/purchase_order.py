@@ -120,6 +120,9 @@ class PurchaseOrder(Base):
     supplier = relationship("Supplier", back_populates="purchase_orders")
     items = relationship("PurchaseOrderItem", back_populates="purchase_order", cascade="all, delete-orphan")
     account_payable = relationship("AccountPayable", back_populates="purchase_order", uselist=False)
+    # Almacén donde se recibe (aislamiento por almacén): cargado con la orden
+    # para rotularla sin otra consulta.
+    warehouse = relationship("app.modules.inventory.domain.warehouse.Warehouse", lazy="joined")
 
 
 class PurchaseOrderItem(Base):

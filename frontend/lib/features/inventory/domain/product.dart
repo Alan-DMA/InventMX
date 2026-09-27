@@ -46,7 +46,9 @@ class Product {
     this.supplierName,
     this.suggestedMaxPriceMxn,
     this.suggestedMaxPriceSource,
-  });
+    int? totalStock,
+    this.stockByWarehouse = const {},
+  }) : totalStock = totalStock ?? stock;
 
   // --- Identificación ---
   final String id;
@@ -77,13 +79,26 @@ class Product {
   final String? suggestedMaxPriceSource;
 
   // --- Stock ---
+  /// Existencias del almacén de la consulta ([warehouseId]) — lo que se
+  /// puede vender aquí (aislamiento por almacén, D23). Si la consulta fue de
+  /// todos los almacenes, coincide con [totalStock].
   final int stock;
+
+  /// Suma de todos los almacenes (`total_stock`, W2).
+  final int totalStock;
+
+  /// Desglose `warehouse_id → existencias` (`stocks[]` del backend).
+  final Map<String, int> stockByWarehouse;
   final int reservedStock;
   final int availableStock;
   final int? minStockAlert;
 
   // --- Imagen y almacén ---
   final String? imageUrl;
+
+  /// Almacén al que se refiere [stock]. El backend lo devuelve cuando la
+  /// consulta tuvo alcance de almacén; si no, se toma el del primer renglón
+  /// de `stocks[]` (comportamiento previo).
   final String? warehouseId;
 
   // --- Flags ---
@@ -107,6 +122,13 @@ class Product {
     }
     return StockStatus.inStock;
   }
+
+  /// Almacenes distintos de [warehouseId] que sí tienen existencias —
+  /// alimenta el aviso "hay N en Bodega" cuando aquí hay cero (D24).
+  Map<String, int> get stockElsewhere => {
+        for (final entry in stockByWarehouse.entries)
+          if (entry.key != warehouseId && entry.value > 0) entry.key: entry.value,
+      };
 
   /// Margen de ganancia en porcentaje.
   /// Retorna null si cost_mxn es 0 (costo no registrado)
@@ -152,18 +174,41 @@ class Product {
       return double.tryParse(s);
     }
 
-    // Extracción tolerante y segura de existencias
-    final rawStock = json['total_stock'] ??
+    // Almacén de la consulta: sólo lo manda el backend cuando hubo alcance
+    final String? scopeWarehouseId = json['warehouse_id']?.toString();
+    final List stockRows = json['stocks'] is List ? json['stocks'] as List : const [];
+
+    // Desglose por almacén
+    final byWarehouse = <String, int>{};
+    for (final row in stockRows) {
+      if (row is Map && row['warehouse_id'] != null) {
+        final key = row['warehouse_id'].toString();
+        byWarehouse[key] = (byWarehouse[key] ?? 0) + parseInt(row['current_stock'], 0);
+      }
+    }
+
+    // Extracción tolerante y segura de existencias: primero las del almacén
+    // de la consulta (`warehouse_stock`), luego la suma (`total_stock`)
+    final rawStock = json['warehouse_stock'] ??
+        json['total_stock'] ??
         json['stock'] ??
         json['current_stock'] ??
         json['available_stock'] ??
         json['stock_available'];
     final int stockVal = parseInt(rawStock, 0);
+    final int totalStockVal = json['total_stock'] != null
+        ? parseInt(json['total_stock'], 0)
+        : stockVal;
 
     int resStockVal = parseInt(json['reserved_stock'] ?? json['stock_reserved'], 0);
-    if (resStockVal == 0 && json['stocks'] is List && (json['stocks'] as List).isNotEmpty) {
-      for (final s in (json['stocks'] as List)) {
+    if (resStockVal == 0 && stockRows.isNotEmpty) {
+      for (final s in stockRows) {
         if (s is Map && s['reserved_stock'] != null) {
+          // Con alcance, sólo lo apartado en ese almacén resta a lo vendible
+          if (scopeWarehouseId != null &&
+              s['warehouse_id']?.toString() != scopeWarehouseId) {
+            continue;
+          }
           resStockVal += parseInt(s['reserved_stock'], 0);
         }
       }
@@ -178,9 +223,9 @@ class Product {
     final int? minAlertVal = parseNullableInt(json['min_stock_alert']);
 
     // Extracción de warehouse_id directo o desde lista de stocks
-    String? whId = json['warehouse_id']?.toString();
-    if (whId == null && json['stocks'] is List && (json['stocks'] as List).isNotEmpty) {
-      final firstStock = (json['stocks'] as List).first;
+    String? whId = scopeWarehouseId;
+    if (whId == null && stockRows.isNotEmpty) {
+      final firstStock = stockRows.first;
       if (firstStock is Map && firstStock['warehouse_id'] != null) {
         whId = firstStock['warehouse_id'].toString();
       }
@@ -209,6 +254,8 @@ class Product {
       costMxn: costVal,
       costUsdImport: costUsd,
       stock: stockVal,
+      totalStock: totalStockVal,
+      stockByWarehouse: byWarehouse,
       reservedStock: resStockVal,
       availableStock: availStockVal,
       minStockAlert: minAlertVal,
@@ -235,7 +282,12 @@ class Product {
         'price_mxn': priceMxn,
         'cost_mxn': costMxn,
         'cost_usd_import': costUsdImport,
-        'stock': stock,
+        'warehouse_stock': stock,
+        'total_stock': totalStock,
+        'stocks': [
+          for (final entry in stockByWarehouse.entries)
+            {'warehouse_id': entry.key, 'current_stock': entry.value},
+        ],
         'reserved_stock': reservedStock,
         'available_stock': availableStock,
         'min_stock_alert': minStockAlert,
@@ -260,6 +312,8 @@ class Product {
     double? costMxn,
     double? costUsdImport,
     int? stock,
+    int? totalStock,
+    Map<String, int>? stockByWarehouse,
     int? reservedStock,
     int? availableStock,
     int? minStockAlert,
@@ -283,6 +337,8 @@ class Product {
       costMxn: costMxn ?? this.costMxn,
       costUsdImport: costUsdImport ?? this.costUsdImport,
       stock: stock ?? this.stock,
+      totalStock: totalStock ?? this.totalStock,
+      stockByWarehouse: stockByWarehouse ?? this.stockByWarehouse,
       reservedStock: reservedStock ?? this.reservedStock,
       availableStock: availableStock ?? this.availableStock,
       minStockAlert: minStockAlert ?? this.minStockAlert,

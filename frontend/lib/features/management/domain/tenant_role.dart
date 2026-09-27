@@ -1,7 +1,5 @@
 import 'package:equatable/equatable.dart';
 
-import 'app_permission.dart';
-
 /// Rol dentro de un comercio. Los cuatro roles de sistema replican los
 /// sembrados por la migración `0001` del backend (`OWNER`, `ADMIN`,
 /// `CASHIER`, `WAREHOUSE`).

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 # Importación de modelos de dominio
+from app.modules.purchasing_suppliers.domain.purchase_order import PurchaseOrder
 from app.modules.purchasing_suppliers.domain.account_payable import (
     AccountPayable,
     AccountPayableStatus,
@@ -39,10 +40,22 @@ class AccountPayableRepository:
         await self.session.flush()
         return account
 
+    @staticmethod
+    def _in_warehouse(warehouse_id: uuid.UUID):
+        """
+        La deuda hereda el almacén de la orden que la generó (aislamiento por
+        almacén, decisión de Eduardo Sep 27). Una deuda sin orden no tiene
+        almacén: sólo se ve en el alcance "todos".
+        """
+        return AccountPayable.purchase_order_id.in_(
+            select(PurchaseOrder.id).where(PurchaseOrder.warehouse_id == warehouse_id)
+        )
+
     async def get_by_id(
         self,
         account_id: uuid.UUID,
         tenant_id: uuid.UUID,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Optional[AccountPayable]:
         """Obtiene una cuenta por pagar por su ID con su proveedor cargado."""
         stmt = (
@@ -53,6 +66,8 @@ class AccountPayableRepository:
             )
             .options(selectinload(AccountPayable.supplier))
         )
+        if warehouse_id:
+            stmt = stmt.where(self._in_warehouse(warehouse_id))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -77,10 +92,15 @@ class AccountPayableRepository:
         overdue_only: bool = False,
         limit: int = 50,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[AccountPayable], int]:
         """Lista cuentas por pagar aplicando filtros de proveedor, estado o vencimiento."""
         base_query = select(AccountPayable).where(AccountPayable.tenant_id == tenant_id)
         count_query = select(func.count(AccountPayable.id)).where(AccountPayable.tenant_id == tenant_id)
+
+        if warehouse_id:
+            base_query = base_query.where(self._in_warehouse(warehouse_id))
+            count_query = count_query.where(self._in_warehouse(warehouse_id))
 
         if supplier_id:
             base_query = base_query.where(AccountPayable.supplier_id == supplier_id)
@@ -136,14 +156,18 @@ class AccountPayableRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_summary(self, tenant_id: uuid.UUID) -> dict:
+    async def get_summary(
+        self, tenant_id: uuid.UUID, warehouse_id: Optional[uuid.UUID] = None
+    ) -> dict:
         """Calcula el resumen agregado de saldos y cuentas vencidas en $ MXN."""
         today = date.today()
+        scope = [self._in_warehouse(warehouse_id)] if warehouse_id else []
         stmt = select(
             func.coalesce(func.sum(AccountPayable.total_mxn), Decimal("0.00")),
             func.coalesce(func.sum(AccountPayable.amount_paid_mxn), Decimal("0.00")),
         ).where(
             AccountPayable.tenant_id == tenant_id,
+            *scope,
             AccountPayable.status.in_([AccountPayableStatus.PENDING, AccountPayableStatus.PARTIALLY_PAID, AccountPayableStatus.OVERDUE]),
         )
         res = await self.session.execute(stmt)
@@ -156,6 +180,7 @@ class AccountPayableRepository:
             func.count(AccountPayable.id),
         ).where(
             AccountPayable.tenant_id == tenant_id,
+            *scope,
             AccountPayable.due_date < today,
             AccountPayable.status.in_([AccountPayableStatus.PENDING, AccountPayableStatus.PARTIALLY_PAID, AccountPayableStatus.OVERDUE]),
         )
@@ -165,6 +190,7 @@ class AccountPayableRepository:
         # Conteo total de pendientes
         pending_count_stmt = select(func.count(AccountPayable.id)).where(
             AccountPayable.tenant_id == tenant_id,
+            *scope,
             AccountPayable.status.in_([AccountPayableStatus.PENDING, AccountPayableStatus.PARTIALLY_PAID, AccountPayableStatus.OVERDUE]),
         )
         pending_count_res = await self.session.execute(pending_count_stmt)

@@ -4,7 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../inventory/domain/product.dart';
 import '../../../inventory/presentation/inventory_provider.dart';
+import '../../../auth/presentation/login_provider.dart' show currentUserNameProvider;
+import '../../../inventory/presentation/product_server_search_provider.dart';
 import '../../data/product_name_matcher.dart';
+
+/// Productos elegidos en el buscador de Compras, por id.
+///
+/// El buscador consulta al servidor (QA de Eduardo, Sep 27), así que lo
+/// elegido puede no estar en la lista en memoria de Inventario. Quien amarra
+/// renglones por `productId` (el formulario al volver de revisar la factura)
+/// busca aquí también, o un producto existente volvería como "Se creará".
+final pickedProductsProvider = StateProvider<Map<String, Product>>((ref) {
+  // De quien está en sesión: otro usuario empieza sin lo elegido antes.
+  ref.watch(currentUserNameProvider);
+  return const {};
+});
 
 /// Campo de producto de Compras — el único lugar donde un renglón deja de ser
 /// texto y pasa a ser un producto real del catálogo (o una promesa visible de
@@ -99,6 +113,9 @@ class _ProductFieldState extends ConsumerState<ProductField> {
   }
 
   void _resolve(Product product) {
+    ref.read(pickedProductsProvider.notifier).update(
+          (known) => {...known, product.id: product},
+        );
     widget.controller.text = product.name; // Nombre canónico del catálogo.
     widget.onResolvedChanged(product);
     _focusNode.unfocus();
@@ -140,7 +157,18 @@ class _ProductFieldState extends ConsumerState<ProductField> {
   @override
   Widget build(BuildContext context) {
     final resolved = widget.resolved;
-    final catalog = ref.watch(inventoryProvider).products;
+    final local = ref.watch(inventoryProvider).products;
+    // Lo cargado en memoria responde al instante; el servidor completa con
+    // lo que está más allá de las páginas cargadas (mismo arreglo que el POS).
+    final remote = resolved == null && _query.isNotEmpty
+        ? ref.watch(productServerSearchProvider(_query)).valueOrNull ??
+            const <Product>[]
+        : const <Product>[];
+    final catalog = [
+      ...local,
+      for (final p in remote)
+        if (!local.any((l) => l.id == p.id)) p,
+    ];
     final candidates = resolved == null
         ? _candidatesFor(_query, catalog)
         : const <Product>[];

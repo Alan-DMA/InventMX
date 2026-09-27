@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
 import '../data/inventory_repository.dart';
 import '../domain/product.dart';
 
@@ -104,6 +105,10 @@ const Object _keep = Object();
 class InventoryNotifier extends Notifier<InventoryState> {
   @override
   InventoryState build() {
+    // Las existencias son las del almacén donde opera quien está en sesión
+    // (D23): al cambiar de usuario la lista se vuelve a pedir. El cambio de
+    // "Dónde opero" la invalida desde `OperatingWarehouseNotifier.select`.
+    ref.watch(currentUserNameProvider);
     // Carga inicial al montar el provider
     Future.microtask(() => _load(resetList: true));
     return const InventoryState(isLoading: true);
@@ -275,6 +280,8 @@ class InventoryNotifier extends Notifier<InventoryState> {
       quantity: quantity,
       notes: notes,
     );
+    // Cambian las existencias de dos almacenes: se recarga en vez de parchar
+    await _load(resetList: true);
   }
 
   /// Actualiza los campos editables de un producto vía PUT /api/v1/inventory/products/{id}
@@ -326,9 +333,17 @@ class InventoryNotifier extends Notifier<InventoryState> {
     final updated = state.products.map((p) {
       if (p.id != productId) return p;
       final newAvailable = (p.availableStock + delta).clamp(0, 999999);
+      final warehouseId = p.warehouseId;
       return p.copyWith(
         stock: p.stock + delta,
+        totalStock: p.totalStock + delta,
         availableStock: newAvailable,
+        stockByWarehouse: warehouseId == null
+            ? null
+            : {
+                ...p.stockByWarehouse,
+                warehouseId: (p.stockByWarehouse[warehouseId] ?? 0) + delta,
+              },
       );
     }).toList();
     state = state.copyWith(products: updated);

@@ -124,12 +124,16 @@ async def get_me(current_user: User = Depends(get_current_user)):
 )
 async def update_my_warehouse(
     data: UpdateOperatingWarehouseRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("settings.manage_store")),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Actualiza en qué almacén está operando el usuario autenticado hoy —
-    configurable desde su perfil, sin requerir un permiso especial.
+    Actualiza en qué almacén está operando el usuario autenticado hoy.
+
+    Requiere `settings.manage_store`, la misma puerta que la pantalla "Dónde
+    opero": el almacén operativo acota lo que un empleado ve (aislamiento por
+    almacén, W1), así que cambiárselo solo lo dejaría leer otra sucursal. A un
+    empleado se lo asigna el dueño desde `PUT /users/{id}`.
     """
     service = UserService(db)
     return await service.update_operating_warehouse(data.warehouse_id, current_user)

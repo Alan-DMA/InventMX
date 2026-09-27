@@ -391,8 +391,13 @@ class FinancialAnalyticsRepository:
             for r in result.all()
         }
 
-    async def get_critical_stock_products(self, tenant_id: uuid.UUID) -> List[Dict[str, Any]]:
-        """Obtiene los productos cuyas existencias están en o por debajo del umbral mínimo."""
+    async def get_critical_stock_products(
+        self, tenant_id: uuid.UUID, warehouse_id: Optional[uuid.UUID] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene los productos cuyas existencias están en o por debajo del umbral mínimo.
+        Con `warehouse_id` se evalúan sólo las existencias de ese almacén (D25).
+        """
         stmt = (
             select(
                 Product.id,
@@ -410,6 +415,8 @@ class FinancialAnalyticsRepository:
             .having(func.sum(ProductStock.current_stock) <= Product.min_stock_alert)
             .order_by(func.sum(ProductStock.current_stock).asc())
         )
+        if warehouse_id is not None:
+            stmt = stmt.where(ProductStock.warehouse_id == warehouse_id)
         result = await self.session.execute(stmt)
         rows = result.all()
 
@@ -475,9 +482,11 @@ class FinancialAnalyticsRepository:
         self,
         tenant_id: uuid.UUID,
         limit: int = 5,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> List[Dict[str, Any]]:
         """
         Obtiene las órdenes de compra activas pendientes de entrega o recepción (RF-15/RF-17).
+        Con `warehouse_id`, sólo las que se reciben en ese almacén.
         Calcula los días transcurridos y si la orden se encuentra vencida según expected_delivery_date.
         """
         from app.modules.purchasing_suppliers.domain.purchase_order import PurchaseOrder, PurchaseOrderStatus
@@ -501,6 +510,7 @@ class FinancialAnalyticsRepository:
                     PurchaseOrderStatus.CONFIRMED,
                     PurchaseOrderStatus.PARTIALLY_RECEIVED,
                 ]),
+                *([PurchaseOrder.warehouse_id == warehouse_id] if warehouse_id else []),
             )
             .order_by(PurchaseOrder.created_at.asc())
             .limit(limit)

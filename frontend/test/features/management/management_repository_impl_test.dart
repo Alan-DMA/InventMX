@@ -10,6 +10,7 @@ import 'package:nexus_app/features/management/data/management_repository_impl.da
 import 'package:nexus_app/features/management/domain/app_permission.dart';
 import 'package:nexus_app/features/management/domain/tenant_member.dart';
 import 'package:nexus_app/features/management/domain/tenant_role.dart';
+import 'package:nexus_app/features/management/domain/warehouse.dart';
 
 class MockDioClient extends Mock implements DioClient {}
 
@@ -279,13 +280,70 @@ void main() {
     });
   });
 
-  test('almacenes y categorías se delegan al mock', () async {
-    final warehouses = await repo.listWarehouses();
-    expect(warehouses, isNotEmpty);
+  test('categorías se delegan al mock', () async {
     final categories = await repo.listCategories();
     expect(categories, isNotEmpty);
     verifyNever(() => client.get<dynamic>(any(),
         queryParameters: any(named: 'queryParameters'),
         options: any(named: 'options')));
+  });
+
+  group('almacenes contra el servidor (aislamiento por almacén, Fase 1)', () {
+    final principal = {
+      'id': 'wh-1',
+      'tenant_id': 't-1',
+      'name': 'Almacén Principal',
+      'is_default': true,
+      'created_at': '2026-09-01T10:00:00',
+    };
+
+    test('listWarehouses lee GET /inventory/warehouses', () async {
+      stubGet('/api/v1/inventory/warehouses', [principal]);
+      final warehouses = await repo.listWarehouses();
+      expect(warehouses.single.id, 'wh-1');
+      expect(warehouses.single.name, 'Almacén Principal');
+      expect(warehouses.single.isActive, isTrue);
+    });
+
+    test('createWarehouse hace POST sin volverlo principal', () async {
+      stubGet('/api/v1/inventory/warehouses', [principal]);
+      when(() => client.post<dynamic>(
+            '/api/v1/inventory/warehouses',
+            data: any(named: 'data'),
+            options: any(named: 'options'),
+          )).thenAnswer((_) async => _ok('/api/v1/inventory/warehouses', {
+            ...principal,
+            'id': 'wh-2',
+            'name': 'Bodega',
+            'is_default': false,
+          }));
+
+      final created = await repo.createWarehouse('  Bodega ');
+      expect(created.id, 'wh-2');
+      final sent = verify(() => client.post<dynamic>(
+            '/api/v1/inventory/warehouses',
+            data: captureAny(named: 'data'),
+            options: any(named: 'options'),
+          )).captured.single as Map;
+      expect(sent, {'name': 'Bodega', 'is_default': false});
+    });
+
+    test('un nombre repetido se rechaza antes de llamar al servidor', () async {
+      stubGet('/api/v1/inventory/warehouses', [principal]);
+      await expectLater(
+        repo.createWarehouse('almacén principal'),
+        throwsA(isA<DuplicateWarehouseNameException>()),
+      );
+      verifyNever(() => client.post<dynamic>(any(),
+          data: any(named: 'data'), options: any(named: 'options')));
+    });
+
+    test('renombrar y dar de baja avisan que aún no existen (D7)', () async {
+      await expectLater(
+        repo.updateWarehouse(id: 'wh-1', name: 'X'),
+        throwsA(isA<Exception>()),
+      );
+      await expectLater(repo.deactivateWarehouse('wh-1'), throwsA(isA<Exception>()));
+    });
   });
 }

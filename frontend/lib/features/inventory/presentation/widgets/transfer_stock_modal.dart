@@ -49,7 +49,21 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
   // ── Validación ────────────────────────────────────────────────────────────
 
   bool get _sameWarehouse => _from != null && _to != null && _from!.id == _to!.id;
-  bool get _exceedsStock => _quantity > widget.product.availableStock;
+  /// Existencias del almacén de origen elegido. El producto trae las de
+  /// mi almacén en [Product.availableStock] y el resto en el desglose
+  /// (aislamiento por almacén); sin desglose (mock) se usa la cifra única.
+  int get _originStock {
+    final from = _from;
+    final product = widget.product;
+    if (from == null ||
+        product.stockByWarehouse.isEmpty ||
+        from.id == product.warehouseId) {
+      return product.availableStock;
+    }
+    return product.stockByWarehouse[from.id] ?? 0;
+  }
+
+  bool get _exceedsStock => _quantity > _originStock;
   bool get _isValid =>
       _from != null &&
       _to != null &&
@@ -60,7 +74,7 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
   String? get _validationMessage {
     if (_sameWarehouse) return 'El origen y destino deben ser diferentes.';
     if (_exceedsStock) {
-      return 'Solo hay ${widget.product.availableStock} pzs disponibles en origen.';
+      return 'Solo hay $_originStock pzs disponibles en origen.';
     }
     return null;
   }
@@ -141,11 +155,18 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
             }
 
             // Inicializa _from y _to si son nulos
+            // Por omisión se traslada desde el almacén donde opero
             if (_from == null || !warehouses.contains(_from)) {
-              _from = warehouses.first;
+              _from = warehouses.firstWhere(
+                (w) => w.id == widget.product.warehouseId,
+                orElse: () => warehouses.first,
+              );
             }
             if (_to == null || !warehouses.contains(_to)) {
-              _to = warehouses.length > 1 ? warehouses[1] : warehouses.first;
+              _to = warehouses.firstWhere(
+                (w) => w.id != _from!.id,
+                orElse: () => warehouses.first,
+              );
             }
 
             return Column(
@@ -292,7 +313,7 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
                       fontWeight: FontWeight.w500,
                       color: AppColors.onSurface)),
               Text(
-                'Disponible: ${widget.product.availableStock} pzs',
+                'Disponible: $_originStock pzs',
                 style: const TextStyle(
                     fontSize: 12, color: AppColors.onSurfaceMuted),
               ),

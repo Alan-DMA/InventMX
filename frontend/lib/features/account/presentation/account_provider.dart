@@ -1,8 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/data/auth_repository.dart';
+import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
+import '../../dashboard/presentation/dashboard_provider.dart'
+    show dailySnapshotProvider;
 import '../../inventory/presentation/inventory_provider.dart'
-    show WarehouseOption, warehousesProvider;
+    show WarehouseOption, inventoryProvider, warehousesProvider;
 import '../../management/domain/warehouse.dart';
 import '../../management/presentation/management_provider.dart'
     hide warehousesProvider;
@@ -48,6 +51,11 @@ final operatingWarehouseOptionsProvider =
 class OperatingWarehouseNotifier extends AsyncNotifier<Warehouse?> {
   @override
   Future<Warehouse?> build() async {
+    // Es de quien está en sesión: al cambiar de usuario en el mismo teléfono
+    // se vuelve a leer su almacén de `/auth/me`. Sin esto el siguiente usuario
+    // heredaba el almacén del anterior — leyenda, consultas y cobro incluidos
+    // (QA de Eduardo, Sep 26: el Almacenista veía las alertas del Dueño).
+    ref.watch(currentUserNameProvider);
     final options = await ref.watch(warehousesProvider.future);
     if (options.isEmpty) return null;
 
@@ -69,6 +77,19 @@ class OperatingWarehouseNotifier extends AsyncNotifier<Warehouse?> {
   Future<void> select(Warehouse warehouse) async {
     await ref.read(authRepositoryProvider).setDefaultWarehouseId(warehouse.id);
     state = AsyncData(warehouse);
+    // Lo que se ve está acotado a este almacén (aislamiento por almacén):
+    // existencias, alertas del Inicio y avisos se vuelven a pedir. Se empuja
+    // desde aquí en vez de que cada uno observe este provider, para no
+    // arrastrar la carga de almacenes a quien sólo lee el inventario.
+    // Sólo lo que ya está en uso: invalidar uno que nadie ha leído lo
+    // construiría (y saldría a la red) sin que nadie lo mire.
+    for (final ProviderBase<Object?> provider in [
+      inventoryProvider,
+      // La campana observa este resumen: se recalcula sola.
+      dailySnapshotProvider,
+    ]) {
+      if (ref.exists(provider)) ref.invalidate(provider);
+    }
   }
 }
 
@@ -76,6 +97,18 @@ final operatingWarehouseProvider =
     AsyncNotifierProvider<OperatingWarehouseNotifier, Warehouse?>(
   OperatingWarehouseNotifier.new,
 );
+
+/// Id del almacén donde opero, para acotar consultas (aislamiento por
+/// almacén). Lee primero el estado actual: justo después de
+/// [OperatingWarehouseNotifier.select] —que es cuando Inventario y el Inicio
+/// recargan— `operatingWarehouseProvider.future` todavía resuelve al almacén
+/// anterior, y la recarga salía con él (QA de Eduardo, Sep 26). El `future`
+/// queda sólo para cuando aún no hay valor.
+Future<String?> readOperatingWarehouseId(Ref ref) async {
+  final current = ref.read(operatingWarehouseProvider).valueOrNull;
+  if (current != null) return current.id;
+  return (await ref.read(operatingWarehouseProvider.future))?.id;
+}
 
 /// Margen máximo sugerido (%) del comercio — piso del "precio máximo
 /// sugerido" por producto mientras no haya suficiente historial de ventas

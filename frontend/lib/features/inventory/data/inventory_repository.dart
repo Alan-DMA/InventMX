@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dio_client.dart';
+import '../../account/presentation/account_provider.dart'
+    show readOperatingWarehouseId;
 import '../../auth/data/auth_repository.dart';
 import '../domain/inventory_movement.dart';
 import '../domain/product.dart';
@@ -142,10 +144,19 @@ abstract class InventoryRepository {
 // Implementación Real (Conexión Directa a la API FastAPI / PostgreSQL)
 // ---------------------------------------------------------------------------
 
+final _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
 class InventoryRepositoryImpl implements InventoryRepository {
-  InventoryRepositoryImpl({required this.client});
+  InventoryRepositoryImpl({required this.client, this.resolveWarehouseScope});
 
   final DioClient client;
+
+  /// Almacén donde opera quien usa la app (aislamiento por almacén, D23):
+  /// el listado, el buscador del POS y el detalle muestran sus existencias y
+  /// el alta deja ahí el stock inicial. Nulo = sin alcance (el servidor igual
+  /// fuerza el suyo a quien no puede ver todos los almacenes, W1).
+  final Future<String?> Function()? resolveWarehouseScope;
   String? _cachedDefaultWarehouseId;
   final Map<String, String> _categoryCache = {};
 
@@ -168,6 +179,17 @@ class InventoryRepositoryImpl implements InventoryRepository {
     return '00000000-0000-0000-0000-000000000000';
   }
 
+  /// Almacén de la consulta; se omite si no hay uno real (p. ej. el
+  /// respaldo `'default'` de `warehousesProvider` cuando falló la red).
+  Future<String?> _scopeWarehouseId() async {
+    try {
+      final id = await resolveWarehouseScope?.call();
+      return id != null && _uuidPattern.hasMatch(id) ? id : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Resuelve el UUID de una categoría por nombre (creándola si no existe)
   Future<String?> _resolveCategoryId(String? categoryName) async {
     if (categoryName == null ||
@@ -178,8 +200,7 @@ class InventoryRepositoryImpl implements InventoryRepository {
 
     final trimmed = categoryName.trim();
     // Si ya es un UUID válido de 36 caracteres con guiones
-    if (RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
-        .hasMatch(trimmed)) {
+    if (_uuidPattern.hasMatch(trimmed)) {
       return trimmed;
     }
 
@@ -239,6 +260,10 @@ class InventoryRepositoryImpl implements InventoryRepository {
       if (lowStock) {
         queryParams['low_stock'] = true;
       }
+      final warehouseId = await _scopeWarehouseId();
+      if (warehouseId != null) {
+        queryParams['warehouse_id'] = warehouseId;
+      }
 
       final response = await client.get(
         '/api/v1/inventory/products',
@@ -285,7 +310,13 @@ class InventoryRepositoryImpl implements InventoryRepository {
   @override
   Future<Product> getProductById(String id) async {
     try {
-      final response = await client.get('/api/v1/inventory/products/$id');
+      final warehouseId = await _scopeWarehouseId();
+      final response = await client.get(
+        '/api/v1/inventory/products/$id',
+        queryParameters: {
+          if (warehouseId != null) 'warehouse_id': warehouseId,
+        },
+      );
       final dynamic data = response.data;
       if (data == null || data is! Map) {
         throw const InventoryException('Producto no encontrado.');
@@ -313,7 +344,9 @@ class InventoryRepositoryImpl implements InventoryRepository {
   }) async {
     try {
       final categoryId = await _resolveCategoryId(category);
+      final warehouseId = await _scopeWarehouseId();
       final payload = <String, dynamic>{
+        if (warehouseId != null) 'warehouse_id': warehouseId,
         'name': name.trim(),
         'price_mxn': priceMxn,
         'price_usd': priceMxn,
@@ -928,5 +961,6 @@ class InventoryRepositoryMock implements InventoryRepository {
 final inventoryRepositoryProvider = Provider<InventoryRepository>(
   (ref) => InventoryRepositoryImpl(
     client: ref.watch(dioClientProvider),
+    resolveWarehouseScope: () => readOperatingWarehouseId(ref),
   ),
 );

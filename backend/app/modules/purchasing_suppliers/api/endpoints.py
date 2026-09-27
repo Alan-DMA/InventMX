@@ -186,6 +186,13 @@ async def list_purchase_orders(
     date_to: Optional[date] = Query(None, description="Fecha hasta"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las órdenes. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("purchases.view")),
 ) -> List[PurchaseOrderResponse]:
@@ -199,6 +206,7 @@ async def list_purchase_orders(
         date_to=date_to,
         limit=limit,
         offset=offset,
+        warehouse_id=warehouse_id,
     )
     return items
 
@@ -296,6 +304,13 @@ async def list_accounts_payable(
     overdue_only: bool = Query(False, description="Mostrar únicamente facturas vencidas"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las órdenes que originaron la deuda. Omitido = todos. Sin "
+            "`reports.view_advanced` se ignora y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("purchases.view")),
 ) -> List[AccountPayableResponse]:
@@ -308,6 +323,7 @@ async def list_accounts_payable(
         overdue_only=overdue_only,
         limit=limit,
         offset=offset,
+        warehouse_id=warehouse_id,
     )
     return items
 
@@ -319,12 +335,19 @@ async def list_accounts_payable(
     summary="Obtener resumen financiero de cuentas por pagar",
 )
 async def get_accounts_payable_summary(
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las órdenes que originaron la deuda. Omitido = todos. Sin "
+            "`reports.view_advanced` se ignora y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("purchases.view")),
 ) -> AccountsPayableSummaryResponse:
     """Retorna totales pendientes, pagados y montos vencidos en $ MXN."""
     service = AccountsPayableService(db)
-    return await service.get_summary(current_user)
+    return await service.get_summary(current_user, warehouse_id=warehouse_id)
 
 
 @router.get(

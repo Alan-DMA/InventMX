@@ -11,6 +11,9 @@ import '../cart_provider.dart';
 ///   [Thumbnail] | Nombre + precio unitario esmeralda | [−] [xN] [+] [🗑]
 ///
 /// El botón − nunca baja de 1. Para eliminar el ítem se usa el ícono papelera.
+/// El botón + se apaga al llegar a las existencias de mi almacén ("máx. N");
+/// si el renglón pide de más (pedido web cargado), queda en rojo hasta que se
+/// ajuste — no se cobra así (decisiones de Eduardo, Sep 26).
 class CartItemTile extends ConsumerWidget {
   const CartItemTile({super.key, required this.item});
 
@@ -19,14 +22,22 @@ class CartItemTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(cartProvider.notifier);
+    final exceeds = item.exceedsStock;
 
     return Container(
+      key: Key('cartItem-${item.id}'),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: exceeds
+            ? AppColors.error.withValues(alpha: 0.08)
+            : AppColors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+          color: exceeds
+              ? AppColors.error.withValues(alpha: 0.6)
+              : AppColors.border,
+        ),
       ),
       child: Row(
         children: [
@@ -59,6 +70,27 @@ class CartItemTile extends ConsumerWidget {
                     color: AppColors.emerald,
                   ),
                 ),
+                if (exceeds)
+                  Text(
+                    item.maxQuantity! <= 0
+                        ? 'Sin existencias aquí · quítalo'
+                        : 'Solo hay ${item.maxQuantity} · ajusta',
+                    key: const Key('cartItemStockConflict'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.error,
+                    ),
+                  )
+                else if (item.atStockLimit)
+                  Text(
+                    'máx. ${item.maxQuantity}',
+                    key: const Key('cartItemStockLimit'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.onSurfaceMuted,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -68,7 +100,15 @@ class CartItemTile extends ConsumerWidget {
           _QtyControls(
             qty: item.quantity,
             onDecrement: () => notifier.decrement(item.id),
-            onIncrement: () => notifier.increment(item.id),
+            canIncrement: !item.atStockLimit,
+            onIncrement: () {
+              final notice = notifier.increment(item.id);
+              if (notice != null) {
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(SnackBar(content: Text(notice)));
+              }
+            },
           ),
           const SizedBox(width: 6),
 
@@ -152,11 +192,13 @@ class _QtyControls extends StatelessWidget {
     required this.qty,
     required this.onDecrement,
     required this.onIncrement,
+    this.canIncrement = true,
   });
 
   final int qty;
   final VoidCallback onDecrement;
   final VoidCallback onIncrement;
+  final bool canIncrement;
 
   @override
   Widget build(BuildContext context) {
@@ -186,9 +228,12 @@ class _QtyControls extends StatelessWidget {
         ),
         // Botón +
         _ControlBtn(
+          key: const Key('cartItemIncrement'),
           icon: Icons.add_rounded,
-          onTap: onIncrement,
-          color: AppColors.onSurfaceMuted,
+          onTap: canIncrement ? onIncrement : null,
+          color: canIncrement
+              ? AppColors.onSurfaceMuted
+              : AppColors.onSurfaceMuted.withValues(alpha: 0.25),
         ),
       ],
     );
@@ -197,6 +242,7 @@ class _QtyControls extends StatelessWidget {
 
 class _ControlBtn extends StatelessWidget {
   const _ControlBtn({
+    super.key,
     required this.icon,
     required this.onTap,
     required this.color,

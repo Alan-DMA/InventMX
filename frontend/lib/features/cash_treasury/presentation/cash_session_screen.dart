@@ -7,6 +7,7 @@ import 'cash_session_provider.dart';
 import 'widgets/cash_movement_modal.dart';
 import 'widgets/cash_movements_list_box.dart';
 import 'widgets/close_session_wizard.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Pantalla principal de la tab "Caja" — Tarea 9.2 (ampliada en 10.2.2 con
 /// movimientos de caja menor).
@@ -96,12 +97,14 @@ class _CashSessionScreenState extends ConsumerState<CashSessionScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
-          'Caja',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: AppColors.onSurface,
+        title: const ScopedAppBarTitle(
+          title: Text(
+            'Caja',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.onSurface,
+            ),
           ),
         ),
       ),

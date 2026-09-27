@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../account/presentation/account_provider.dart'
+    show readOperatingWarehouseId;
 import '../../management/domain/app_permission.dart';
 import '../../management/presentation/management_provider.dart';
 import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
@@ -24,6 +26,7 @@ final dashboardRepositoryProvider = Provider<DashboardRepository>(
     // Cambiar de usuario reconstruye el repositorio: los avisos leídos son
     // de cada quien, en memoria y en disco (QA Sep 23).
     ownerEmail: ref.watch(currentUserNameProvider),
+    resolveWarehouseScope: () => readOperatingWarehouseId(ref),
   ),
 );
 
@@ -64,6 +67,14 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
   @override
   Future<List<StoreNotification>> build() async {
     final permissions = ref.watch(myPermissionsProvider);
+    // Los avisos de stock salen del resumen del Inicio: se espera el vigente
+    // y se recalculan cuando cambia (p. ej. al cambiar de almacén). Sin esto
+    // la campana leía la foto anterior del repositorio (QA de Eduardo, Sep 27).
+    try {
+      await ref.watch(dailySnapshotProvider.future);
+    } catch (_) {
+      // Sin resumen, el repositorio intenta por su cuenta o devuelve vacío.
+    }
     final base = await ref.watch(dashboardRepositoryProvider).listNotifications();
     final orders = permissions.contains(Permissions.salesView)
         ? ref.watch(storeOrdersProvider).valueOrNull

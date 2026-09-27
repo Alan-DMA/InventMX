@@ -6,7 +6,6 @@ import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/inventory/data/inventory_repository.dart';
 import 'package:nexus_app/features/inventory/domain/product.dart';
-import 'package:nexus_app/features/inventory/presentation/inventory_provider.dart';
 import 'package:nexus_app/features/inventory/presentation/widgets/adjust_stock_modal.dart';
 import 'package:nexus_app/features/inventory/presentation/widgets/kardex_bottom_sheet.dart';
 
@@ -109,11 +108,6 @@ void main() {
     // 4. Trigger system back button
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-
-    final detailCount = find.text('Detail Screen').evaluate().length;
-    final inventoryCount = find.text('Go to Detail').evaluate().length;
-    final kardexCount = find.text('Movimientos').evaluate().length;
-    print('DEBUG: detailCount=$detailCount, inventoryCount=$inventoryCount, kardexCount=$kardexCount');
 
     // 5. Verification after 1st back press:
     // Kardex should be closed, Detail Screen should still be open!

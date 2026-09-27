@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../features/account/presentation/account_provider.dart';
 import '../../../features/auth/presentation/login_provider.dart';
 import '../../../features/dashboard/presentation/dashboard_provider.dart';
+import '../../../features/inventory/data/inventory_repository.dart'
+    show inventoryRepositoryProvider;
 import '../../../features/inventory/domain/product.dart';
 import '../../../features/inventory/presentation/inventory_provider.dart';
 import '../../../features/whatsapp_catalog/domain/store_order.dart';
@@ -48,14 +50,29 @@ class CartNotifier extends Notifier<CartState> {
 
   // ── Carrito — operaciones ─────────────────────────────────────────────────
 
-  /// Añade un producto del inventario al carrito.
-  /// Si ya existe, incrementa la cantidad.
-  void addProduct(Product product, {int qty = 1}) {
+  /// Añade un producto del inventario al carrito. Si ya existe, incrementa
+  /// la cantidad.
+  ///
+  /// El tope son las existencias disponibles en el almacén donde opero
+  /// (`availableStock`, ya acotado por el aislamiento por almacén): si se
+  /// pasaría, no se agrega y devuelve el aviso para mostrarlo en ese momento
+  /// — antes el cajero se enteraba hasta darle a Cobrar (QA de Eduardo,
+  /// Sep 26). Devuelve `null` si se agregó.
+  String? addProduct(Product product, {int qty = 1}) {
     final existing =
         state.items.where((i) => i.productId == product.id).firstOrNull;
+    final available = product.availableStock < 0 ? 0 : product.availableStock;
+    final wanted = (existing?.quantity ?? 0) + qty;
+    if (wanted > available) return _stockNotice(product.name, available);
 
     if (existing != null) {
-      _updateItem(existing.id, existing.quantity + qty);
+      state = state.copyWith(
+        items: state.items
+            .map((i) => i.id == existing.id
+                ? i.copyWith(quantity: wanted, maxQuantity: available)
+                : i)
+            .toList(),
+      );
     } else {
       final newItem = CartItem(
         id: _generateId(),
@@ -64,9 +81,20 @@ class CartNotifier extends Notifier<CartState> {
         unitPriceMxn: product.priceMxn,
         quantity: qty,
         imageUrl: product.imageUrl,
+        maxQuantity: available,
       );
       state = state.copyWith(items: [...state.items, newItem]);
     }
+    return null;
+  }
+
+  /// "No hay …" / "Solo hay N de … en <almacén>".
+  String _stockNotice(String name, int available) {
+    final warehouse = ref.read(operatingWarehouseProvider).valueOrNull?.name;
+    final where = warehouse == null ? '' : ' en $warehouse';
+    return available <= 0
+        ? 'No hay existencias de $name$where.'
+        : 'Solo hay $available de $name$where.';
   }
 
   /// Añade un producto al vuelo (sin ID de inventario).
@@ -86,6 +114,34 @@ class CartNotifier extends Notifier<CartState> {
         ),
     ];
     state = CartState(items: items, originOrderFolio: order.folio);
+    unawaited(_loadStockLimits(order.folio));
+  }
+
+  /// Topes de un carrito cargado desde un pedido web: se consultan las
+  /// existencias de mi almacén y el renglón que pide de más queda marcado
+  /// (decisión de Eduardo: cargar lo pactado con el cliente y marcarlo, no
+  /// recortarlo en silencio). Si la consulta falla, el servidor decide al
+  /// cobrar, como antes.
+  Future<void> _loadStockLimits(String folio) async {
+    final repo = ref.read(inventoryRepositoryProvider);
+    final limits = <String, int>{};
+    for (final item in state.items) {
+      final id = item.productId;
+      if (id == null || item.isOnTheFly) continue;
+      try {
+        final product = await repo.getProductById(id);
+        limits[id] = product.availableStock < 0 ? 0 : product.availableStock;
+      } catch (_) {}
+    }
+    if (state.originOrderFolio != folio || limits.isEmpty) return;
+    state = state.copyWith(
+      items: [
+        for (final i in state.items)
+          limits.containsKey(i.productId)
+              ? i.copyWith(maxQuantity: limits[i.productId])
+              : i,
+      ],
+    );
   }
 
   void addOnTheFly({
@@ -113,11 +169,14 @@ class CartNotifier extends Notifier<CartState> {
     _updateItem(itemId, qty);
   }
 
-  /// Incrementa en 1 la cantidad de un ítem.
-  void increment(String itemId) {
+  /// Incrementa en 1 la cantidad de un ítem. Devuelve el aviso si ya está
+  /// en el tope de existencias (la UI apaga el botón, esto es la red).
+  String? increment(String itemId) {
     final item = state.items.where((i) => i.id == itemId).firstOrNull;
-    if (item == null) return;
+    if (item == null) return null;
+    if (item.atStockLimit) return _stockNotice(item.name, item.maxQuantity!);
     _updateItem(itemId, item.quantity + 1);
+    return null;
   }
 
   /// Decrementa en 1 la cantidad. Mínimo 1 — usar removeItem para eliminar.
@@ -151,6 +210,12 @@ class CartNotifier extends Notifier<CartState> {
     required List<PaymentEntry> payments,
   }) async {
     if (state.isEmpty) throw Exception('El carrito está vacío.');
+    final conflicts = state.stockConflicts;
+    if (conflicts.isNotEmpty) {
+      final first = conflicts.first;
+      throw Exception(
+          '${_stockNotice(first.name, first.maxQuantity!)} Ajusta la cantidad antes de cobrar.');
+    }
 
     state = state.copyWith(isProcessing: true, error: null);
 

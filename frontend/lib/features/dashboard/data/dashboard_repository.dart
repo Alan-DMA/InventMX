@@ -30,10 +30,16 @@ class DashboardRepositoryImpl implements DashboardRepository {
     required this.client,
     this.storage,
     this.ownerEmail,
+    this.resolveWarehouseScope,
   });
 
   final DioClient client;
   final SecureStorage? storage;
+
+  /// Almacén donde opera quien usa la app: las alertas de stock del Inicio
+  /// son de ese almacén (D25). El servidor fuerza el suyo a quien no puede
+  /// ver todos (W1), así que un fallo aquí sólo deja al Dueño sin acotar.
+  final Future<String?> Function()? resolveWarehouseScope;
 
   /// Quién está en sesión. El provider lo observa, así que al cambiar de
   /// usuario se construye otro repositorio y los avisos leídos en memoria
@@ -90,9 +96,18 @@ class DashboardRepositoryImpl implements DashboardRepository {
   @override
   Future<DailySnapshot> getTodaySnapshot() async {
     try {
+      String? warehouseId;
+      try {
+        warehouseId = await resolveWarehouseScope?.call();
+      } catch (_) {}
       final response = await client.get(
         '/api/v1/analytics/dashboard',
-        queryParameters: {'period': 'TODAY', 'compare_previous': true},
+        queryParameters: {
+          'period': 'TODAY',
+          'compare_previous': true,
+          if (warehouseId != null && warehouseId != 'default')
+            'warehouse_id': warehouseId,
+        },
       );
       final raw = _unwrap(response.data);
       if (raw is! Map) {

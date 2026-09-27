@@ -78,6 +78,14 @@ async def list_products(
     low_stock: Optional[bool] = Query(None, description="Filtrar productos con stock crítico"),
     skip: int = Query(0, ge=0, description="Paginación: registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Paginación: límite de registros"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén contra el que se calculan `warehouse_stock`, `is_low_stock` y el filtro "
+            "`low_stock`. Omitido = todos. Sin `reports.view_advanced` se ignora y se usa "
+            "el almacén operativo del usuario"
+        ),
+    ),
     current_user: User = Depends(require_permission("inventory.view")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -96,6 +104,7 @@ async def list_products(
         is_low_stock=low_stock,
         skip=skip,
         limit=limit,
+        warehouse_id=warehouse_id,
     )
 
 
@@ -106,6 +115,9 @@ async def list_products(
 )
 async def get_product_by_id(
     product_id: uuid.UUID,
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None, description="Almacén de `warehouse_stock` (mismas reglas que el listado)"
+    ),
     current_user: User = Depends(require_permission("inventory.view")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -114,7 +126,7 @@ async def get_product_by_id(
     de existencias por almacén y margen de ganancia comercial.
     """
     service = InventoryService(db)
-    return await service.get_product_by_id(product_id, current_user)
+    return await service.get_product_by_id(product_id, current_user, warehouse_id)
 
 
 @router.post(

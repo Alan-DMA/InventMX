@@ -357,6 +357,10 @@ void main() {
       expect(find.text('Nueva orden de compra'), findsOneWidget);
       expect(find.text('COCA COLA 600ML'), findsOneWidget);
       expect(find.text('PAN BIMBO GDE'), findsOneWidget);
+      // Los renglones "Se creará" llevan el enlace "¿Ya existe? Búscalo":
+      // el total queda más abajo y se desplaza hasta él.
+      await tester.scrollUntilVisible(find.text('\$215.00 MXN'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('\$215.00 MXN'), findsOneWidget);
     });
     testWidgets('el mapeo confirmado se recuerda para el mismo proveedor',

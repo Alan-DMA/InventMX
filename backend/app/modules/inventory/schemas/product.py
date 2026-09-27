@@ -165,7 +165,21 @@ class ProductResponse(BaseModel):
 
     # Campos calculados y enriquecidos
     total_stock: Decimal = Field(Decimal("0.00"), description="Suma total de existencias en todos los almacenes")
-    is_low_stock: bool = Field(False, description="Determina si el producto está en nivel crítico")
+    is_low_stock: bool = Field(
+        False,
+        description=(
+            "Determina si el producto está en nivel crítico: contra `warehouse_stock` "
+            "cuando la consulta tiene alcance de almacén, contra `total_stock` si no"
+        ),
+    )
+    warehouse_id: Optional[uuid.UUID] = Field(
+        None,
+        description="Almacén al que se refiere `warehouse_stock`; nulo = todos los almacenes",
+    )
+    warehouse_stock: Decimal = Field(
+        Decimal("0.00"),
+        description="Existencias en el almacén de la consulta (igual a `total_stock` si es de todos)",
+    )
     margin_percentage: Optional[Decimal] = Field(None, description="Porcentaje de margen de ganancia bruto")
     suggested_max_price_mxn: Optional[Decimal] = Field(
         None,

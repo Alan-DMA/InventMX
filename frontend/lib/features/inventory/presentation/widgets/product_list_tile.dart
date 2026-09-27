@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexus_app/core/widgets/product_image_widget.dart';
 import '../../../../../../core/theme/app_colors.dart';
 import '../../domain/product.dart';
+import 'warehouse_stock_hint.dart';
 
 /// Tile de producto para la lista de inventario.
 ///
@@ -14,15 +15,20 @@ import '../../domain/product.dart';
 ///   Sin stock  → error (rojo)
 ///   Stock bajo → warning (ámbar)
 ///   Normal     → emerald
+///
+/// Las existencias son las del almacén donde se opera (D23); si aquí no hay y
+/// otra bodega sí, [otherWarehousesHint] lo dice bajo el precio (D24).
 class ProductListTile extends StatelessWidget {
   const ProductListTile({
     super.key,
     required this.product,
     required this.onTap,
+    this.otherWarehousesHint,
   });
 
   final Product product;
   final VoidCallback onTap;
+  final String? otherWarehousesHint;
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +127,10 @@ class ProductListTile extends StatelessWidget {
             color: AppColors.emerald,
           ),
         ),
+        if (otherWarehousesHint != null) ...[
+          const SizedBox(height: 3),
+          OtherWarehousesHint(text: otherWarehousesHint!),
+        ],
       ],
     );
   }

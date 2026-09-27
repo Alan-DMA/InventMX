@@ -42,6 +42,7 @@ import 'widgets/app_drawer.dart';
 import 'widgets/currency_selector.dart';
 import 'widgets/customize_actions_modal.dart';
 import 'widgets/quick_stock_adjust_sheet.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Centro de mando (SR-02 / N-08) — Pantalla principal y landing del sistema.
 ///
@@ -83,13 +84,15 @@ class HomeDashboardScreen extends ConsumerWidget {
           ),
         ),
         // Identificador de marca Nexus
-        title: const Text(
-          'Nexus',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppColors.onSurface,
-            letterSpacing: 0.5,
+        title: const ScopedAppBarTitle(
+          title: Text(
+            'Nexus',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.onSurface,
+              letterSpacing: 0.5,
+            ),
           ),
         ),
         // Acciones superiores: Selector de divisa, campana y perfil de cuenta
