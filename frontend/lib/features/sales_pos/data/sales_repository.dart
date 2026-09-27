@@ -8,6 +8,7 @@ import '../domain/cart_item.dart';
 import '../domain/cart_state.dart';
 import '../domain/payment_entry.dart';
 import '../domain/sale_summary.dart';
+import '../../account/presentation/data_scope_provider.dart';
 
 /// Los montos del backend viajan como `Decimal` de Python — Pydantic los
 /// serializa como string ("40.00") para no perder precisión, no como
@@ -212,9 +213,13 @@ abstract class SalesRepository {
 // ---------------------------------------------------------------------------
 
 class SalesRepositoryImpl implements SalesRepository {
-  SalesRepositoryImpl({required this.client});
+  SalesRepositoryImpl({required this.client, this.resolveScope});
 
   final DioClient client;
+
+  /// Almacén elegido en la leyenda por quien puede ver todos (D28); `null` =
+  /// todos. A los demás el servidor les fija su almacén (W1).
+  final String? Function()? resolveScope;
   final List<CheckoutResult> _sessionSales = [];
 
   List<CheckoutResult> get sessionSales => List.unmodifiable(_sessionSales);
@@ -412,6 +417,10 @@ class SalesRepositoryImpl implements SalesRepository {
       }
       if (cashierId != null) {
         queryParams['cashier_id'] = cashierId;
+      }
+      final warehouseId = resolveScope?.call();
+      if (warehouseId != null) {
+        queryParams['warehouse_id'] = warehouseId;
       }
 
       final response = await client.get<dynamic>(
@@ -1007,6 +1016,9 @@ class SalesRepositoryMock implements SalesRepository {
 // único que se usaba), y `analytics_dashboard_repository.dart` sólo toca el
 // mock estático dentro de su propio modo mock (`ANALYTICS_MOCK`, aparte).
 final salesRepositoryProvider = Provider<SalesRepository>(
-  (ref) => SalesRepositoryImpl(client: ref.watch(dioClientProvider)),
+  (ref) => SalesRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+    resolveScope: () => ref.read(dataScopeProvider),
+  ),
 );
 

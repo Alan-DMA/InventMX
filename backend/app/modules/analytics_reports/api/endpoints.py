@@ -41,8 +41,8 @@ async def get_dashboard_kpis(
     warehouse_id: Optional[uuid.UUID] = Query(
         None,
         description=(
-            "Almacén de las alertas de stock crítico. Sin `reports.view_advanced` se ignora "
-            "y se usa el almacén operativo del usuario"
+            "Almacén de las cifras, alertas y compras. Omitido = todos (alertas por almacén, "
+            "rotuladas). Sin `reports.view_advanced` se ignora y se usa el almacén operativo"
         ),
     ),
     db: AsyncSession = Depends(get_db),
@@ -83,6 +83,13 @@ async def get_financial_summary(
     preset: Optional[DateRangePreset] = Query(DateRangePreset.THIS_MONTH, description="Rango predefinido de fechas"),
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las cifras. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> ExecutiveFinancialSummaryResponse:
@@ -93,6 +100,7 @@ async def get_financial_summary(
         preset=preset,
         start_date=start_date,
         end_date=end_date,
+        warehouse_id=warehouse_id,
     )
 
 
@@ -106,6 +114,13 @@ async def get_cash_flow(
     preset: Optional[DateRangePreset] = Query(DateRangePreset.THIS_MONTH, description="Rango predefinido de fechas"),
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las cifras. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> CashFlowSummaryResponse:
@@ -116,6 +131,7 @@ async def get_cash_flow(
         preset=preset,
         start_date=start_date,
         end_date=end_date,
+        warehouse_id=warehouse_id,
     )
 
 
@@ -129,6 +145,13 @@ async def get_inventory_health(
     preset: Optional[DateRangePreset] = Query(DateRangePreset.THIS_MONTH, description="Rango predefinido de fechas"),
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las cifras. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> InventoryHealthResponse:
@@ -139,6 +162,7 @@ async def get_inventory_health(
         preset=preset,
         start_date=start_date,
         end_date=end_date,
+        warehouse_id=warehouse_id,
     )
 
 
@@ -152,6 +176,13 @@ async def get_sales_trends(
     preset: Optional[DateRangePreset] = Query(DateRangePreset.THIS_MONTH, description="Rango predefinido de fechas"),
     start_date: Optional[datetime] = Query(None, description="Fecha de inicio personalizada"),
     end_date: Optional[datetime] = Query(None, description="Fecha de fin personalizada"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las cifras. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> SalesTrendsResponse:
@@ -162,6 +193,7 @@ async def get_sales_trends(
         preset=preset,
         start_date=start_date,
         end_date=end_date,
+        warehouse_id=warehouse_id,
     )
 
 
@@ -172,12 +204,19 @@ async def get_sales_trends(
     summary="Capital de Trabajo y Posición Neta de Liquidez",
 )
 async def get_working_capital(
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de las cifras. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("reports.view_basic")),
 ) -> WorkingCapitalResponse:
     """Retorna el balance de liquidez neta (Efectivo en caja + Cuentas por cobrar - Cuentas por pagar) (RF-21)."""
     service = FinancialAnalyticsService(db)
-    return await service.get_working_capital(current_user=current_user)
+    return await service.get_working_capital(current_user=current_user, warehouse_id=warehouse_id)
 
 
 @router.get(

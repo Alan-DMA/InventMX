@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'package:nexus_app/core/widgets/product_image_widget.dart';
+import '../../dashboard/presentation/dashboard_provider.dart'
+    show dailySnapshotProvider;
 import '../../management/presentation/management_provider.dart';
 import '../domain/product.dart';
 import 'inventory_provider.dart';
@@ -30,9 +32,17 @@ import 'widgets/warehouse_stock_hint.dart';
 /// Trazabilidad: Constitución Art. I (1.2.4 MXN, 1.2.8 Rapidez)
 ///              Doc. Maestro RF-02, RF-05, SR-02 · HU-05 / CU-06
 class ProductDetailScreen extends ConsumerWidget {
-  const ProductDetailScreen({super.key, required this.productId});
+  const ProductDetailScreen({
+    super.key,
+    required this.productId,
+    this.viewWarehouseId,
+  });
 
   final String productId;
+
+  /// Almacén a mostrar cuando la ficha se abre desde una alerta de otro
+  /// almacén (D40). Nulo o igual al operativo = la ficha de siempre.
+  final String? viewWarehouseId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -58,7 +68,7 @@ class ProductDetailScreen extends ConsumerWidget {
         editAction: ref.watch(canEditPriceProvider)
             ? () => context.push(AppRoutes.productEditPath(product.id))
             : null,
-        body: _DetailBody(product: product),
+        body: _DetailBody(product: product, viewWarehouseId: viewWarehouseId),
       ),
     );
   }
@@ -112,13 +122,34 @@ class ProductDetailScreen extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _DetailBody extends ConsumerWidget {
-  const _DetailBody({required this.product});
+  const _DetailBody({required this.product, this.viewWarehouseId});
 
+  /// El producto tal como lo ve mi almacén operativo.
   final Product product;
+  final String? viewWarehouseId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final canAdjust = ref.watch(canAdjustStockProvider);
+    final names = ref.watch(warehouseNamesProvider);
+
+    // Viendo otro almacén (D40): la cifra grande es la de ese almacén, con
+    // aviso; el ajuste manual sólo se ofrece en el mío y la acción natural
+    // es mandarle mercancía desde aquí.
+    final viewing = viewWarehouseId != null &&
+            viewWarehouseId != product.warehouseId
+        ? viewWarehouseId
+        : null;
+    final viewedStock =
+        viewing == null ? null : (product.stockByWarehouse[viewing] ?? 0);
+    final shown = viewing == null
+        ? product
+        : product.copyWith(
+            stock: viewedStock,
+            availableStock: viewedStock,
+            warehouseId: viewing,
+          );
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
@@ -127,11 +158,14 @@ class _DetailBody extends ConsumerWidget {
           // ── Banner fotográfico ─────────────────────────────────────────
           _ProductBanner(imageUrl: product.imageUrl),
 
+          if (viewing != null)
+            _OtherWarehouseBanner(
+              viewedName: names[viewing] ?? 'otro almacén',
+              operatingName: names[product.warehouseId],
+            ),
+
           // ── Identificación ────────────────────────────────────────────
-          _buildIdentity(
-            context,
-            ref.watch(warehouseNamesProvider)[product.warehouseId],
-          ),
+          _buildIdentity(context, names[shown.warehouseId]),
 
           const _SectionDivider(),
 
@@ -147,13 +181,60 @@ class _DetailBody extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: StockCard(
-              product: product,
-              otherWarehousesHint: otherWarehousesHint(
-                product,
-                ref.watch(warehouseNamesProvider),
-              ),
+              product: shown,
+              warehouseName: viewing == null ? null : names[viewing],
+              otherWarehousesHint: otherWarehousesHint(shown, names),
             ),
           ),
+
+          // Existencias por almacén, cuando hay más de uno con registro
+          if (product.stockByWarehouse.length > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: _StockByWarehouse(
+                stock: product.stockByWarehouse,
+                names: names,
+                operatingId: product.warehouseId,
+                highlightedId: viewing,
+              ),
+            ),
+
+          // Mandar mercancía al almacén de la alerta desde el mío (D40)
+          if (viewing != null && canAdjust)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  key: const Key('sendFromMyWarehouse'),
+                  icon: const Icon(Icons.local_shipping_outlined, size: 18),
+                  label: Text(
+                    'Enviar desde ${names[product.warehouseId] ?? 'mi almacén'}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onPressed: () => showTransferStockModal(
+                    context,
+                    product,
+                    initialToWarehouseId: viewing,
+                  ).then((transferred) {
+                    if (transferred == true) {
+                      ref.invalidate(productDetailProvider(product.id));
+                      ref.invalidate(inventoryProvider);
+                      ref.invalidate(dailySnapshotProvider);
+                      ref.invalidate(kardexProvider(product.id));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✓ Traslado registrado correctamente'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  }),
+                ),
+              ),
+            ),
 
           const SizedBox(height: 20),
           const _SectionDivider(),
@@ -186,7 +267,9 @@ class _DetailBody extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 ActionGrid(
-                  onAdjustStock: !canAdjust
+                  // El ajuste manual es del almacén donde opero: viendo otro
+                  // almacén no se ofrece (se corrige allá o se traslada).
+                  onAdjustStock: !canAdjust || viewing != null
                       ? null
                       : () => showAdjustStockModal(context, product)
                               .then((adjusted) {
@@ -917,6 +1000,141 @@ class _ErrorState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Viendo otro almacén (D40)
+// ---------------------------------------------------------------------------
+
+class _OtherWarehouseBanner extends StatelessWidget {
+  const _OtherWarehouseBanner({required this.viewedName, this.operatingName});
+
+  final String viewedName;
+  final String? operatingName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('otherWarehouseBanner'),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.skyBlue.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.place_outlined, size: 18, color: AppColors.skyBlue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Viendo $viewedName',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onSurface,
+                  ),
+                ),
+                if (operatingName != null)
+                  Text(
+                    'Tú operas en $operatingName',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.onSurfaceMuted),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Existencias del producto en cada almacén, marcando dónde opero y, si se
+/// abrió desde una alerta, el almacén de la alerta.
+class _StockByWarehouse extends StatelessWidget {
+  const _StockByWarehouse({
+    required this.stock,
+    required this.names,
+    this.operatingId,
+    this.highlightedId,
+  });
+
+  final Map<String, int> stock;
+  final Map<String, String> names;
+  final String? operatingId;
+  final String? highlightedId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('stockByWarehouse'),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'POR ALMACÉN',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: AppColors.onSurfaceMuted,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final entry in stock.entries)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      names[entry.key] ?? 'Almacén',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: entry.key == highlightedId
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: entry.key == highlightedId
+                            ? AppColors.skyBlue
+                            : AppColors.onSurface,
+                      ),
+                    ),
+                  ),
+                  if (entry.key == operatingId)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Text(
+                        'tú',
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.onSurfaceMuted),
+                      ),
+                    ),
+                  Text(
+                    '${entry.value} pzs',
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }

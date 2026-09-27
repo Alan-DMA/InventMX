@@ -14,6 +14,8 @@ class StockAlertItem extends Equatable {
     required this.isOutOfStock,
     this.minStock = 0,
     this.sku = '',
+    this.warehouseId,
+    this.warehouseName,
   });
 
   final String productId;
@@ -22,6 +24,15 @@ class StockAlertItem extends Equatable {
   final bool isOutOfStock;
   final int minStock;
   final String sku;
+
+  /// Almacén donde el producto está crítico (D38): las alertas nunca suman
+  /// bodegas, así que un mismo producto puede venir una vez por almacén.
+  final String? warehouseId;
+  final String? warehouseName;
+
+  /// Identidad del renglón: producto + almacén.
+  String get alertKey =>
+      warehouseId == null ? productId : '$productId@$warehouseId';
 
   /// Constructor a partir del payload JSON de backend (CriticalStockProductResponse).
   factory StockAlertItem.fromJson(Map<String, dynamic> json) {
@@ -34,12 +45,15 @@ class StockAlertItem extends Equatable {
       isOutOfStock: json['is_out_of_stock'] as bool? ?? (current <= 0),
       minStock: min,
       sku: json['sku'] as String? ?? '',
+      warehouseId: json['warehouse_id']?.toString(),
+      warehouseName: json['warehouse_name']?.toString(),
     );
   }
 
   @override
   List<Object?> get props =>
-      [productId, productName, availableStock, isOutOfStock, minStock, sku];
+      [productId, productName, availableStock, isOutOfStock, minStock, sku,
+       warehouseId, warehouseName];
 }
 
 int _toInt(dynamic v, {int defaultValue = 0}) {

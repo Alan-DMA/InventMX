@@ -15,11 +15,13 @@ from app.modules.customers_credit.domain.customer import Customer
 from app.modules.customers_credit.domain.credit_ledger import CustomerCreditLedger, LedgerEntryType
 from app.modules.inventory.domain.product import Product
 from app.modules.inventory.domain.product_stock import ProductStock
+from app.modules.inventory.domain.warehouse import Warehouse
 from app.modules.purchasing_suppliers.domain.account_payable import (
     AccountPayable,
     AccountPayableStatus,
     SupplierPaymentLedger,
 )
+from app.modules.purchasing_suppliers.domain.purchase_order import PurchaseOrder
 from app.modules.sales_pos.domain.cash_movement import CashMovement, CashMovementType
 from app.modules.sales_pos.domain.cash_shift import CashShift, ShiftStatus
 from app.modules.sales_pos.domain.payment import PaymentMethod, SalePayment
@@ -41,11 +43,37 @@ class FinancialAnalyticsRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    # -------------------------------------------------------------------------
+    # Alcance por almacén (aislamiento por almacén, Fase 2). `warehouse_id`
+    # ya viene resuelto por `resolve_data_scope`; `None` = todos. Lo que no
+    # tiene almacén (fiado, deudas sin orden, turnos viejos) sólo cuenta en
+    # "todos" (W6, D35).
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _sale_scope(warehouse_id: Optional[uuid.UUID]) -> list:
+        return [Sale.warehouse_id == warehouse_id] if warehouse_id else []
+
+    @staticmethod
+    def _shift_scope(warehouse_id: Optional[uuid.UUID]):
+        """Movimientos de caja de los turnos de ese almacén."""
+        return CashMovement.shift_id.in_(
+            select(CashShift.id).where(CashShift.warehouse_id == warehouse_id)
+        )
+
+    @staticmethod
+    def _payable_scope(warehouse_id: Optional[uuid.UUID]):
+        """Deudas con proveedores de órdenes que se reciben en ese almacén (D35)."""
+        return AccountPayable.purchase_order_id.in_(
+            select(PurchaseOrder.id).where(PurchaseOrder.warehouse_id == warehouse_id)
+        )
+
     async def get_financial_summary_metrics(
         self,
         tenant_id: uuid.UUID,
         start_date: datetime,
         end_date: datetime,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Decimal]:
         """
         Calcula las ventas brutas, netas, descuentos, COGS histórico y utilidades en el rango de fechas.
@@ -63,6 +91,7 @@ class FinancialAnalyticsRepository:
             Sale.status.in_(REVENUE_STATUSES),
             Sale.created_at >= start_date,
             Sale.created_at <= end_date,
+            *self._sale_scope(warehouse_id),
         )
         sales_res = await self.session.execute(sales_stmt)
         gross_sales, discounts, net_sales, refunds, transaction_count = sales_res.one()
@@ -81,6 +110,7 @@ class FinancialAnalyticsRepository:
                 Sale.status.in_(REVENUE_STATUSES),
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
+                *self._sale_scope(warehouse_id),
             )
         )
         cogs_total = (await self.session.execute(cogs_stmt)).scalar() or Decimal("0.00")
@@ -117,6 +147,7 @@ class FinancialAnalyticsRepository:
         start_date: datetime,
         end_date: datetime,
         net_sales: Decimal,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> List[Dict[str, Any]]:
         """Calcula el desglose de ingresos por método de pago."""
         stmt = (
@@ -134,6 +165,7 @@ class FinancialAnalyticsRepository:
                 Sale.status.in_(REVENUE_STATUSES),
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
+                *self._sale_scope(warehouse_id),
             )
             .group_by(SalePayment.payment_method)
         )
@@ -165,6 +197,7 @@ class FinancialAnalyticsRepository:
         tenant_id: uuid.UUID,
         start_date: datetime,
         end_date: datetime,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Decimal]:
         """
         Calcula las entradas reales de efectivo (ventas contado + abonos de crédito + entradas de caja)
@@ -185,6 +218,7 @@ class FinancialAnalyticsRepository:
                 SalePayment.payment_method == PaymentMethod.CASH_MXN,
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
+                *self._sale_scope(warehouse_id),
             )
         )
         cash_sales = (await self.session.execute(cash_sales_stmt)).scalar() or Decimal("0.00")
@@ -198,7 +232,12 @@ class FinancialAnalyticsRepository:
             CustomerCreditLedger.created_at >= start_date,
             CustomerCreditLedger.created_at <= end_date,
         )
-        credit_collections = (await self.session.execute(credit_col_stmt)).scalar() or Decimal("0.00")
+        # El fiado no tiene almacén: sólo cuenta en "todos".
+        credit_collections = (
+            Decimal("0.00")
+            if warehouse_id
+            else (await self.session.execute(credit_col_stmt)).scalar() or Decimal("0.00")
+        )
 
         # 3. Movimientos de ingreso directo a caja (CASH_IN)
         cash_income_stmt = select(
@@ -208,6 +247,7 @@ class FinancialAnalyticsRepository:
             CashMovement.movement_type == CashMovementType.CASH_IN,
             CashMovement.created_at >= start_date,
             CashMovement.created_at <= end_date,
+            *([self._shift_scope(warehouse_id)] if warehouse_id else []),
         )
         cash_income = (await self.session.execute(cash_income_stmt)).scalar() or Decimal("0.00")
 
@@ -218,6 +258,13 @@ class FinancialAnalyticsRepository:
             SupplierPaymentLedger.tenant_id == tenant_id,
             SupplierPaymentLedger.created_at >= start_date,
             SupplierPaymentLedger.created_at <= end_date,
+            *(
+                [SupplierPaymentLedger.account_payable_id.in_(
+                    select(AccountPayable.id).where(self._payable_scope(warehouse_id))
+                )]
+                if warehouse_id
+                else []
+            ),
         )
         supplier_payments = (await self.session.execute(supplier_pay_stmt)).scalar() or Decimal("0.00")
 
@@ -229,6 +276,7 @@ class FinancialAnalyticsRepository:
             CashMovement.movement_type == CashMovementType.CASH_OUT,
             CashMovement.created_at >= start_date,
             CashMovement.created_at <= end_date,
+            *([self._shift_scope(warehouse_id)] if warehouse_id else []),
         )
         cash_expenses = (await self.session.execute(cash_expense_stmt)).scalar() or Decimal("0.00")
 
@@ -253,8 +301,10 @@ class FinancialAnalyticsRepository:
             "net_cash_flow_mxn": net_cash_flow,
         }
 
-    async def get_inventory_valuation(self, tenant_id: uuid.UUID) -> Dict[str, Any]:
-        """Calcula la valuación total del inventario físico en Pesos Mexicanos."""
+    async def get_inventory_valuation(
+        self, tenant_id: uuid.UUID, warehouse_id: Optional[uuid.UUID] = None
+    ) -> Dict[str, Any]:
+        """Calcula la valuación del inventario físico en MXN (de un almacén o de todos)."""
         stmt = (
             select(
                 func.count(func.distinct(Product.id)),
@@ -272,6 +322,7 @@ class FinancialAnalyticsRepository:
             .where(
                 Product.tenant_id == tenant_id,
                 Product.is_active == True,
+                *([ProductStock.warehouse_id == warehouse_id] if warehouse_id else []),
             )
         )
         res = await self.session.execute(stmt)
@@ -295,6 +346,7 @@ class FinancialAnalyticsRepository:
         start_date: datetime,
         end_date: datetime,
         limit: int = 10,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> List[Dict[str, Any]]:
         """Obtiene el ranking de los productos más vendidos en el periodo (neto de devoluciones)."""
         net_qty = SaleItem.quantity - SaleItem.refunded_quantity
@@ -318,6 +370,7 @@ class FinancialAnalyticsRepository:
                 Sale.status.in_(REVENUE_STATUSES),
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
+                *self._sale_scope(warehouse_id),
             )
             .group_by(Product.id, Product.name, Product.sku)
             .order_by(func.sum(net_qty).desc())
@@ -343,6 +396,7 @@ class FinancialAnalyticsRepository:
         tenant_id: uuid.UUID,
         start_date: datetime,
         end_date: datetime,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Dict[date, Dict[str, Any]]:
         """
         Serie de ventas por día natural (ingreso neto, tickets y utilidad bruta), indexada por fecha.
@@ -377,6 +431,7 @@ class FinancialAnalyticsRepository:
                 Sale.status.in_(REVENUE_STATUSES),
                 Sale.created_at >= start_date,
                 Sale.created_at <= end_date,
+                *self._sale_scope(warehouse_id),
             )
             .group_by(day)
             .order_by(day)
@@ -395,28 +450,41 @@ class FinancialAnalyticsRepository:
         self, tenant_id: uuid.UUID, warehouse_id: Optional[uuid.UUID] = None
     ) -> List[Dict[str, Any]]:
         """
-        Obtiene los productos cuyas existencias están en o por debajo del umbral mínimo.
-        Con `warehouse_id` se evalúan sólo las existencias de ese almacén (D25).
+        Productos en o por debajo del umbral mínimo, **por almacén**: cada
+        renglón es un producto crítico en un almacén concreto y lleva su
+        nombre. Nunca se suman existencias entre bodegas — eso escondía que el
+        mostrador se quedaba sin producto (D25). Con `warehouse_id`, sólo ese
+        almacén; sin él ("todos"), cada almacén rotulado (D38).
         """
+        stock = func.coalesce(func.sum(ProductStock.current_stock), Decimal("0.00"))
         stmt = (
             select(
                 Product.id,
                 Product.name,
                 Product.sku,
-                func.coalesce(func.sum(ProductStock.current_stock), Decimal("0.00")).label("stock"),
+                ProductStock.warehouse_id,
+                Warehouse.name.label("warehouse_name"),
+                stock.label("stock"),
                 Product.min_stock_alert,
             )
             .join(ProductStock, ProductStock.product_id == Product.id)
+            .outerjoin(Warehouse, Warehouse.id == ProductStock.warehouse_id)
             .where(
                 Product.tenant_id == tenant_id,
                 Product.is_active == True,
+                *([ProductStock.warehouse_id == warehouse_id] if warehouse_id else []),
             )
-            .group_by(Product.id, Product.name, Product.sku, Product.min_stock_alert)
-            .having(func.sum(ProductStock.current_stock) <= Product.min_stock_alert)
-            .order_by(func.sum(ProductStock.current_stock).asc())
+            .group_by(
+                Product.id,
+                Product.name,
+                Product.sku,
+                Product.min_stock_alert,
+                ProductStock.warehouse_id,
+                Warehouse.name,
+            )
+            .having(stock <= Product.min_stock_alert)
+            .order_by(stock.asc(), Product.name.asc())
         )
-        if warehouse_id is not None:
-            stmt = stmt.where(ProductStock.warehouse_id == warehouse_id)
         result = await self.session.execute(stmt)
         rows = result.all()
 
@@ -425,6 +493,8 @@ class FinancialAnalyticsRepository:
                 "product_id": r.id,
                 "product_name": r.name,
                 "sku": r.sku or "",
+                "warehouse_id": r.warehouse_id,
+                "warehouse_name": r.warehouse_name,
                 "current_stock": Decimal(str(r.stock)).quantize(Decimal("0.01")),
                 "min_stock": Decimal(str(r.min_stock_alert)).quantize(Decimal("0.01")),
                 "is_out_of_stock": Decimal(str(r.stock)) <= Decimal("0.00"),
@@ -432,8 +502,14 @@ class FinancialAnalyticsRepository:
             for r in rows
         ]
 
-    async def get_working_capital_metrics(self, tenant_id: uuid.UUID) -> Dict[str, Decimal]:
-        """Calcula el capital de trabajo neto (Efectivo en caja + Cuentas por cobrar - Cuentas por pagar)."""
+    async def get_working_capital_metrics(
+        self, tenant_id: uuid.UUID, warehouse_id: Optional[uuid.UUID] = None
+    ) -> Dict[str, Decimal]:
+        """
+        Calcula el capital de trabajo neto (Efectivo en caja + Cuentas por cobrar - Cuentas por pagar).
+        Con `warehouse_id`: caja de los turnos de ese almacén y deudas de sus órdenes; el fiado no
+        tiene almacén y queda en cero.
+        """
         # 1. Cuentas por cobrar (saldo de clientes fiados)
         rec_stmt = select(
             func.coalesce(func.sum(Customer.credit_balance_mxn), Decimal("0.00"))
@@ -442,7 +518,11 @@ class FinancialAnalyticsRepository:
             Customer.is_active == True,
             Customer.credit_balance_mxn > 0,
         )
-        receivables = (await self.session.execute(rec_stmt)).scalar() or Decimal("0.00")
+        receivables = (
+            Decimal("0.00")
+            if warehouse_id
+            else (await self.session.execute(rec_stmt)).scalar() or Decimal("0.00")
+        )
 
         # 2. Cuentas por pagar (cuentas a proveedores pendientes o parciales)
         pay_stmt = select(
@@ -454,6 +534,7 @@ class FinancialAnalyticsRepository:
                 AccountPayableStatus.PARTIALLY_PAID,
                 AccountPayableStatus.OVERDUE,
             ]),
+            *([self._payable_scope(warehouse_id)] if warehouse_id else []),
         )
         payables = (await self.session.execute(pay_stmt)).scalar() or Decimal("0.00")
 
@@ -463,6 +544,7 @@ class FinancialAnalyticsRepository:
         ).where(
             CashShift.tenant_id == tenant_id,
             CashShift.status == ShiftStatus.OPEN,
+            *([CashShift.warehouse_id == warehouse_id] if warehouse_id else []),
         )
         cash_in_register = (await self.session.execute(cash_stmt)).scalar() or Decimal("0.00")
 

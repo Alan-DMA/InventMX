@@ -47,6 +47,7 @@ class CashTreasuryService:
         cashier_id: uuid.UUID,
         cashier_name: str,
         request: CashSessionOpenRequest,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> CashSessionResponse:
         """
         Abre un nuevo turno de caja (POST /cash/open-session).
@@ -71,7 +72,10 @@ class CashTreasuryService:
         shift = CashShift(
             tenant_id=tenant_id,
             cashier_id=cashier_id,
-            warehouse_id=request.warehouse_id,
+            # El almacén del turno lo fija el servidor con el almacén operativo
+            # de quien abre (W5, CA-W9); el del request queda para llamadas
+            # internas que no lo resuelven.
+            warehouse_id=warehouse_id or request.warehouse_id,
             status=ShiftStatus.OPEN,
             opening_balance_mxn=opening_amount,
             expected_cash_mxn=opening_amount,
@@ -256,8 +260,9 @@ class CashTreasuryService:
         date_to: Optional[datetime] = None,
         page: int = 1,
         page_size: int = 20,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
-        """Lista las sesiones de caja con paginación."""
+        """Lista las sesiones de caja con paginación (`warehouse_id` = alcance ya resuelto)."""
         offset = (page - 1) * page_size
         shifts, total = await self.repo.list_shifts(
             tenant_id=tenant_id,
@@ -267,6 +272,7 @@ class CashTreasuryService:
             date_to=date_to,
             limit=page_size,
             offset=offset,
+            warehouse_id=warehouse_id,
         )
 
         items = []
@@ -293,10 +299,11 @@ class CashTreasuryService:
         self,
         session_id: uuid.UUID,
         tenant_id: uuid.UUID,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> CashSessionResponse:
-        """Consulta el detalle de una sesión de caja por ID."""
+        """Consulta el detalle de una sesión de caja por ID (fuera del alcance = no encontrada)."""
         shift = await self.repo.get_shift_by_id(session_id, tenant_id=tenant_id)
-        if not shift:
+        if not shift or (warehouse_id and shift.warehouse_id != warehouse_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sesión no encontrada.")
 
         return CashSessionResponse(

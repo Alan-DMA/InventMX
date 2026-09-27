@@ -9,13 +9,20 @@ import '../inventory_provider.dart';
 // Función de conveniencia
 // ---------------------------------------------------------------------------
 
-Future<bool> showTransferStockModal(BuildContext context, Product product) {
+Future<bool> showTransferStockModal(
+  BuildContext context,
+  Product product, {
+  String? initialToWarehouseId,
+}) {
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     useRootNavigator: false,
     backgroundColor: Colors.transparent,
-    builder: (_) => TransferStockModal(product: product),
+    builder: (_) => TransferStockModal(
+      product: product,
+      initialToWarehouseId: initialToWarehouseId,
+    ),
   ).then((v) => v ?? false);
 }
 
@@ -24,9 +31,17 @@ Future<bool> showTransferStockModal(BuildContext context, Product product) {
 // ---------------------------------------------------------------------------
 
 class TransferStockModal extends ConsumerStatefulWidget {
-  const TransferStockModal({super.key, required this.product});
+  const TransferStockModal({
+    super.key,
+    required this.product,
+    this.initialToWarehouseId,
+  });
 
   final Product product;
+
+  /// Destino ya elegido — "Enviar desde mi almacén" desde la ficha de otro
+  /// almacén (D40).
+  final String? initialToWarehouseId;
 
   @override
   ConsumerState<TransferStockModal> createState() => _TransferStockModalState();
@@ -164,8 +179,12 @@ class _TransferStockModalState extends ConsumerState<TransferStockModal> {
             }
             if (_to == null || !warehouses.contains(_to)) {
               _to = warehouses.firstWhere(
-                (w) => w.id != _from!.id,
-                orElse: () => warehouses.first,
+                (w) =>
+                    w.id == widget.initialToWarehouseId && w.id != _from!.id,
+                orElse: () => warehouses.firstWhere(
+                  (w) => w.id != _from!.id,
+                  orElse: () => warehouses.first,
+                ),
               );
             }
 

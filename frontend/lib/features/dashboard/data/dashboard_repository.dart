@@ -36,9 +36,9 @@ class DashboardRepositoryImpl implements DashboardRepository {
   final DioClient client;
   final SecureStorage? storage;
 
-  /// Almacén donde opera quien usa la app: las alertas de stock del Inicio
-  /// son de ese almacén (D25). El servidor fuerza el suyo a quien no puede
-  /// ver todos (W1), así que un fallo aquí sólo deja al Dueño sin acotar.
+  /// Alcance del Inicio (Fase 2): el almacén elegido en la leyenda por quien
+  /// puede ver todos, o `null` = todos (alertas rotuladas por almacén, D38).
+  /// El servidor fija el suyo a quien no puede ver todos (W1).
   final Future<String?> Function()? resolveWarehouseScope;
 
   /// Quién está en sesión. El provider lo observa, así que al cambiar de
@@ -119,7 +119,13 @@ class DashboardRepositoryImpl implements DashboardRepository {
       // lectura complementaria: si falla, la tarjeta queda en $0 sin tumbar
       // el Inicio.
       try {
-        final payables = await client.get('/api/v1/accounts-payable/summary');
+        final payables = await client.get(
+          '/api/v1/accounts-payable/summary',
+          queryParameters: {
+            if (warehouseId != null && warehouseId != 'default')
+              'warehouse_id': warehouseId,
+          },
+        );
         final pr = _unwrap(payables.data);
         if (pr is Map) {
           snapshot = snapshot.withPayables(
@@ -157,7 +163,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
 
     // 1. Alertas de inventario crítico (productos agotados o con existencias bajas)
     for (final alert in snapshot.lowStockAlerts) {
-      final notifId = 'stock-${alert.productId}';
+      final notifId = 'stock-${alert.alertKey}';
       notifications.add(
         StoreNotification(
           id: notifId,

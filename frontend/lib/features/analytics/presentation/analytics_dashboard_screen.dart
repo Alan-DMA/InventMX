@@ -8,6 +8,7 @@ import '../../saas_admin/presentation/saas_provider.dart';
 import '../domain/analytics_dashboard.dart';
 import 'analytics_dashboard_provider.dart';
 import 'widgets/daily_sales_chart.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Dashboard analítico — Tarea 15.2.3 (RF-20 rentabilidad real, RF-21
 /// dashboard en tiempo real, SR-02 métricas en $ MXN).
@@ -39,9 +40,13 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
         elevation: 0,
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text(
-          'Reportes',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.onSurface),
+        // Reportes del alcance elegido en la leyenda (D28, Fase 2).
+        title: const ScopedAppBarTitle(
+          switchable: true,
+          title: Text(
+            'Reportes',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.onSurface),
+          ),
         ),
       ),
       body: SafeArea(

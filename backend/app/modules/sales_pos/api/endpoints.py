@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de dependencias de seguridad y contexto
 from app.core.database.session import get_db
+from app.core.security.scope import operating_warehouse_id, resolve_data_scope
 from app.core.security.deps import (
     get_current_user,
     require_permission,
@@ -133,6 +134,7 @@ async def open_shift(
         tenant_id=current_user.tenant_id,
         cashier_id=current_user.id,
         request=request,
+        warehouse_id=await operating_warehouse_id(db, current_user),
     )
 
 
@@ -171,6 +173,13 @@ async def list_shifts(
     end_date: Optional[datetime] = Query(None, description="Fecha final del periodo"),
     skip: int = Query(0, ge=0, description="Paginación offset"),
     limit: int = Query(50, ge=1, le=100, description="Límite por página"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de los turnos. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("sales.view")),
 ):
@@ -186,6 +195,7 @@ async def list_shifts(
         end_date=end_date,
         limit=limit,
         offset=skip,
+        warehouse_id=await resolve_data_scope(db, current_user, warehouse_id),
     )
 
 
@@ -282,6 +292,7 @@ async def get_shift_details(
     return await service.get_cash_shift_details(
         tenant_id=current_user.tenant_id,
         shift_id=shift_id,
+        warehouse_id=await resolve_data_scope(db, current_user, None),
     )
 
 

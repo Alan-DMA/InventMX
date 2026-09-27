@@ -15,7 +15,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../account/presentation/account_provider.dart';
 
 // Módulo de inventario y modal de alta rápida
-import '../../inventory/presentation/inventory_provider.dart';
 import '../../inventory/presentation/widgets/add_product_modal.dart';
 
 // Módulo de administración y membresías
@@ -28,7 +27,6 @@ import '../../saas_admin/domain/subscription.dart' show mxn;
 
 // Dominio del Dashboard
 import '../domain/daily_snapshot.dart';
-import '../domain/stock_alert.dart';
 import '../domain/pending_purchase_alert.dart';
 import '../domain/quick_action_item.dart';
 
@@ -42,6 +40,8 @@ import 'widgets/app_drawer.dart';
 import 'widgets/currency_selector.dart';
 import 'widgets/customize_actions_modal.dart';
 import 'widgets/quick_stock_adjust_sheet.dart';
+import '../../account/presentation/data_scope_provider.dart';
+import 'widgets/stock_alert_row.dart';
 import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Centro de mando (SR-02 / N-08) — Pantalla principal y landing del sistema.
@@ -84,7 +84,10 @@ class HomeDashboardScreen extends ConsumerWidget {
           ),
         ),
         // Identificador de marca Nexus
+        // El Inicio sigue el alcance: Dueño y Encargado cambian de almacén
+        // desde la leyenda (D28, Fase 2).
         title: const ScopedAppBarTitle(
+          switchable: true,
           title: Text(
             'Nexus',
             style: TextStyle(
@@ -512,6 +515,9 @@ class _AlertsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasStockAlerts = snapshot.stockAlertCount > 0;
+    // Viendo "Todos los almacenes", cada alerta se rotula con el suyo (D38).
+    final labelWarehouses = ref.watch(canViewAllWarehousesProvider) &&
+        ref.watch(dataScopeProvider) == null;
     // Órdenes por recibir sólo para quien puede ver Compras (purchases.view).
     final hasPendingPurchases = snapshot.pendingPurchaseAlerts.isNotEmpty &&
         ref.watch(canViewPurchasesProvider);
@@ -569,10 +575,10 @@ class _AlertsSection extends ConsumerWidget {
                   ),
                   TextButton(
                     key: const Key('homeAlertsSeeAll'),
-                    onPressed: () {
-                      ref.read(inventoryProvider.notifier).setLowStock(true);
-                      context.go(AppRoutes.inventory);
-                    },
+                    // Todas las alertas del alcance elegido, agrupadas por
+                    // almacén (D39) — Inventario sólo ve el almacén operativo
+                    // y en "Todos" se perdían las demás.
+                    onPressed: () => context.push(AppRoutes.stockAlerts),
                     child: const Text('Ver todas'),
                   ),
                 ],
@@ -583,12 +589,21 @@ class _AlertsSection extends ConsumerWidget {
             // resto vive en "Ver todas" (Inventario filtrado).
             for (final alert
                 in snapshot.lowStockAlerts.take(_kMaxStockAlertRows))
-              _AlertRow(alert: alert),
+              StockAlertRow(
+                alert: alert,
+                showWarehouse: labelWarehouses,
+                // Abre la ficha en el almacén de la alerta, dentro de Inicio
+                // para que "atrás" regrese aquí (D40).
+                onTap: () => context.push(AppRoutes.alertProductPath(
+                  alert.productId,
+                  warehouseId: alert.warehouseId,
+                )),
+              ),
             if (snapshot.lowStockAlerts.length > _kMaxStockAlertRows)
               _MoreAlertsRow(
                 key: const Key('homeAlertsMore'),
                 count: snapshot.lowStockAlerts.length - _kMaxStockAlertRows,
-                onTap: () => context.go(AppRoutes.inventory),
+                onTap: () => context.push(AppRoutes.stockAlerts),
               ),
           ],
 
@@ -671,60 +686,6 @@ class _MoreAlertsRow extends StatelessWidget {
             const Icon(Icons.chevron_right_rounded,
                 size: 16, color: AppColors.skyBlue),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AlertRow extends StatelessWidget {
-  const _AlertRow({required this.alert});
-
-  final StockAlertItem alert;
-
-  @override
-  Widget build(BuildContext context) {
-    final tint = alert.isOutOfStock ? AppColors.error : AppColors.warning;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: Key('homeAlertRow-${alert.productId}'),
-        onTap: () => context.go(AppRoutes.productDetailPath(alert.productId)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              Icon(
-                alert.isOutOfStock
-                    ? Icons.remove_shopping_cart_outlined
-                    : Icons.inventory_2_outlined,
-                size: 16,
-                color: tint,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  alert.productName,
-                  style: const TextStyle(
-                      fontSize: 13.5, color: AppColors.onSurface),
-                ),
-              ),
-              Text(
-                alert.isOutOfStock
-                    ? 'Agotado'
-                    : 'Quedan ${alert.availableStock}',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: tint,
-                ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right_rounded,
-                  size: 18, color: AppColors.onSurfaceMuted),
-            ],
-          ),
         ),
       ),
     );

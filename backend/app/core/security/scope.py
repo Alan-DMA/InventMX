@@ -32,6 +32,18 @@ def can_view_all_warehouses(user: User) -> bool:
     return any(p.code == VIEW_ALL_WAREHOUSES_PERMISSION for p in user.role.permissions)
 
 
+async def operating_warehouse_id(db: AsyncSession, user: User) -> uuid.UUID:
+    """
+    Almacén donde opera el usuario: el asignado, o el principal del comercio
+    si aún no tiene uno. Es donde ocurre lo que registra (p. ej. su turno de
+    caja, W5), independiente de lo que tenga permiso de consultar.
+    """
+    if user.default_warehouse_id is not None:
+        return user.default_warehouse_id
+    default_warehouse = await WarehouseRepository(db).get_or_create_default(user.tenant_id)
+    return default_warehouse.id
+
+
 async def resolve_data_scope(
     db: AsyncSession,
     user: User,
@@ -47,8 +59,4 @@ async def resolve_data_scope(
     if can_view_all_warehouses(user):
         return requested_warehouse_id
 
-    if user.default_warehouse_id is not None:
-        return user.default_warehouse_id
-
-    default_warehouse = await WarehouseRepository(db).get_or_create_default(user.tenant_id)
-    return default_warehouse.id
+    return await operating_warehouse_id(db, user)

@@ -79,9 +79,12 @@ class CashTreasuryRepository:
         date_to: Optional[datetime] = None,
         limit: int = 20,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[CashShift], int]:
-        """Retorna el listado paginado de sesiones de caja con filtros."""
+        """Retorna el listado paginado de sesiones de caja con filtros (`warehouse_id` = alcance)."""
         query = select(CashShift).where(CashShift.tenant_id == tenant_id)
+        if warehouse_id:
+            query = query.where(CashShift.warehouse_id == warehouse_id)
 
         if cashier_id:
             query = query.where(CashShift.cashier_id == cashier_id)

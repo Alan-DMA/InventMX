@@ -85,7 +85,9 @@ class CriticalStockProductResponse(BaseModel):
     product_id: uuid.UUID = Field(..., description="Identificador del producto")
     product_name: str = Field(..., description="Nombre comercial del producto")
     sku: str = Field(..., description="Código SKU o de barras")
-    current_stock: Decimal = Field(..., description="Existencias físicas actuales")
+    warehouse_id: Optional[uuid.UUID] = Field(None, description="Almacén donde está crítico (D38)")
+    warehouse_name: Optional[str] = Field(None, description="Nombre de ese almacén")
+    current_stock: Decimal = Field(..., description="Existencias físicas actuales en ese almacén")
     min_stock: Decimal = Field(..., description="Umbral de stock mínimo configurado")
     is_out_of_stock: bool = Field(..., description="Indica si el producto está totalmente agotado")
 

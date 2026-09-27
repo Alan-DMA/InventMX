@@ -80,22 +80,36 @@ class FinancialAnalyticsService:
 
         return start, end
 
+    async def _scope(
+        self, current_user: User, warehouse_id: Optional[uuid.UUID]
+    ) -> Optional[uuid.UUID]:
+        """
+        Almacén de las cifras: el pedido si el usuario puede ver todos
+        (`None` = todos), si no el suyo (W1).
+        """
+        return await resolve_data_scope(self.repo.session, current_user, warehouse_id)
+
     async def get_executive_financial_summary(
         self,
         current_user: User,
         preset: Optional[DateRangePreset] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> ExecutiveFinancialSummaryResponse:
         """Genera el resumen financiero ejecutivo con COGS y margen de rentabilidad (RF-18)."""
         start, end = self.resolve_date_range(preset, start_date, end_date)
-        metrics = await self.repo.get_financial_summary_metrics(current_user.tenant_id, start, end)
+        scope = await self._scope(current_user, warehouse_id)
+        metrics = await self.repo.get_financial_summary_metrics(
+            current_user.tenant_id, start, end, scope
+        )
 
         breakdown_data = await self.repo.get_payment_methods_breakdown(
             current_user.tenant_id,
             start,
             end,
             metrics["net_sales_mxn"],
+            scope,
         )
         payment_methods = [PaymentMethodMetric(**b) for b in breakdown_data]
 
@@ -120,10 +134,13 @@ class FinancialAnalyticsService:
         preset: Optional[DateRangePreset] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> CashFlowSummaryResponse:
         """Genera la conciliación de flujo de caja real y tesorería (RF-19)."""
         start, end = self.resolve_date_range(preset, start_date, end_date)
-        cf = await self.repo.get_cash_flow_metrics(current_user.tenant_id, start, end)
+        cf = await self.repo.get_cash_flow_metrics(
+            current_user.tenant_id, start, end, await self._scope(current_user, warehouse_id)
+        )
 
         return CashFlowSummaryResponse(
             period_start=start,
@@ -144,12 +161,16 @@ class FinancialAnalyticsService:
         preset: Optional[DateRangePreset] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> InventoryHealthResponse:
         """Genera el diagnóstico consolidado de inventario, valuación y rotación (RF-20)."""
         start, end = self.resolve_date_range(preset, start_date, end_date)
-        val_data = await self.repo.get_inventory_valuation(current_user.tenant_id)
-        top_data = await self.repo.get_top_selling_products(current_user.tenant_id, start, end, limit=10)
-        crit_data = await self.repo.get_critical_stock_products(current_user.tenant_id)
+        scope = await self._scope(current_user, warehouse_id)
+        val_data = await self.repo.get_inventory_valuation(current_user.tenant_id, scope)
+        top_data = await self.repo.get_top_selling_products(
+            current_user.tenant_id, start, end, limit=10, warehouse_id=scope
+        )
+        crit_data = await self.repo.get_critical_stock_products(current_user.tenant_id, scope)
 
         valuation = InventoryValuationResponse(**val_data)
         top_products = [TopSellingProductResponse(**t) for t in top_data]
@@ -167,10 +188,13 @@ class FinancialAnalyticsService:
         preset: Optional[DateRangePreset] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> SalesTrendsResponse:
         """Serie diaria de ventas del periodo, con los días sin venta en cero (RF-21)."""
         start, end = self.resolve_date_range(preset, start_date, end_date)
-        by_day = await self.repo.get_daily_sales_series(current_user.tenant_id, start, end)
+        by_day = await self.repo.get_daily_sales_series(
+            current_user.tenant_id, start, end, await self._scope(current_user, warehouse_id)
+        )
 
         # Un punto por día natural del rango: "no vendí" ($0) es distinto de "sin dato".
         # Los presets de calendario terminan en el futuro (fin de semana/mes); la
@@ -195,9 +219,12 @@ class FinancialAnalyticsService:
     async def get_working_capital(
         self,
         current_user: User,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> WorkingCapitalResponse:
         """Calcula la posición de capital de trabajo y liquidez operativa neta (RF-21)."""
-        wc = await self.repo.get_working_capital_metrics(current_user.tenant_id)
+        wc = await self.repo.get_working_capital_metrics(
+            current_user.tenant_id, await self._scope(current_user, warehouse_id)
+        )
 
         return WorkingCapitalResponse(
             as_of_date=datetime.now(),
@@ -258,9 +285,13 @@ class FinancialAnalyticsService:
             start_prev = datetime.combine(now.date() - timedelta(days=1), time.min)
             end_prev = datetime.combine(now.date() - timedelta(days=1), time.max)
 
+        # Alcance por almacén (Fase 2): dinero, inventario, alertas y compras
+        # del mismo almacén — o de todos para Dueño/Encargado (D26, D27).
+        scope = await self._scope(current_user, warehouse_id)
+
         # 2. Consultar métricas de ventas del periodo actual
         current_metrics = await self.repo.get_financial_summary_metrics(
-            current_user.tenant_id, start_current, end_current
+            current_user.tenant_id, start_current, end_current, scope
         )
 
         # 3. Consultar métricas previas si compare_previous es True para calcular variaciones
@@ -268,7 +299,7 @@ class FinancialAnalyticsService:
         margin_change_percent = None
         if compare_previous:
             prev_metrics = await self.repo.get_financial_summary_metrics(
-                current_user.tenant_id, start_prev, end_prev
+                current_user.tenant_id, start_prev, end_prev, scope
             )
             prev_rev = prev_metrics["net_sales_mxn"]
             curr_rev = current_metrics["net_sales_mxn"]
@@ -285,18 +316,17 @@ class FinancialAnalyticsService:
                 )
 
         # 4. Obtener valuación y productos con stock crítico
-        val_data = await self.repo.get_inventory_valuation(current_user.tenant_id)
-        # Las alertas de stock van contra el almacén (D25, aislamiento Fase 1);
-        # las cifras de dinero se acotan en la Fase 2.
-        stock_scope = await resolve_data_scope(self.repo.session, current_user, warehouse_id)
+        val_data = await self.repo.get_inventory_valuation(current_user.tenant_id, scope)
+        # Alertas por almacén, nunca sumando bodegas (D25); en "todos" cada una
+        # rotulada con su almacén (D38).
         critical_stock_data = await self.repo.get_critical_stock_products(
-            current_user.tenant_id, stock_scope
+            current_user.tenant_id, scope
         )
         critical_alerts = [CriticalStockProductResponse(**c) for c in critical_stock_data]
 
         # 5. Obtener los 5 productos más vendidos
         top_data = await self.repo.get_top_selling_products(
-            current_user.tenant_id, start_current, end_current, limit=5
+            current_user.tenant_id, start_current, end_current, limit=5, warehouse_id=scope
         )
         top_products = [
             DashboardTopProductItem(
@@ -309,12 +339,10 @@ class FinancialAnalyticsService:
         ]
 
         # 6. Obtener alertas de órdenes de compra pendientes
-        # Las compras siguen el alcance del usuario, no el almacén del
-        # inventario: el Dueño ve las de todos (decisión de Eduardo, Sep 27).
         pending_po_data = await self.repo.get_pending_purchase_orders_alerts(
             current_user.tenant_id,
             limit=5,
-            warehouse_id=await resolve_data_scope(self.repo.session, current_user, None),
+            warehouse_id=scope,
         )
         pending_purchases = [PendingPurchaseAlertSchema(**p) for p in pending_po_data]
 

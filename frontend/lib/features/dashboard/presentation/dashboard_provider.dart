@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../account/presentation/account_provider.dart'
-    show readOperatingWarehouseId;
+import '../../account/presentation/data_scope_provider.dart';
 import '../../management/domain/app_permission.dart';
 import '../../management/presentation/management_provider.dart';
 import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
@@ -26,7 +25,7 @@ final dashboardRepositoryProvider = Provider<DashboardRepository>(
     // Cambiar de usuario reconstruye el repositorio: los avisos leídos son
     // de cada quien, en memoria y en disco (QA Sep 23).
     ownerEmail: ref.watch(currentUserNameProvider),
-    resolveWarehouseScope: () => readOperatingWarehouseId(ref),
+    resolveWarehouseScope: () async => ref.read(dataScopeProvider),
   ),
 );
 
@@ -36,8 +35,12 @@ final dashboardRepositoryProvider = Provider<DashboardRepository>(
 
 class DailySnapshotNotifier extends AsyncNotifier<DailySnapshot> {
   @override
-  Future<DailySnapshot> build() =>
-      ref.watch(dashboardRepositoryProvider).getTodaySnapshot();
+  Future<DailySnapshot> build() {
+    // Cifras del alcance elegido en la leyenda (Fase 2): al cambiarlo se
+    // recalculan; la campana lo sigue porque observa este resumen.
+    ref.watch(dataScopeProvider);
+    return ref.watch(dashboardRepositoryProvider).getTodaySnapshot();
+  }
 
   Future<void> refresh() async {
     state = await AsyncValue.guard(
@@ -181,6 +184,8 @@ final unreadNotificationsProvider = Provider<int>((ref) {
 /// Usa `salesRepositoryProvider` directo (no `salesKardexProvider`, que es
 /// `autoDispose` y está atado al ciclo de vida de la pantalla de Kardex).
 final recentSalesProvider = FutureProvider<List<SaleSummary>>((ref) async {
+  // Las ventas siguen el alcance de la leyenda (Fase 2).
+  ref.watch(dataScopeProvider);
   final now = ref.watch(clockProvider)();
   final today = DateTime(now.year, now.month, now.day);
   final page = await ref.watch(salesRepositoryProvider).getSales(

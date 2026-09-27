@@ -1,3 +1,8 @@
+from app.core.security.scope import (
+    can_view_all_warehouses,
+    operating_warehouse_id,
+    resolve_data_scope,
+)
 from app.modules.customers_credit.domain.credit_ledger import (
     CustomerCreditLedger,
     LedgerEntryType,
@@ -150,6 +155,18 @@ class SalesService:
         - Soporte de pagos divididos, pagos parciales diferidos (PENDING_PAYMENT) y cálculo de cambio.
         """
         tenant_id = current_user.tenant_id
+
+        # 0. Sólo se vende desde el almacén donde se opera (aislamiento por
+        # almacén, W1): quien no puede ver todos no descuenta stock de otra
+        # sucursal aunque mande su id. Se rechaza en vez de corregirlo en
+        # silencio, para no vender de un almacén distinto al que ve la pantalla.
+        if not can_view_all_warehouses(current_user):
+            own = await operating_warehouse_id(self.session, current_user)
+            if request.warehouse_id != own:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Sólo puedes vender desde el almacén donde operas.",
+                )
 
         # 1. Validar Almacén
         w_query = (
@@ -798,11 +815,22 @@ class SalesService:
         await self.session.commit()
         return self._build_sale_response(sale)
 
+    async def _get_scoped_sale(self, sale_id: uuid.UUID, current_user: User):
+        """
+        Venta del comercio dentro del alcance del usuario: la de otro almacén
+        es "no encontrada" para quien no puede ver todos (W1).
+        """
+        sale = await self.sale_repo.get_by_id(sale_id, current_user.tenant_id)
+        scope = await resolve_data_scope(self.session, current_user, None)
+        if sale and scope and sale.warehouse_id != scope:
+            return None
+        return sale
+
     async def get_sale_by_id(self, sale_id: uuid.UUID, current_user: User) -> SaleResponse:
         """
         Obtiene el detalle completo de una venta por su ID asegurando aislamiento RLS.
         """
-        sale = await self.sale_repo.get_by_id(sale_id, current_user.tenant_id)
+        sale = await self._get_scoped_sale(sale_id, current_user)
         if not sale:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -831,7 +859,8 @@ class SalesService:
             start_date=start_date,
             end_date=end_date,
             cashier_id=cashier_id,
-            warehouse_id=warehouse_id,
+            # Alcance por almacén (Fase 2, W1): el cajero ve su almacén aunque pida otro.
+            warehouse_id=await resolve_data_scope(self.session, current_user, warehouse_id),
             status=status_filter,
             skip=skip,
             limit=limit,
@@ -850,7 +879,7 @@ class SalesService:
         tenant_id = current_user.tenant_id
 
         # 1. Recuperar la venta
-        sale = await self.sale_repo.get_by_id(sale_id, tenant_id)
+        sale = await self._get_scoped_sale(sale_id, current_user)
         if not sale:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -964,7 +993,7 @@ class SalesService:
         """
         tenant_id = current_user.tenant_id
 
-        sale = await self.sale_repo.get_by_id(sale_id, tenant_id)
+        sale = await self._get_scoped_sale(sale_id, current_user)
         if not sale:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1178,7 +1207,7 @@ class SalesService:
         Calcula alineación de caracteres monoespaciados para 58mm (32 columnas) u 80mm (48 columnas).
         """
         # 1. Recuperar la venta
-        sale = await self.sale_repo.get_by_id(sale_id, current_user.tenant_id)
+        sale = await self._get_scoped_sale(sale_id, current_user)
         if not sale:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1553,6 +1582,7 @@ class SalesService:
         tenant_id: uuid.UUID,
         cashier_id: uuid.UUID,
         request: CashShiftOpenRequest,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> CashShiftResponse:
         """
         Abre una nueva jornada o turno de caja con fondo inicial en MXN.
@@ -1571,7 +1601,8 @@ class SalesService:
         new_shift = CashShift(
             tenant_id=tenant_id,
             cashier_id=cashier_id,
-            warehouse_id=request.warehouse_id,
+            # Lo fija el servidor con el almacén operativo de quien abre (W5).
+            warehouse_id=warehouse_id or request.warehouse_id,
             status=ShiftStatus.OPEN,
             opening_balance_mxn=request.opening_balance_mxn,
             notes=request.notes,
@@ -1849,6 +1880,7 @@ class SalesService:
         end_date: Optional[datetime] = None,
         limit: int = 50,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> List[CashShiftResponse]:
         """
         Lista el historial de turnos de caja con filtros por cajero, estado y fechas.
@@ -1861,6 +1893,7 @@ class SalesService:
             end_date=end_date,
             limit=limit,
             offset=offset,
+            warehouse_id=warehouse_id,
         )
         return [self._map_to_shift_response(s) for s in shifts]
 
@@ -1868,15 +1901,16 @@ class SalesService:
         self,
         tenant_id: uuid.UUID,
         shift_id: uuid.UUID,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> CashShiftResponse:
         """
-        Obtiene el detalle completo de un turno de caja por su ID.
+        Obtiene el detalle completo de un turno de caja por su ID (fuera del alcance = no encontrado).
         """
         shift = await self.cash_shift_repo.get_by_id(
             tenant_id=tenant_id,
             shift_id=shift_id,
         )
-        if not shift:
+        if not shift or (warehouse_id and shift.warehouse_id != warehouse_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Turno de caja no encontrado.",

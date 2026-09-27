@@ -12,15 +12,22 @@ class StockCard extends StatelessWidget {
     super.key,
     required this.product,
     this.otherWarehousesHint,
+    this.warehouseName,
   });
 
   final Product product;
   final String? otherWarehousesHint;
 
+  /// Almacén de la cifra cuando no es el operativo (ficha abierta desde una
+  /// alerta de otro almacén, D40): "DISPONIBLE · ALMACÉN PRINCIPAL".
+  final String? warehouseName;
+
   @override
   Widget build(BuildContext context) {
     final quantity = product.availableStock;
-    const label = 'DISPONIBLE';
+    final label = warehouseName == null
+        ? 'DISPONIBLE'
+        : 'DISPONIBLE · ${warehouseName!.toUpperCase()}';
     final subtitle = _availableSubtitle(product);
     final color = _availableColor(product.stockStatus);
     const icon = Icons.inventory_rounded;

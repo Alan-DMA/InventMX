@@ -8,6 +8,7 @@ import '../../features/onboarding/presentation/onboarding_provider.dart';
 import '../../features/onboarding/presentation/pages/step4_success_page.dart';
 import '../../features/dashboard/presentation/dashboard_shell.dart';
 import '../../features/dashboard/presentation/home_dashboard_screen.dart';
+import '../../features/dashboard/presentation/stock_alerts_screen.dart';
 import '../../features/dashboard/presentation/notifications_screen.dart';
 import '../../features/inventory/presentation/inventory_screen.dart';
 import '../../features/inventory/presentation/product_detail_screen.dart';
@@ -66,6 +67,18 @@ abstract final class AppRoutes {
   // Branches del ShellRoute
   static const home = '/dashboard/home';
   static const notifications = '/dashboard/home/notifications';
+
+  /// Todas las alertas de stock del alcance elegido (D39). La ficha que se
+  /// abre desde una alerta vive en la rama de Inicio para que "atrás" vuelva
+  /// a las alertas y no a Inventario.
+  static const stockAlerts = '/dashboard/home/stock-alerts';
+
+  /// Ficha de un producto abierta desde una alerta, mostrando el almacén de
+  /// la alerta (`almacen`) — D40.
+  static String alertProductPath(String id, {String? warehouseId, bool fromList = false}) {
+    final base = fromList ? '$stockAlerts/products/$id' : '/dashboard/home/products/$id';
+    return warehouseId == null ? base : '$base?almacen=$warehouseId';
+  }
   static const inventory = '/dashboard/inventory';
   static const sales = '/dashboard/sales';
   static const cash = '/dashboard/cash';
@@ -416,6 +429,30 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     name: 'notifications',
                     builder: (_, __) => const NotificationsScreen(),
                   ),
+                  // Alertas de stock (D39) y la ficha desde una alerta (D40)
+                  GoRoute(
+                    path: 'stock-alerts',
+                    name: 'stock-alerts',
+                    builder: (_, __) => const StockAlertsScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'products/:id',
+                        name: 'stock-alert-product',
+                        builder: (context, state) => ProductDetailScreen(
+                          productId: state.pathParameters['id']!,
+                          viewWarehouseId: state.uri.queryParameters['almacen'],
+                        ),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'products/:id',
+                    name: 'home-alert-product',
+                    builder: (context, state) => ProductDetailScreen(
+                      productId: state.pathParameters['id']!,
+                      viewWarehouseId: state.uri.queryParameters['almacen'],
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -618,6 +655,10 @@ String? requiredPermissionFor(String location) {
 
   if (location == AppRoutes.subscription) return _ownerOnly;
   if (under(AppRoutes.reports)) return Permissions.reportsViewBasic;
+  if (under(AppRoutes.stockAlerts) ||
+      location.startsWith('${AppRoutes.home}/products/')) {
+    return Permissions.inventoryView;
+  }
   if (under(AppRoutes.manageMembers)) return Permissions.settingsManageUsers;
   if (under(AppRoutes.preferences)) return Permissions.settingsManageStore;
   if (under(AppRoutes.catalogShare)) return Permissions.settingsManageStore;

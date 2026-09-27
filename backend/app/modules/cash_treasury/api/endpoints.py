@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Importación de dependencias de seguridad y base de datos
 from app.core.database.session import get_db
 from app.core.security.deps import get_current_user, require_permission
+from app.core.security.scope import operating_warehouse_id, resolve_data_scope
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.cash_treasury.schemas.cash_schemas import (
     CashMovementCreateRequest,
@@ -41,6 +42,13 @@ async def list_cash_sessions(
     date_to: Optional[datetime] = Query(None, description="Fecha de fin"),
     page: int = Query(1, ge=1, description="Número de página"),
     page_size: int = Query(20, ge=1, le=100, description="Registros por página"),
+    warehouse_id: Optional[uuid.UUID] = Query(
+        None,
+        description=(
+            "Almacén de los turnos. Omitido = todos. Sin `reports.view_advanced` se ignora "
+            "y se usa el almacén operativo del usuario"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("sales.view")),
 ) -> Dict[str, Any]:
@@ -54,6 +62,7 @@ async def list_cash_sessions(
         date_to=date_to,
         page=page,
         page_size=page_size,
+        warehouse_id=await resolve_data_scope(db, current_user, warehouse_id),
     )
 
 
@@ -76,6 +85,7 @@ async def open_cash_session(
         cashier_id=current_user.id,
         cashier_name=current_user.full_name or "Cajero",
         request=request,
+        warehouse_id=await operating_warehouse_id(db, current_user),
     )
 
 
@@ -134,7 +144,11 @@ async def get_cash_session_detail(
 ) -> CashSessionResponse:
     """Recupera la información completa de una sesión de caja por ID."""
     service = CashTreasuryService(db)
-    return await service.get_session_detail(session_id=id, tenant_id=current_user.tenant_id)
+    return await service.get_session_detail(
+        session_id=id,
+        tenant_id=current_user.tenant_id,
+        warehouse_id=await resolve_data_scope(db, current_user, None),
+    )
 
 
 @router.get(

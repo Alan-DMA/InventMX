@@ -317,3 +317,133 @@ async def test_purchase_orders_and_payables_are_scoped_by_warehouse(client: Asyn
         "/api/v1/accounts-payable", params={"warehouse_id": ids["bodega"]}, headers=stocker,
     )).json()
     assert [a["id"] for a in stocker_asks_bodega] == [a["id"] for a in stocker_ap]
+
+
+# ---------------------------------------------------------------------------
+# Fase 2 — dinero por almacén: ventas, Inicio, Reportes y caja (CA-W5,
+# CA-W6, CA-W7, CA-W9). Principal tiene 4 piezas y Bodega 26, a $18.
+# ---------------------------------------------------------------------------
+
+async def _sell(client: AsyncClient, headers: dict, warehouse_id: str, product_id: str, qty: int):
+    return await client.post(
+        "/api/v1/sales/checkout",
+        json={
+            "warehouse_id": warehouse_id,
+            "items": [{"product_id": product_id, "quantity": qty, "unit_price_mxn": 18.00, "discount_mxn": 0}],
+            "discount_mxn": 0,
+        },
+        headers=headers,
+    )
+
+
+def _data(body: dict) -> dict:
+    return body.get("data", body)
+
+
+@pytest.mark.asyncio
+async def test_money_is_split_by_warehouse_and_forced_for_employees(client: AsyncClient):
+    suffix = uuid.uuid4().hex[:6]
+    owner = await _register_owner(client, suffix)
+    ids = await _two_warehouses_with_split_stock(client, owner)
+    employee, cashier = await _create_cashier(client, owner, suffix)
+    await client.put(
+        f"/api/v1/users/{employee['id']}", json={"default_warehouse_id": ids["bodega"]}, headers=owner,
+    )
+
+    # CA-W9: el turno queda con el almacén de su cajero, lo pida o no
+    shift = await client.post(
+        "/api/v1/sales/shifts/open",
+        json={"opening_balance_mxn": 300.00, "warehouse_id": ids["principal"]},
+        headers=cashier,
+    )
+    assert shift.status_code == 201, shift.text
+    assert shift.json()["warehouse_id"] == ids["bodega"]
+
+    # Ventas: el cajero vende en Bodega; desde Principal se le rechaza
+    in_bodega = await _sell(client, cashier, ids["bodega"], ids["product"], 2)
+    assert in_bodega.status_code == 201, in_bodega.text
+    assert (await _sell(client, cashier, ids["principal"], ids["product"], 1)).status_code == 403
+    in_principal = await _sell(client, owner, ids["principal"], ids["product"], 1)
+    assert in_principal.status_code == 201, in_principal.text
+
+    # Historial de ventas: el cajero sólo lo de Bodega, aunque pida Principal
+    for params in ({}, {"warehouse_id": ids["principal"]}):
+        mine = (await client.get("/api/v1/sales", params=params, headers=cashier)).json()
+        items = mine["items"] if isinstance(mine, dict) else mine
+        assert [s["id"] for s in items] == [in_bodega.json()["id"]]
+    assert (await client.get(f"/api/v1/sales/{in_principal.json()['id']}", headers=cashier)).status_code == 404
+
+    # Reportes (Dueño): las cifras por almacén suman el total
+    def net(body: dict) -> float:
+        return float(body["net_sales_mxn"])
+
+    everything = (await client.get("/api/v1/analytics/financial-summary", params={"preset": "TODAY"}, headers=owner)).json()
+    principal = (await client.get(
+        "/api/v1/analytics/financial-summary", params={"preset": "TODAY", "warehouse_id": ids["principal"]}, headers=owner,
+    )).json()
+    bodega = (await client.get(
+        "/api/v1/analytics/financial-summary", params={"preset": "TODAY", "warehouse_id": ids["bodega"]}, headers=owner,
+    )).json()
+    assert net(everything) == 54
+    assert net(principal) == 18
+    assert net(bodega) == 36
+    assert net(principal) + net(bodega) == net(everything)
+
+    # Inicio: el cajero ve lo de su almacén aunque pida otro (CA-W5, CA-W7)
+    cashier_home = _data((await client.get(
+        "/api/v1/analytics/dashboard", params={"warehouse_id": ids["principal"]}, headers=cashier,
+    )).json())
+    assert float(cashier_home["sales_metrics"]["total_revenue_mxn"]) == 36
+    owner_home = _data((await client.get("/api/v1/analytics/dashboard", headers=owner)).json())
+    assert float(owner_home["sales_metrics"]["total_revenue_mxn"]) == 54
+
+    # D38: en "todos", las alertas van por almacén y rotuladas (Principal quedó en 3)
+    alerts = owner_home["critical_stock_alerts"]
+    assert [(a["warehouse_name"], float(a["current_stock"])) for a in alerts] == [("Almacén Principal", 3.0)]
+
+    # Caja en capital de trabajo: el fondo del turno es de Bodega
+    wc_bodega = (await client.get(
+        "/api/v1/analytics/working-capital", params={"warehouse_id": ids["bodega"]}, headers=owner,
+    )).json()
+    wc_principal = (await client.get(
+        "/api/v1/analytics/working-capital", params={"warehouse_id": ids["principal"]}, headers=owner,
+    )).json()
+    assert float(wc_bodega["cash_in_register_mxn"]) == 300
+    assert float(wc_principal["cash_in_register_mxn"]) == 0
+
+    # Historial de turnos: el dueño filtra; el cajero no ve turnos de otro almacén
+    owner_principal_shifts = (await client.get(
+        "/api/v1/sales/shifts", params={"warehouse_id": ids["principal"]}, headers=owner,
+    )).json()
+    assert owner_principal_shifts == []
+    cashier_shifts = (await client.get(
+        "/api/v1/sales/shifts", params={"warehouse_id": ids["principal"]}, headers=cashier,
+    )).json()
+    assert [s["id"] for s in cashier_shifts] == [shift.json()["id"]]
+
+
+@pytest.mark.asyncio
+async def test_cash_session_takes_the_cashier_warehouse(client: AsyncClient):
+    """CA-W9 por `/cash/open-session`: el almacén lo fija el servidor."""
+    suffix = uuid.uuid4().hex[:6]
+    owner = await _register_owner(client, suffix)
+    ids = await _two_warehouses_with_split_stock(client, owner)
+    employee, cashier = await _create_cashier(client, owner, suffix)
+    await client.put(
+        f"/api/v1/users/{employee['id']}", json={"default_warehouse_id": ids["bodega"]}, headers=owner,
+    )
+    opened = await client.post(
+        "/api/v1/cash/open-session",
+        json={"opening_amount_mxn": 200.00, "warehouse_id": ids["principal"]},
+        headers=cashier,
+    )
+    assert opened.status_code in (200, 201), opened.text
+
+    by_bodega = (await client.get(
+        "/api/v1/cash/sessions", params={"warehouse_id": ids["bodega"]}, headers=owner,
+    )).json()
+    by_principal = (await client.get(
+        "/api/v1/cash/sessions", params={"warehouse_id": ids["principal"]}, headers=owner,
+    )).json()
+    assert by_bodega["total"] == 1
+    assert by_principal["total"] == 0

@@ -11,6 +11,7 @@ import '../domain/analytics_dashboard.dart';
 import 'models/financial_analytics_dto.dart';
 import 'models/inventory_analytics_dto.dart';
 import 'models/liquidity_analytics_dto.dart';
+import '../../account/presentation/data_scope_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Contrato
@@ -266,9 +267,13 @@ class _DaySim {
 /// vacía y el dashboard sigue sirviendo (nunca se tumba la pantalla por la
 /// gráfica).
 class AnalyticsDashboardRepositoryImpl implements AnalyticsDashboardRepository {
-  AnalyticsDashboardRepositoryImpl({required this.client});
+  AnalyticsDashboardRepositoryImpl({required this.client, this.resolveScope});
 
   final DioClient client;
+
+  /// Almacén elegido en la leyenda por quien puede ver todos (D28); `null` =
+  /// todos. A los demás el servidor les fija su almacén (W1).
+  final String? Function()? resolveScope;
 
   static const _base = '/api/v1/analytics';
 
@@ -313,15 +318,17 @@ class AnalyticsDashboardRepositoryImpl implements AnalyticsDashboardRepository {
     required DashboardPeriod period,
     required DateTime now,
   }) async {
-    final presetQuery = {'preset': period.preset};
-    final previous = _customRange(period.previousRange(now));
+    final warehouseId = resolveScope?.call();
+    final scope = {if (warehouseId != null) 'warehouse_id': warehouseId};
+    final presetQuery = {'preset': period.preset, ...scope};
+    final previous = {..._customRange(period.previousRange(now)), ...scope};
     try {
       final results = await Future.wait<Map<dynamic, dynamic>?>([
         _getMap('$_base/financial-summary', presetQuery),
         _tryGetMap('$_base/financial-summary', previous),
         _tryGetMap('$_base/sales-trends', presetQuery),
         _tryGetMap('$_base/inventory-health', presetQuery),
-        _tryGetMap('$_base/working-capital', const {}),
+        _tryGetMap('$_base/working-capital', scope),
       ]);
 
       final summary = ExecutiveFinancialSummaryDto.fromJson(results[0]!);
@@ -443,5 +450,8 @@ const bool kAnalyticsUseMock =
 final analyticsDashboardRepositoryProvider =
     Provider<AnalyticsDashboardRepository>((ref) {
   if (kAnalyticsUseMock) return AnalyticsDashboardRepositoryMock();
-  return AnalyticsDashboardRepositoryImpl(client: ref.watch(dioClientProvider));
+  return AnalyticsDashboardRepositoryImpl(
+    client: ref.watch(dioClientProvider),
+    resolveScope: () => ref.read(dataScopeProvider),
+  );
 });

@@ -7,6 +7,7 @@ import '../../saas_admin/domain/subscription.dart' show mxn, shortDate;
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
 import '../domain/sale_summary.dart';
 import 'sales_kardex_provider.dart';
+import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
 /// Kardex de ventas — Fase 2 (plan de cuenta + Dashboard, Sep 2026).
 ///
@@ -105,13 +106,17 @@ class _SalesKardexScreenState extends ConsumerState<SalesKardexScreen> {
               const Icon(Icons.arrow_back_rounded, color: AppColors.onSurface),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
-        title: const Text(
-          'Historial de ventas',
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AppColors.onSurface,
+        // Historial del alcance elegido en la leyenda (D28, Fase 2).
+        title: const ScopedAppBarTitle(
+          switchable: true,
+          title: Text(
+            'Historial de ventas',
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AppColors.onSurface,
+            ),
           ),
         ),
         // Punto sobre el embudo (mismo patrón que la campana de Avisos) en

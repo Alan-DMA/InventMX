@@ -82,6 +82,7 @@ class CashShiftRepository:
         end_date: Optional[datetime] = None,
         limit: int = 50,
         offset: int = 0,
+        warehouse_id: Optional[uuid.UUID] = None,
     ) -> List[CashShift]:
         """
         Lista el historial de turnos de caja con soporte de filtros por cajero, estado y rango de fechas.
@@ -94,6 +95,10 @@ class CashShiftRepository:
 
         if cashier_id:
             stmt = stmt.where(CashShift.cashier_id == cashier_id)
+
+        # Alcance por almacén (ya resuelto): turnos sin almacén sólo en "todos" (W6)
+        if warehouse_id:
+            stmt = stmt.where(CashShift.warehouse_id == warehouse_id)
 
         if status:
             stmt = stmt.where(CashShift.status == status)

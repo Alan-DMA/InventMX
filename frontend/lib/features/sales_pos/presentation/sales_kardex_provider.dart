@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/sales_repository.dart';
 import '../domain/sale_summary.dart';
+import '../../account/presentation/data_scope_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Estado
@@ -96,6 +97,8 @@ class SalesKardexNotifier extends AutoDisposeNotifier<SalesKardexState> {
 
   @override
   SalesKardexState build() {
+    // Historial del alcance elegido en la leyenda (Fase 2).
+    ref.watch(dataScopeProvider);
     _mounted = true;
     ref.onDispose(() => _mounted = false);
     Future.microtask(_initialLoad);
