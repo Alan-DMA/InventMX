@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de excepciones de negocio
 from app.core.exceptions.base import (
+    BadRequestException,
     ConflictException,
     NotFoundException,
     TenantLockedException,
@@ -25,7 +26,7 @@ from app.modules.auth_tenancy.schemas.token import (
     RegisterTenantRequest,
     TokenResponse,
 )
-from app.modules.auth_tenancy.schemas.user import UserLogin
+from app.modules.auth_tenancy.schemas.user import ChangePasswordRequest, UserLogin
 
 
 class AuthService:
@@ -204,3 +205,19 @@ class AuthService:
             user=user,
             tenant=tenant,
         )
+
+    async def change_password(self, data: ChangePasswordRequest, current_user: User) -> None:
+        """
+        Cambia la contraseña de quien está en sesión (D9). Exige la actual para
+        que un teléfono desbloqueado en el mostrador no baste para quedarse con
+        la cuenta. Los tokens vigentes siguen sirviendo: la sesión no se cierra.
+        """
+        if not verify_password(data.current_password, current_user.hashed_password):
+            raise BadRequestException("La contraseña actual no es correcta.")
+
+        await set_tenant_context(self.db, current_user.tenant_id)
+        await self.user_repo.update(
+            user=current_user,
+            hashed_password=get_password_hash(data.new_password),
+        )
+        await self.db.commit()

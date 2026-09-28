@@ -9,27 +9,24 @@ import '../domain/tenant_role.dart';
 import '../domain/warehouse.dart';
 import 'management_repository.dart';
 
-/// Gestión del comercio contra el backend real — Permisos por rol, Fase A
-/// (Sep 22, 2026).
+/// Gestión del comercio contra el backend real — Permisos por rol (Fases A
+/// y B, Sep 2026) y Ajustes operativos (Sep 27, 2026).
 ///
 /// | Parte                 | Fuente                                          |
 /// |-----------------------|-------------------------------------------------|
 /// | Quién soy + permisos  | `GET /auth/me` → `role.permissions[].code`       |
 /// | Personas              | `GET/POST /users`, `PUT /users/{id}`, `PATCH /users/{id}/status` |
-/// | Roles (lectura)       | `GET /roles` — 4 roles globales con `permissions[]` |
-/// | Almacenes             | `GET/POST /inventory/warehouses` (aislamiento por almacén, Fase 1); renombrar y baja sin endpoint (D7) |
-/// | Categorías            | **mock** (decisión de Eduardo, sin cambio aquí)  |
+/// | Roles                 | `GET /roles`, `PUT /roles/{id}/permissions`, `DELETE /roles/{id}` |
+/// | Almacenes             | `GET/POST/PUT/DELETE /inventory/warehouses`, `…/{id}/activate`, `…/{id}/make-default` (D7) |
+/// | Categorías            | `GET/POST/PUT/DELETE /inventory/categories` (D8) |
 ///
 /// Los códigos de `Permissions.*` son exactamente los del servidor; a un
 /// `OWNER` el backend no le siembra filas (`require_permission` lo deja
 /// pasar por definición), así que aquí recibe el catálogo completo.
 class ManagementRepositoryImpl implements ManagementRepository {
-  ManagementRepositoryImpl({required this.client, required this.fallback});
+  ManagementRepositoryImpl({required this.client});
 
   final DioClient client;
-
-  /// Mock para lo que el backend todavía no cubre.
-  final ManagementRepositoryMock fallback;
 
   // ── Sesión ─────────────────────────────────────────────────────────────
 
@@ -219,6 +216,9 @@ class ManagementRepositoryImpl implements ManagementRepository {
 
   // ── Almacenes ──────────────────────────────────────────────────────────
 
+  /// Activos e inactivos: la pantalla de Almacenes muestra los dados de baja
+  /// para poder reactivarlos; los selectores filtran (`warehousesProvider`
+  /// de Inventario).
   @override
   Future<List<Warehouse>> listWarehouses() async {
     try {
@@ -228,21 +228,16 @@ class ManagementRepositoryImpl implements ManagementRepository {
           .map(_warehouseFromJson)
           .toList();
     } on DioException catch (e) {
-      throw _mapError(e);
+      throw _mapCatalogError(e);
     }
   }
 
-  /// El backend no exige nombre único, así que se revisa aquí: dos almacenes
-  /// iguales serían indistinguibles en la leyenda y en los selectores. El
-  /// nuevo nunca nace como principal (`is_default: false`) — el esquema lo
-  /// pone en `true` por omisión y dejaría dos principales.
+  /// El servidor exige nombre único (409). El nuevo nunca nace como
+  /// principal (`is_default: false`) — el esquema lo pone en `true` por
+  /// omisión; el principal se cambia con "Hacer principal" (D7b).
   @override
   Future<Warehouse> createWarehouse(String name) async {
     final clean = name.trim();
-    final existing = await listWarehouses();
-    if (existing.any((w) => w.name.toLowerCase() == clean.toLowerCase())) {
-      throw DuplicateWarehouseNameException(clean);
-    }
     try {
       final res = await client.post(
         '/api/v1/inventory/warehouses',
@@ -250,45 +245,131 @@ class ManagementRepositoryImpl implements ManagementRepository {
       );
       return _warehouseFromJson(res.data as Map);
     } on DioException catch (e) {
-      throw _mapError(e);
+      throw _mapCatalogError(e,
+          onConflict: () => DuplicateWarehouseNameException(clean));
     }
   }
 
-  /// Sin `PUT /inventory/warehouses/{id}` todavía (Ajustes operativos, D7).
-  /// No se delega al mock: no conoce los ids reales y fallaría con un
-  /// "no encontrado" que confunde.
   @override
-  Future<Warehouse> updateWarehouse(
-          {required String id, required String name}) async =>
-      throw Exception(
-          'Renombrar almacenes todavía no está disponible en el servidor.');
+  Future<Warehouse> updateWarehouse({
+    required String id,
+    required String name,
+  }) async {
+    final clean = name.trim();
+    try {
+      final res = await client.put(
+        '/api/v1/inventory/warehouses/$id',
+        data: {'name': clean},
+      );
+      return _warehouseFromJson(res.data as Map);
+    } on DioException catch (e) {
+      throw _mapCatalogError(e,
+          onConflict: () => DuplicateWarehouseNameException(clean));
+    }
+  }
 
-  /// Sin baja lógica en el servidor todavía (D7).
+  /// El motivo del rechazo (422) viene armado del servidor y se muestra tal
+  /// cual: cada regla de D7 dice qué resolver.
   @override
-  Future<void> deactivateWarehouse(String id) async => throw Exception(
-      'Dar de baja almacenes todavía no está disponible en el servidor.');
+  Future<void> deactivateWarehouse(String id) async {
+    try {
+      await client.delete('/api/v1/inventory/warehouses/$id');
+    } on DioException catch (e) {
+      throw _mapCatalogError(e);
+    }
+  }
+
+  @override
+  Future<void> activateWarehouse(String id) async {
+    try {
+      await client.post('/api/v1/inventory/warehouses/$id/activate');
+    } on DioException catch (e) {
+      throw _mapCatalogError(e);
+    }
+  }
+
+  @override
+  Future<void> makeDefaultWarehouse(String id) async {
+    try {
+      await client.post('/api/v1/inventory/warehouses/$id/make-default');
+    } on DioException catch (e) {
+      throw _mapCatalogError(e);
+    }
+  }
 
   static Warehouse _warehouseFromJson(Map json) => Warehouse(
         id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? 'Almacén',
         isActive: json['is_active'] != false,
+        isDefault: json['is_default'] == true,
         createdAt: toDateTimeOrNull(json['created_at']) ?? DateTime.now(),
       );
 
-  // ── Delegado al mock ───────────────────────────────────────────────────
+  // ── Categorías ─────────────────────────────────────────────────────────
+
+  /// Las mismas que usa Inventario (CA-A6): hasta Ajustes operativos esta
+  /// pantalla mostraba las del mock.
+  @override
+  Future<List<Category>> listCategories() async {
+    try {
+      final res = await client.get('/api/v1/inventory/categories');
+      return (res.data as List? ?? const [])
+          .whereType<Map>()
+          .map(_categoryFromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw _mapCatalogError(e);
+    }
+  }
 
   @override
-  Future<List<Category>> listCategories() => fallback.listCategories();
+  Future<Category> createCategory(String name) async {
+    final clean = name.trim();
+    try {
+      final res = await client.post(
+        '/api/v1/inventory/categories',
+        data: {'name': clean},
+      );
+      return _categoryFromJson(res.data as Map);
+    } on DioException catch (e) {
+      throw _mapCatalogError(e,
+          onConflict: () => DuplicateCategoryNameException(clean));
+    }
+  }
 
   @override
-  Future<Category> createCategory(String name) => fallback.createCategory(name);
+  Future<Category> renameCategory({
+    required String id,
+    required String name,
+  }) async {
+    final clean = name.trim();
+    try {
+      final res = await client.put(
+        '/api/v1/inventory/categories/$id',
+        data: {'name': clean},
+      );
+      return _categoryFromJson(res.data as Map);
+    } on DioException catch (e) {
+      throw _mapCatalogError(e,
+          onConflict: () => DuplicateCategoryNameException(clean));
+    }
+  }
 
+  /// Con productos el servidor responde 422 con cuántos tiene (D8).
   @override
-  Future<Category> renameCategory({required String id, required String name}) =>
-      fallback.renameCategory(id: id, name: name);
+  Future<void> deleteCategory(String id) async {
+    try {
+      await client.delete('/api/v1/inventory/categories/$id');
+    } on DioException catch (e) {
+      throw _mapCatalogError(e);
+    }
+  }
 
-  @override
-  Future<void> deleteCategory(String id) => fallback.deleteCategory(id);
+  static Category _categoryFromJson(Map json) => Category(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        productCount: toIntOrZero(json['product_count']),
+      );
 
   // ── Mapeo ──────────────────────────────────────────────────────────────
 
@@ -316,8 +397,7 @@ class ManagementRepositoryImpl implements ManagementRepository {
   /// dominio propia (correo duplicado, último dueño) se conservan para que
   /// la UI siga tratándolos igual que con el mock.
   static Exception _mapError(DioException e, {String? email}) {
-    final data = e.response?.data;
-    final detail = data is Map ? data['detail']?.toString() : null;
+    final detail = _detailOf(e.response?.data);
     final status = e.response?.statusCode;
     if (status == 409 ||
         (detail != null && detail.toLowerCase().contains('correo'))) {
@@ -342,5 +422,40 @@ class ManagementRepositoryImpl implements ManagementRepository {
       return Exception('Sin conexión con el servidor. Revisa tu red.');
     }
     return Exception('No se pudo completar la operación.');
+  }
+
+  /// Almacenes y categorías: 409 → la excepción de nombre repetido del
+  /// dominio; lo demás, el mensaje del servidor tal cual (como en Usuarios).
+  static Exception _mapCatalogError(
+    DioException e, {
+    Exception Function()? onConflict,
+  }) {
+    final status = e.response?.statusCode;
+    if (status == 409 && onConflict != null) return onConflict();
+    final detail = _detailOf(e.response?.data);
+    if (detail != null) return Exception(detail);
+    if (status == 403) {
+      return Exception(
+          'No tienes permiso para cambiar las preferencias de la tienda.');
+    }
+    if (e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return Exception('Sin conexión con el servidor. Revisa tu red.');
+    }
+    return Exception('No se pudo completar la operación.');
+  }
+
+  /// El servidor responde de dos formas: `{detail}` (HTTPException) o
+  /// `{error: {message}}` (excepciones de negocio con envolvente).
+  static String? _detailOf(Object? data) {
+    if (data is! Map) return null;
+    final detail = data['detail'];
+    if (detail is String) return detail;
+    final error = data['error'];
+    if (error is Map && error['message'] != null) {
+      return error['message'].toString();
+    }
+    return null;
   }
 }

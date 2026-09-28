@@ -24,7 +24,11 @@ from app.core.security.deps import (
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.inventory.domain.inventory_movement import MovementType
 # Importación de esquemas Pydantic
-from app.modules.inventory.schemas.category import CategoryCreate, CategoryResponse
+from app.modules.inventory.schemas.category import (
+    CategoryCreate,
+    CategoryResponse,
+    CategoryUpdate,
+)
 from app.modules.inventory.schemas.combo import (
     ComboCreate,
     ComboResponse,
@@ -54,7 +58,11 @@ from app.modules.inventory.schemas.seed_product import (
     EanLookupResponse,
     SeedProductResponse,
 )
-from app.modules.inventory.schemas.warehouse import WarehouseCreate, WarehouseResponse
+from app.modules.inventory.schemas.warehouse import (
+    WarehouseCreate,
+    WarehouseResponse,
+    WarehouseUpdate,
+)
 # Importación del servicio de negocio de inventario
 from app.modules.inventory.services.inventory_service import InventoryService
 
@@ -228,6 +236,44 @@ async def create_category(
     return await service.create_category(data, current_user)
 
 
+@router.put(
+    "/categories/{category_id}",
+    response_model=CategoryResponse,
+    summary="Renombrar una categoría",
+)
+async def rename_category(
+    category_id: uuid.UUID,
+    data: CategoryUpdate,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cambia el nombre (único en el comercio, 409 si ya existe). La puerta es la
+    de Preferencias operativas, donde vive la pantalla de Categorías.
+    """
+    service = InventoryService(db)
+    return await service.rename_category(category_id, data, current_user)
+
+
+@router.delete(
+    "/categories/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar una categoría sin productos",
+)
+async def delete_category(
+    category_id: uuid.UUID,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sólo se borra si no tiene productos (D8); si los tiene, 422 con cuántos.
+    """
+    service = InventoryService(db)
+    await service.delete_category(category_id, current_user)
+
+
 # =============================================================================
 # ENDPOINTS DE ALMACENES
 # =============================================================================
@@ -265,6 +311,81 @@ async def create_warehouse(
     """
     service = InventoryService(db)
     return await service.create_warehouse(data, current_user)
+
+
+@router.put(
+    "/warehouses/{warehouse_id}",
+    response_model=WarehouseResponse,
+    summary="Renombrar un almacén",
+)
+async def rename_warehouse(
+    warehouse_id: uuid.UUID,
+    data: WarehouseUpdate,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cambia el nombre (único en el comercio, 409 si ya existe). Todo lo que lo
+    muestra lo lee por id, así que el cambio se ve en toda la app.
+    """
+    service = InventoryService(db)
+    return await service.rename_warehouse(warehouse_id, data, current_user)
+
+
+@router.delete(
+    "/warehouses/{warehouse_id}",
+    response_model=WarehouseResponse,
+    summary="Dar de baja un almacén (baja lógica)",
+)
+async def deactivate_warehouse(
+    warehouse_id: uuid.UUID,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Baja lógica (D7). 422 con el motivo si es el principal, el único activo,
+    tiene existencias, alguien opera ahí, tiene un turno abierto o compras sin
+    recibir. El historial se conserva y se puede reactivar.
+    """
+    service = InventoryService(db)
+    return await service.deactivate_warehouse(warehouse_id, current_user)
+
+
+@router.post(
+    "/warehouses/{warehouse_id}/activate",
+    response_model=WarehouseResponse,
+    summary="Reactivar un almacén dado de baja",
+)
+async def activate_warehouse(
+    warehouse_id: uuid.UUID,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """Vuelve a ofrecerlo en los selectores (D7)."""
+    service = InventoryService(db)
+    return await service.activate_warehouse(warehouse_id, current_user)
+
+
+@router.post(
+    "/warehouses/{warehouse_id}/make-default",
+    response_model=WarehouseResponse,
+    summary="Hacer principal a un almacén",
+)
+async def make_default_warehouse(
+    warehouse_id: uuid.UUID,
+    current_user: User = Depends(require_permission("settings.manage_store")),
+    unlocked_user: User = Depends(require_unlocked_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    El principal recibe los productos nuevos y a quien no tiene almacén
+    asignado (D7b). Debe estar activo; los demás dejan de ser principales.
+    """
+    service = InventoryService(db)
+    return await service.make_default_warehouse(warehouse_id, current_user)
 
 
 # =============================================================================

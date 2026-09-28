@@ -12,6 +12,7 @@ import 'package:nexus_app/features/management/domain/app_permission.dart';
 import 'package:nexus_app/features/management/domain/tenant_member.dart';
 import 'package:nexus_app/features/management/domain/category.dart';
 import 'package:nexus_app/features/management/domain/tenant_role.dart';
+import 'package:nexus_app/features/management/domain/warehouse.dart';
 import 'package:nexus_app/features/management/presentation/categories_screen.dart';
 import 'package:nexus_app/features/management/presentation/preferences_screen.dart';
 import 'package:nexus_app/features/management/presentation/management_provider.dart';
@@ -210,6 +211,72 @@ void main() {
       expect(
         container.read(activeWarehousesProvider).map((w) => w.id),
         isNot(contains('wh-003')),
+      );
+    });
+
+    Future<void> openMenu(WidgetTester tester, String id) async {
+      await tester.tap(find.byKey(Key("[<'warehouse-$id'>]-menu")));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'el principal lleva su insignia y su baja se explica sin preguntar (D7b)',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const WarehousesScreen()));
+      await _settle(tester);
+
+      expect(find.text('Principal'), findsOneWidget);
+      await openMenu(tester, 'wh-001');
+      expect(find.text('Hacer principal'), findsNothing);
+      await tester.tap(find.text('Dar de baja'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('¿Dar de baja este almacén?'), findsNothing);
+      expect(find.text(const DefaultWarehouseException().message),
+          findsOneWidget);
+    });
+
+    testWidgets('"Hacer principal" pide confirmación y mueve la insignia (CA-A4)',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const WarehousesScreen()));
+      await _settle(tester);
+
+      await openMenu(tester, 'wh-002');
+      await tester.tap(find.text('Hacer principal'));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Hacerlo tu almacén principal?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('warehouseMakeDefaultConfirm')));
+      await _settle(tester);
+
+      final defaults = container
+          .read(warehousesProvider)
+          .valueOrNull!
+          .where((w) => w.isDefault)
+          .map((w) => w.id);
+      expect(defaults, ['wh-002']);
+      expect(find.text('Principal'), findsOneWidget);
+    });
+
+    testWidgets('un almacén dado de baja se reactiva desde su menú (CA-A4)',
+        (tester) async {
+      final container = _container();
+      await tester.pumpWidget(_app(container, const WarehousesScreen()));
+      await _settle(tester);
+      unawaited(
+          container.read(warehousesProvider.notifier).deactivate('wh-003'));
+      await _settle(tester);
+
+      await openMenu(tester, 'wh-003');
+      expect(find.text('Hacer principal'), findsNothing);
+      await tester.tap(find.text('Reactivar'));
+      await _settle(tester);
+
+      expect(find.text('Inactivo'), findsNothing);
+      expect(
+        container.read(activeWarehousesProvider).map((w) => w.id),
+        contains('wh-003'),
       );
     });
   });

@@ -181,6 +181,11 @@ class SalesService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"El almacén con ID {request.warehouse_id} no fue encontrado.",
             )
+        if not warehouse.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"El almacén '{warehouse.name}' está dado de baja. No se puede vender desde él.",
+            )
 
         sale_items_to_create: List[SaleItem] = []
         total_subtotal_mxn = Decimal("0.00")

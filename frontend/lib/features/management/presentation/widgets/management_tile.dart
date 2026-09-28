@@ -2,8 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 
-/// Renglón común de las listas de Gestión (almacenes y usuarios): mismo
-/// contorno, mismo menú de acciones y mismo tratamiento de lo dado de baja.
+/// Acción adicional del menú de un renglón (p. ej. "Hacer principal" o
+/// "Reactivar" en Almacenes). Va entre "Editar" y la acción destructiva.
+class ManagementTileAction {
+  const ManagementTileAction({
+    required this.value,
+    required this.label,
+    required this.onSelected,
+  });
+
+  final String value;
+  final String label;
+  final VoidCallback onSelected;
+}
+
+/// Renglón común de las listas de Gestión (almacenes, categorías y
+/// usuarios): mismo contorno, mismo menú de acciones y mismo tratamiento de
+/// lo dado de baja.
 class ManagementTile extends StatelessWidget {
   const ManagementTile({
     super.key,
@@ -16,6 +31,8 @@ class ManagementTile extends StatelessWidget {
     this.dimmed = false,
     this.onEdit,
     this.onDeactivate,
+    this.deactivateLabel = 'Dar de baja',
+    this.actions = const [],
   });
 
   final Key itemKey;
@@ -27,6 +44,11 @@ class ManagementTile extends StatelessWidget {
   final bool dimmed;
   final VoidCallback? onEdit;
   final VoidCallback? onDeactivate;
+
+  /// Texto de la acción destructiva — "Eliminar" en Categorías, que sí borra.
+  final String deactivateLabel;
+
+  final List<ManagementTileAction> actions;
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +123,7 @@ class ManagementTile extends StatelessWidget {
                   fontSize: 12.5, color: AppColors.onSurfaceMuted),
             ),
           ),
-          trailing: (onEdit == null && onDeactivate == null)
+          trailing: (onEdit == null && onDeactivate == null && actions.isEmpty)
               ? null
               : PopupMenuButton<String>(
                   key: Key('${itemKey.toString()}-menu'),
@@ -111,6 +133,9 @@ class ManagementTile extends StatelessWidget {
                   onSelected: (value) {
                     if (value == 'edit') onEdit?.call();
                     if (value == 'deactivate') onDeactivate?.call();
+                    for (final action in actions) {
+                      if (value == action.value) action.onSelected();
+                    }
                   },
                   itemBuilder: (_) => [
                     if (onEdit != null)
@@ -119,11 +144,17 @@ class ManagementTile extends StatelessWidget {
                         child: Text('Editar',
                             style: TextStyle(color: AppColors.onSurface)),
                       ),
+                    for (final action in actions)
+                      PopupMenuItem(
+                        value: action.value,
+                        child: Text(action.label,
+                            style: const TextStyle(color: AppColors.onSurface)),
+                      ),
                     if (onDeactivate != null)
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'deactivate',
-                        child: Text('Dar de baja',
-                            style: TextStyle(color: AppColors.error)),
+                        child: Text(deactivateLabel,
+                            style: const TextStyle(color: AppColors.error)),
                       ),
                   ],
                 ),

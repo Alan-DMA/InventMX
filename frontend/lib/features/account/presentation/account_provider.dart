@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/data/auth_repository.dart';
-import '../../auth/presentation/login_provider.dart' show currentUserNameProvider;
+import '../../auth/presentation/login_provider.dart'
+    show currentUserNameProvider;
 import '../../dashboard/presentation/dashboard_provider.dart'
     show dailySnapshotProvider;
 import '../../inventory/presentation/inventory_provider.dart'
@@ -21,14 +22,21 @@ final operatingWarehouseStoreProvider = Provider<OperatingWarehouseStore>(
   (_) => OperatingWarehouseStoreHive(),
 );
 
-final accountRepositoryProvider = Provider<AccountRepository>(
-  (_) => AccountRepositoryMock(),
-);
+/// Contraseña contra el servidor real (D9). `--dart-define=ACCOUNT_MOCK=true`
+/// vuelve al mock (demos sin backend).
+const bool kAccountUseMock =
+    bool.fromEnvironment('ACCOUNT_MOCK', defaultValue: false);
+
+final accountRepositoryProvider = Provider<AccountRepository>((ref) {
+  if (kAccountUseMock) return AccountRepositoryMock();
+  return AccountRepositoryImpl(client: ref.watch(dioClientProvider));
+});
 
 Warehouse _toWarehouse(WarehouseOption option) => Warehouse(
       id: option.id,
       name: option.name,
       isActive: true,
+      isDefault: option.isDefault,
       createdAt: DateTime.now(),
     );
 

@@ -1,13 +1,14 @@
 # Importación de UUID para tipado de identificadores
 import uuid
 # Importación de tipado estático
-from typing import List, Optional
+from typing import List, Optional, Tuple
 # Importación de funciones y sentencias de SQLAlchemy
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación del modelo de dominio Category
 from app.modules.inventory.domain.category import Category
+from app.modules.inventory.domain.product import Product
 
 
 class CategoryRepository:
@@ -113,9 +114,48 @@ class CategoryRepository:
         await self.db.flush()
         return category
 
+    async def get_by_name_ci(self, name: str, tenant_id: uuid.UUID) -> Optional[Category]:
+        """
+        Busca una categoría por nombre sin distinguir mayúsculas: "bebidas" y
+        "Bebidas" serían dos chips indistinguibles en el inventario.
+        """
+        stmt = (
+            select(Category)
+            .where(Category.tenant_id == tenant_id, func.lower(Category.name) == name.lower())
+            .execution_options(populate_existing=True)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def count_products(self, category_id: uuid.UUID) -> int:
+        """
+        Cuántos productos (activos o no) están clasificados en la categoría.
+        """
+        stmt = select(func.count(Product.id)).where(Product.category_id == category_id)
+        result = await self.db.execute(stmt)
+        return int(result.scalar_one())
+
+    async def list_with_product_counts(self, tenant_id: uuid.UUID) -> List[Tuple[Category, int]]:
+        """
+        Categorías del comercio con cuántos productos usa cada una (D8).
+        """
+        stmt = (
+            select(Category, func.count(Product.id))
+            .outerjoin(Product, Product.category_id == Category.id)
+            .where(Category.tenant_id == tenant_id)
+            .group_by(Category.id)
+            .order_by(Category.name.asc())
+        )
+        result = await self.db.execute(stmt)
+        return [(row[0], int(row[1])) for row in result.all()]
+
     async def delete(self, category: Category) -> None:
         """
         Elimina físicamente una categoría de la base de datos.
+
+        Por sentencia y no con `session.delete`: la relación `products` tiene
+        `cascade="all, delete-orphan"` y el ORM borraría sus productos. El
+        servicio sólo llega aquí con la categoría vacía (D8).
         """
-        await self.db.delete(category)
+        await self.db.execute(delete(Category).where(Category.id == category.id))
         await self.db.flush()

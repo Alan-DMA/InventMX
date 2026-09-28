@@ -36,17 +36,14 @@ class WarehouseCreate(WarehouseBase):
 
 class WarehouseUpdate(BaseModel):
     """
-    Esquema para la modificación parcial de un almacén.
+    Esquema para renombrar un almacén. El principal se cambia con
+    `POST /inventory/warehouses/{id}/make-default` y la baja con `DELETE` (D7).
     """
-    name: Optional[str] = Field(
-        None,
+    name: str = Field(
+        ...,
         min_length=1,
         max_length=150,
-        description="Nuevo nombre para el almacén",
-    )
-    is_default: Optional[bool] = Field(
-        None,
-        description="Establecer como almacén principal por defecto",
+        description="Nuevo nombre para el almacén (único en el comercio)",
     )
 
 
@@ -58,6 +55,8 @@ class WarehouseResponse(WarehouseBase):
     id: uuid.UUID = Field(..., description="UUID único del almacén")
     # Identificador del comercio propietario
     tenant_id: uuid.UUID = Field(..., description="UUID del comercio dueño")
+    # Baja lógica (D7): los selectores sólo ofrecen los activos
+    is_active: bool = Field(True, description="Falso si el almacén fue dado de baja")
     # Fecha de creación
     created_at: datetime = Field(..., description="Estampa de tiempo de registro")
 

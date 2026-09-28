@@ -393,18 +393,24 @@ final categoriesProvider = FutureProvider<List<String>>((ref) async {
   return ref.watch(inventoryProvider).availableCategories;
 });
 
-/// Proveedor de almacenes del comercio
+/// Almacenes **activos** del comercio — alimenta todos los selectores (dónde
+/// opero, traslados, compras, alcance) y la leyenda. Un almacén dado de baja
+/// no opera (D7); su historial sigue contando en "Todos".
 final warehousesProvider = FutureProvider<List<WarehouseOption>>((ref) async {
   final client = ref.watch(dioClientProvider);
   try {
     final response = await client.get('/api/v1/inventory/warehouses');
     final data = response.data;
     if (data is List && data.isNotEmpty) {
-      return data.map((w) => WarehouseOption(
-        id: (w['id'] ?? '').toString(),
-        name: (w['name'] ?? 'Almacén').toString(),
-        isDefault: w['is_default'] == true,
-      )).toList();
+      final active = data
+          .where((w) => w is Map && w['is_active'] != false)
+          .map((w) => WarehouseOption(
+                id: (w['id'] ?? '').toString(),
+                name: (w['name'] ?? 'Almacén').toString(),
+                isDefault: w['is_default'] == true,
+              ))
+          .toList();
+      if (active.isNotEmpty) return active;
     }
   } catch (_) {}
   return const [WarehouseOption(id: 'default', name: 'Almacén Principal', isDefault: true)];

@@ -197,17 +197,23 @@ class PurchasingService:
         return order
 
     async def _ensure_tenant_warehouse(self, warehouse_id: uuid.UUID, current_user: User) -> None:
-        """404 si el almacén no es del comercio."""
+        """404 si el almacén no es del comercio; 422 si está dado de baja (D7)."""
         res_wh = await self.session.execute(
             select(Warehouse).where(
                 Warehouse.id == warehouse_id,
                 Warehouse.tenant_id == current_user.tenant_id,
             )
         )
-        if not res_wh.scalar_one_or_none():
+        warehouse = res_wh.scalar_one_or_none()
+        if not warehouse:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Almacén especificado no existe.",
+            )
+        if not warehouse.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"El almacén '{warehouse.name}' está dado de baja. Reactívalo para comprar para él.",
             )
 
     async def create_purchase_order(

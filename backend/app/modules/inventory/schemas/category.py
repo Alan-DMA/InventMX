@@ -61,6 +61,8 @@ class CategoryResponse(CategoryBase):
     tenant_id: uuid.UUID = Field(..., description="UUID del comercio dueño")
     # Fecha de registro
     created_at: datetime = Field(..., description="Estampa de tiempo de creación")
+    # Cuántos productos la usan: decide si se puede borrar (D8)
+    product_count: int = Field(0, description="Productos clasificados en esta categoría")
 
     # Configuración para lectura directa desde modelos ORM de SQLAlchemy
     model_config = ConfigDict(from_attributes=True)

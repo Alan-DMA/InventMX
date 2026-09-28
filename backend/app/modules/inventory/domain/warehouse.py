@@ -55,6 +55,15 @@ class Warehouse(Base):
         doc="Determina si es el almacén por defecto del comercio",
     )
 
+    # Baja lógica (D7): inactivo no opera, pero conserva su historial
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+        doc="Falso si el almacén fue dado de baja; se puede reactivar",
+    )
+
     # Fecha y hora de creación
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

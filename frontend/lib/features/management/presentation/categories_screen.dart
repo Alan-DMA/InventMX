@@ -72,6 +72,7 @@ class _CategoryTile extends ConsumerWidget {
           : '$count ${count == 1 ? 'producto' : 'productos'}',
       onEdit: () => showCategoryFormModal(context, initial: category),
       onDeactivate: () => _confirmDelete(context, ref),
+      deactivateLabel: 'Eliminar',
     );
   }
 

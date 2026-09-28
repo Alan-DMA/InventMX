@@ -9,9 +9,10 @@ import 'widgets/warehouse_form_modal.dart';
 
 /// Gestión → Almacenes (N-02 / PD-04 / W-01).
 ///
-/// Es la fuente de la lista que el selector de Perfil y, más adelante, el
-/// modal de traslados consumen — por eso la baja de un almacén está protegida
-/// (no se puede dejar al comercio sin ninguno activo).
+/// Contra el servidor desde Ajustes operativos (D7): la baja es lógica y el
+/// servidor la rechaza con su motivo si el almacén no está vacío y sin
+/// pendientes; se puede reactivar. El principal (D7b) no se da de baja hasta
+/// marcar otro con "Hacer principal".
 class WarehousesScreen extends ConsumerWidget {
   const WarehousesScreen({super.key});
 
@@ -56,23 +57,113 @@ class _WarehouseTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isPrincipal = warehouse.isDefault && warehouse.isActive;
+
     return ManagementTile(
       itemKey: Key('warehouse-${warehouse.id}'),
       icon: Icons.warehouse_outlined,
       title: warehouse.name,
-      subtitle: warehouse.isActive
-          ? 'Disponible para ventas y traslados'
-          : 'Dado de baja — ya no aparece al operar',
+      subtitle: !warehouse.isActive
+          ? 'Dado de baja — ya no aparece al operar'
+          : isPrincipal
+              ? 'Recibe los productos nuevos y a quien no tiene almacén'
+              : 'Disponible para ventas y traslados',
       dimmed: !warehouse.isActive,
-      badge: warehouse.isActive ? null : 'Inactivo',
+      badge: !warehouse.isActive
+          ? 'Inactivo'
+          : isPrincipal
+              ? 'Principal'
+              : null,
       onEdit: () => showWarehouseFormModal(context, initial: warehouse),
+      actions: [
+        if (warehouse.isActive && !warehouse.isDefault)
+          ManagementTileAction(
+            value: 'make-default',
+            label: 'Hacer principal',
+            onSelected: () => _confirmMakeDefault(context, ref),
+          ),
+        if (!warehouse.isActive)
+          ManagementTileAction(
+            value: 'activate',
+            label: 'Reactivar',
+            onSelected: () => _activate(context, ref),
+          ),
+      ],
       onDeactivate:
           warehouse.isActive ? () => _confirmDeactivate(context, ref) : null,
     );
   }
 
+  /// "Hacer principal" cambia a dónde van los productos nuevos y quien no
+  /// tiene almacén asignado: se dice antes, no se descubre después (D7b).
+  Future<void> _confirmMakeDefault(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('¿Hacerlo tu almacén principal?',
+            style: TextStyle(color: AppColors.onSurface)),
+        content: Text(
+          'Los productos nuevos entrarán a "${warehouse.name}", y quien no '
+          'tenga un almacén asignado operará ahí.',
+          style: const TextStyle(color: AppColors.onSurfaceMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            key: const Key('warehouseMakeDefaultConfirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Hacer principal'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.read(warehousesProvider.notifier).makeDefault(warehouse.id);
+      messenger.showSnackBar(
+        SnackBar(
+            content: Text('${warehouse.name} es ahora tu almacén principal.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
+  Future<void> _activate(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(warehousesProvider.notifier).activate(warehouse.id);
+      messenger.showSnackBar(
+        SnackBar(
+            content: Text('${warehouse.name} vuelve a estar en operación.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
   Future<void> _confirmDeactivate(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
+
+    // Se avisa antes de abrir el diálogo cuando ya se sabe que no se puede
+    // (mismo criterio que Categorías): el principal primero se reemplaza.
+    if (warehouse.isDefault) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(const DefaultWarehouseException().message)),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -80,8 +171,9 @@ class _WarehouseTile extends ConsumerWidget {
         title: const Text('¿Dar de baja este almacén?',
             style: TextStyle(color: AppColors.onSurface)),
         content: Text(
-          '"${warehouse.name}" dejará de aparecer al vender, ajustar stock o '
-          'trasladar mercancía. El historial se conserva.',
+          '"${warehouse.name}" dejará de aparecer al vender, comprar o '
+          'trasladar mercancía. El historial se conserva y puedes '
+          'reactivarlo cuando quieras.',
           style: const TextStyle(color: AppColors.onSurfaceMuted),
         ),
         actions: [
@@ -106,8 +198,8 @@ class _WarehouseTile extends ConsumerWidget {
         SnackBar(content: Text('${warehouse.name} quedó fuera de operación.')),
       );
     } catch (e) {
-      // El mensaje viene armado desde el dominio (p. ej. el último almacén
-      // activo), no se inventa aquí.
+      // El motivo viene armado del servidor (existencias, quién opera ahí,
+      // turno abierto, compras sin recibir), no se inventa aquí.
       messenger.showSnackBar(
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );

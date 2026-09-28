@@ -3,6 +3,8 @@ import uuid
 from decimal import Decimal
 # Importación de tipos estáticos
 from typing import Dict, List, Optional
+# Importación de excepciones HTTP con `detail` (almacén dado de baja, 422)
+from fastapi import HTTPException, status
 # Importación de la sesión asíncrona de base de datos
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +38,15 @@ PLAN_USER_LIMITS: Dict[TenantPlan, int] = {
     TenantPlan.COMERCIO: 5,       # Plan Comercio ($399 MXN): Máximo 5 usuarios
     TenantPlan.CORPORATIVO: 15,   # Plan Corporativo ($699 MXN): Máximo 15 usuarios
 }
+
+
+def _ensure_active(warehouse) -> None:
+    """Nadie queda operando en un almacén dado de baja (D7)."""
+    if not warehouse.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"El almacén '{warehouse.name}' está dado de baja. Elige uno activo.",
+        )
 
 
 class UserService:
@@ -173,6 +184,7 @@ class UserService:
             warehouse = await self.warehouse_repo.get_by_id(data.default_warehouse_id)
             if not warehouse or warehouse.tenant_id != tenant_id:
                 raise NotFoundException(f"Almacén con ID '{data.default_warehouse_id}' no encontrado.")
+            _ensure_active(warehouse)
 
         # Hashear nueva contraseña si fue provista
         hashed_pwd = get_password_hash(data.password) if data.password else None
@@ -258,6 +270,7 @@ class UserService:
         warehouse = await self.warehouse_repo.get_by_id(warehouse_id)
         if not warehouse or warehouse.tenant_id != tenant_id:
             raise NotFoundException(f"Almacén con ID '{warehouse_id}' no encontrado.")
+        _ensure_active(warehouse)
 
         await self.user_repo.update(
             user=current_user, default_warehouse_id=warehouse_id,

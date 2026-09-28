@@ -1,11 +1,11 @@
-// Personas y roles contra el backend real (`/users`, `/roles`, `/auth/me`):
-// mapeo de campos (incluida la comisión), roles por código, errores del
-// servidor y delegación al mock de lo que el backend no cubre.
+// Gestión contra el backend real (`/users`, `/roles`, `/auth/me`, almacenes y
+// categorías): mapeo de campos (incluida la comisión), roles por código y
+// errores del servidor mostrados tal cual.
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:nexus_app/core/network/dio_client.dart';
-import 'package:nexus_app/features/management/data/management_repository.dart';
+import 'package:nexus_app/features/management/domain/category.dart';
 import 'package:nexus_app/features/management/data/management_repository_impl.dart';
 import 'package:nexus_app/features/management/domain/app_permission.dart';
 import 'package:nexus_app/features/management/domain/tenant_member.dart';
@@ -82,10 +82,7 @@ void main() {
 
   setUp(() {
     client = MockDioClient();
-    repo = ManagementRepositoryImpl(
-      client: client,
-      fallback: ManagementRepositoryMock(currentEmail: 'ana@tienda.mx'),
-    );
+    repo = ManagementRepositoryImpl(client: client);
   });
 
   void stubGet(String path, dynamic data) {
@@ -280,33 +277,30 @@ void main() {
     });
   });
 
-  test('categorías se delegan al mock', () async {
-    final categories = await repo.listCategories();
-    expect(categories, isNotEmpty);
-    verifyNever(() => client.get<dynamic>(any(),
-        queryParameters: any(named: 'queryParameters'),
-        options: any(named: 'options')));
-  });
-
-  group('almacenes contra el servidor (aislamiento por almacén, Fase 1)', () {
+  group('almacenes contra el servidor (Ajustes operativos, D7)', () {
     final principal = {
       'id': 'wh-1',
       'tenant_id': 't-1',
       'name': 'Almacén Principal',
       'is_default': true,
+      'is_active': true,
       'created_at': '2026-09-01T10:00:00',
     };
 
-    test('listWarehouses lee GET /inventory/warehouses', () async {
-      stubGet('/api/v1/inventory/warehouses', [principal]);
+    test('listWarehouses mapea principal e inactivos', () async {
+      stubGet('/api/v1/inventory/warehouses', [
+        principal,
+        {...principal, 'id': 'wh-2', 'name': 'Bodega', 'is_default': false, 'is_active': false},
+      ]);
       final warehouses = await repo.listWarehouses();
-      expect(warehouses.single.id, 'wh-1');
-      expect(warehouses.single.name, 'Almacén Principal');
-      expect(warehouses.single.isActive, isTrue);
+      expect(warehouses.map((w) => w.id), ['wh-1', 'wh-2']);
+      expect(warehouses.first.isDefault, isTrue);
+      expect(warehouses.first.isActive, isTrue);
+      expect(warehouses.last.isDefault, isFalse);
+      expect(warehouses.last.isActive, isFalse);
     });
 
     test('createWarehouse hace POST sin volverlo principal', () async {
-      stubGet('/api/v1/inventory/warehouses', [principal]);
       when(() => client.post<dynamic>(
             '/api/v1/inventory/warehouses',
             data: any(named: 'data'),
@@ -328,22 +322,150 @@ void main() {
       expect(sent, {'name': 'Bodega', 'is_default': false});
     });
 
-    test('un nombre repetido se rechaza antes de llamar al servidor', () async {
-      stubGet('/api/v1/inventory/warehouses', [principal]);
+    test('409 al crear o renombrar → nombre repetido', () async {
+      when(() => client.post<dynamic>(
+            '/api/v1/inventory/warehouses',
+            data: any(named: 'data'),
+            options: any(named: 'options'),
+          )).thenThrow(_http('/api/v1/inventory/warehouses', 409));
+      when(() => client.put<dynamic>(
+            '/api/v1/inventory/warehouses/wh-2',
+            data: any(named: 'data'),
+            options: any(named: 'options'),
+          )).thenThrow(_http('/api/v1/inventory/warehouses/wh-2', 409));
+
       await expectLater(
         repo.createWarehouse('almacén principal'),
         throwsA(isA<DuplicateWarehouseNameException>()),
       );
-      verifyNever(() => client.post<dynamic>(any(),
-          data: any(named: 'data'), options: any(named: 'options')));
+      await expectLater(
+        repo.updateWarehouse(id: 'wh-2', name: 'Almacén Principal'),
+        throwsA(isA<DuplicateWarehouseNameException>()),
+      );
     });
 
-    test('renombrar y dar de baja avisan que aún no existen (D7)', () async {
+    test('updateWarehouse hace PUT con el nombre limpio', () async {
+      when(() => client.put<dynamic>(
+            '/api/v1/inventory/warehouses/wh-1',
+            data: any(named: 'data'),
+            options: any(named: 'options'),
+          )).thenAnswer((_) async => _ok('/api/v1/inventory/warehouses/wh-1',
+              {...principal, 'name': 'Matriz'}));
+
+      final renamed = await repo.updateWarehouse(id: 'wh-1', name: ' Matriz ');
+      expect(renamed.name, 'Matriz');
+      final sent = verify(() => client.put<dynamic>(
+            '/api/v1/inventory/warehouses/wh-1',
+            data: captureAny(named: 'data'),
+            options: any(named: 'options'),
+          )).captured.single as Map;
+      expect(sent, {'name': 'Matriz'});
+    });
+
+    test('la baja rechazada muestra el motivo del servidor tal cual (CA-A3)', () async {
+      const motivo = 'Aquí opera: Pepe Cajero. Asígnales otro almacén antes de darlo de baja.';
+      when(() => client.delete<dynamic>(
+            '/api/v1/inventory/warehouses/wh-2',
+            options: any(named: 'options'),
+          )).thenThrow(_http('/api/v1/inventory/warehouses/wh-2', 422, detail: motivo));
+
       await expectLater(
-        repo.updateWarehouse(id: 'wh-1', name: 'X'),
-        throwsA(isA<Exception>()),
+        repo.deactivateWarehouse('wh-2'),
+        throwsA(predicate((e) => e.toString() == 'Exception: $motivo')),
       );
-      await expectLater(repo.deactivateWarehouse('wh-1'), throwsA(isA<Exception>()));
+    });
+
+    test('reactivar y hacer principal llaman a su endpoint (CA-A4)', () async {
+      for (final path in [
+        '/api/v1/inventory/warehouses/wh-2/activate',
+        '/api/v1/inventory/warehouses/wh-2/make-default',
+      ]) {
+        when(() => client.post<dynamic>(
+              path,
+              data: any(named: 'data'),
+              options: any(named: 'options'),
+            )).thenAnswer((_) async => _ok(path, principal));
+      }
+
+      await repo.activateWarehouse('wh-2');
+      await repo.makeDefaultWarehouse('wh-2');
+      verify(() => client.post<dynamic>('/api/v1/inventory/warehouses/wh-2/activate',
+          data: any(named: 'data'), options: any(named: 'options'))).called(1);
+      verify(() => client.post<dynamic>('/api/v1/inventory/warehouses/wh-2/make-default',
+          data: any(named: 'data'), options: any(named: 'options'))).called(1);
+    });
+  });
+
+  group('categorías contra el servidor (Ajustes operativos, D8)', () {
+    Map<String, dynamic> category(String id, String name, int count) => {
+          'id': id,
+          'tenant_id': 't-1',
+          'name': name,
+          'description': null,
+          'created_at': '2026-09-01T10:00:00',
+          'product_count': count,
+        };
+
+    test('listCategories lee las reales con su conteo (CA-A6)', () async {
+      stubGet('/api/v1/inventory/categories', [
+        category('c-1', 'Bebidas', 5),
+        category('c-2', 'Otros', 0),
+      ]);
+      final categories = await repo.listCategories();
+      expect(categories.map((c) => c.name), ['Bebidas', 'Otros']);
+      expect(categories.first.productCount, 5);
+      expect(categories.last.productCount, 0);
+    });
+
+    test('renombrar hace PUT; 409 → nombre repetido (envolvente error.message)', () async {
+      when(() => client.put<dynamic>(
+            '/api/v1/inventory/categories/c-1',
+            data: any(named: 'data'),
+            options: any(named: 'options'),
+          )).thenAnswer((_) async =>
+              _ok('/api/v1/inventory/categories/c-1', category('c-1', 'Refrescos', 5)));
+      final renamed = await repo.renameCategory(id: 'c-1', name: ' Refrescos ');
+      expect(renamed.name, 'Refrescos');
+      expect(renamed.productCount, 5);
+
+      when(() => client.put<dynamic>(
+            '/api/v1/inventory/categories/c-2',
+            data: any(named: 'data'),
+            options: any(named: 'options'),
+          )).thenThrow(DioException(
+        requestOptions: RequestOptions(path: '/api/v1/inventory/categories/c-2'),
+        response: Response(
+          statusCode: 409,
+          data: {
+            'success': false,
+            'error': {'code': 'RESOURCE_CONFLICT', 'message': "Ya existe una categoría con el nombre 'refrescos'."},
+          },
+          requestOptions: RequestOptions(path: '/api/v1/inventory/categories/c-2'),
+        ),
+        type: DioExceptionType.badResponse,
+      ));
+      await expectLater(
+        repo.renameCategory(id: 'c-2', name: 'refrescos'),
+        throwsA(isA<DuplicateCategoryNameException>()),
+      );
+    });
+
+    test('borrar con productos muestra el 422 del servidor (CA-A5)', () async {
+      const motivo = 'Esta categoría tiene 5 productos. Muévelos a otra categoría antes de eliminarla.';
+      when(() => client.delete<dynamic>(
+            '/api/v1/inventory/categories/c-1',
+            options: any(named: 'options'),
+          )).thenThrow(_http('/api/v1/inventory/categories/c-1', 422, detail: motivo));
+      when(() => client.delete<dynamic>(
+            '/api/v1/inventory/categories/c-2',
+            options: any(named: 'options'),
+          )).thenAnswer((_) async => _ok('/api/v1/inventory/categories/c-2', null));
+
+      await expectLater(
+        repo.deleteCategory('c-1'),
+        throwsA(predicate((e) => e.toString() == 'Exception: $motivo')),
+      );
+      await repo.deleteCategory('c-2');
     });
   });
 }

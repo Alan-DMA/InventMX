@@ -11,6 +11,8 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 # Importación de UUID para identificación de entidades
 import uuid
+# Importación de excepciones HTTP con `detail` (reglas de negocio, 422)
+from fastapi import HTTPException, status
 # Importación de la sesión asíncrona de SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +44,12 @@ from app.modules.inventory.domain.stock_reservation import (
     StockReservation,
 )
 from app.modules.inventory.domain.warehouse import Warehouse
+# Importación de modelos que impiden dar de baja un almacén (D7)
+from app.modules.purchasing_suppliers.domain.purchase_order import (
+    PurchaseOrder,
+    PurchaseOrderStatus,
+)
+from app.modules.sales_pos.domain.cash_shift import CashShift, ShiftStatus
 
 # Importación de repositorios de datos
 from app.modules.inventory.repositories.category_repository import CategoryRepository
@@ -60,7 +68,11 @@ from app.modules.inventory.repositories.warehouse_repository import WarehouseRep
 from app.modules.sales_pos.domain.sale import Sale, SaleItem, SaleStatus
 
 # Importación de esquemas Pydantic
-from app.modules.inventory.schemas.category import CategoryCreate, CategoryResponse
+from app.modules.inventory.schemas.category import (
+    CategoryCreate,
+    CategoryResponse,
+    CategoryUpdate,
+)
 from app.modules.inventory.schemas.combo import (
     ComboCreate,
     ComboItemResponse,
@@ -93,7 +105,27 @@ from app.modules.inventory.schemas.seed_product import (
     EanLookupResponse,
     SeedProductResponse,
 )
-from app.modules.inventory.schemas.warehouse import WarehouseCreate, WarehouseResponse
+from app.modules.inventory.schemas.warehouse import (
+    WarehouseCreate,
+    WarehouseResponse,
+    WarehouseUpdate,
+)
+
+
+def _unprocessable(detail: str) -> HTTPException:
+    """Regla de negocio que impide la operación: 422 con el motivo en `detail`."""
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
+
+
+def ensure_warehouse_active(warehouse: Warehouse) -> None:
+    """
+    Un almacén dado de baja no recibe ni entrega mercancía, ni se cobra en él
+    (D7). Lo usan traslados, ajustes, compras, checkout y asignaciones.
+    """
+    if not warehouse.is_active:
+        raise _unprocessable(
+            f"El almacén '{warehouse.name}' está dado de baja. Reactívalo para operar en él."
+        )
 
 
 class InventoryService:
@@ -268,6 +300,7 @@ class InventoryService:
             warehouse = await self.warehouse_repo.get_by_id(warehouse_id)
             if not warehouse or warehouse.tenant_id != tenant_id:
                 raise NotFoundException(f"El almacén con ID '{warehouse_id}' no existe.")
+            ensure_warehouse_active(warehouse)
 
         # 3. Generar o validar código SKU único
         if data.sku:
@@ -698,6 +731,7 @@ class InventoryService:
         if not warehouse or warehouse.tenant_id != tenant_id:
             warehouse = await self.warehouse_repo.get_or_create_default(tenant_id)
             target_warehouse_id = warehouse.id
+        ensure_warehouse_active(warehouse)
 
         # 3. Buscar o inicializar registro de existencias en el almacén
         stmt = select(ProductStock).where(
@@ -800,6 +834,8 @@ class InventoryService:
         to_wh = await self.warehouse_repo.get_by_id(data.to_warehouse_id)
         if not to_wh or to_wh.tenant_id != tenant_id:
             raise NotFoundException(f"Almacén destino con ID '{data.to_warehouse_id}' no encontrado.")
+        ensure_warehouse_active(from_wh)
+        ensure_warehouse_active(to_wh)
 
         # 3. Validar existencias disponibles en almacén origen
         stmt_from = select(ProductStock).where(
@@ -1170,8 +1206,14 @@ class InventoryService:
     async def list_categories(self, current_user: User) -> List[CategoryResponse]:
         tenant_id = current_user.tenant_id
         await set_tenant_context(self.db, tenant_id)
-        categories = await self.category_repo.list_by_tenant(tenant_id)
-        return [CategoryResponse.model_validate(c) for c in categories]
+        rows = await self.category_repo.list_with_product_counts(tenant_id)
+        return [self._category_response(c, count) for c, count in rows]
+
+    @staticmethod
+    def _category_response(category: Category, product_count: int) -> CategoryResponse:
+        response = CategoryResponse.model_validate(category)
+        response.product_count = product_count
+        return response
 
     async def create_category(
         self, data: CategoryCreate, current_user: User
@@ -1180,7 +1222,7 @@ class InventoryService:
         await set_tenant_context(self.db, tenant_id)
 
         clean_name = data.name.strip()
-        existing = await self.category_repo.get_by_name(clean_name, tenant_id)
+        existing = await self.category_repo.get_by_name_ci(clean_name, tenant_id)
         if existing:
             raise ConflictException(f"Ya existe una categoría con el nombre '{clean_name}'.")
 
@@ -1191,6 +1233,60 @@ class InventoryService:
         )
         await self.db.commit()
         return CategoryResponse.model_validate(category)
+
+    async def rename_category(
+        self, category_id: uuid.UUID, data: CategoryUpdate, current_user: User
+    ) -> CategoryResponse:
+        """
+        Renombra una categoría; el nombre sigue siendo único en el comercio.
+        Los productos la siguen por id, así que el cambio se ve en toda la app.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        category = await self.category_repo.get_by_id(category_id)
+        if not category or category.tenant_id != tenant_id:
+            raise NotFoundException(f"Categoría con ID '{category_id}' no encontrada.")
+
+        clean_name = data.name.strip() if data.name else None
+        if clean_name:
+            existing = await self.category_repo.get_by_name_ci(clean_name, tenant_id)
+            if existing and existing.id != category.id:
+                raise ConflictException(f"Ya existe una categoría con el nombre '{clean_name}'.")
+
+        await self.category_repo.update(
+            category,
+            name=clean_name,
+            description=data.description.strip() if data.description else None,
+        )
+        count = await self.category_repo.count_products(category.id)
+        response = self._category_response(category, count)
+        await self.db.commit()
+        return response
+
+    async def delete_category(self, category_id: uuid.UUID, current_user: User) -> None:
+        """
+        Borra una categoría sólo si no tiene productos (D8). La llave foránea
+        es `ON DELETE SET NULL`: si la regla no la impusiera el servidor, sus
+        productos quedarían sueltos sin que nadie lo decidiera.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        category = await self.category_repo.get_by_id(category_id)
+        if not category or category.tenant_id != tenant_id:
+            raise NotFoundException(f"Categoría con ID '{category_id}' no encontrada.")
+
+        count = await self.category_repo.count_products(category.id)
+        if count > 0:
+            noun = "producto" if count == 1 else "productos"
+            raise _unprocessable(
+                f"Esta categoría tiene {count} {noun}. "
+                "Muévelos a otra categoría antes de eliminarla."
+            )
+
+        await self.category_repo.delete(category)
+        await self.db.commit()
 
     async def list_warehouses(self, current_user: User) -> List[WarehouseResponse]:
         tenant_id = current_user.tenant_id
@@ -1209,6 +1305,7 @@ class InventoryService:
         await set_tenant_context(self.db, tenant_id)
 
         clean_name = data.name.strip()
+        await self._ensure_warehouse_name_free(clean_name, tenant_id, except_id=None)
         warehouse = await self.warehouse_repo.create(
             tenant_id=tenant_id,
             name=clean_name,
@@ -1216,6 +1313,173 @@ class InventoryService:
         )
         await self.db.commit()
         return WarehouseResponse.model_validate(warehouse)
+
+    async def _ensure_warehouse_name_free(
+        self, name: str, tenant_id: uuid.UUID, except_id: Optional[uuid.UUID]
+    ) -> None:
+        existing = await self.warehouse_repo.get_by_name_ci(name, tenant_id)
+        if existing and existing.id != except_id:
+            raise ConflictException(f"Ya tienes un almacén llamado '{name}'.")
+
+    async def _get_tenant_warehouse(
+        self, warehouse_id: uuid.UUID, tenant_id: uuid.UUID
+    ) -> Warehouse:
+        warehouse = await self.warehouse_repo.get_by_id(warehouse_id)
+        if not warehouse or warehouse.tenant_id != tenant_id:
+            raise NotFoundException(f"Almacén con ID '{warehouse_id}' no encontrado.")
+        return warehouse
+
+    async def rename_warehouse(
+        self, warehouse_id: uuid.UUID, data: WarehouseUpdate, current_user: User
+    ) -> WarehouseResponse:
+        """Renombra un almacén (activo o no); el nombre es único en el comercio."""
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        warehouse = await self._get_tenant_warehouse(warehouse_id, tenant_id)
+        clean_name = data.name.strip()
+        if not clean_name:
+            raise BadRequestException("El nombre del almacén no puede quedar vacío.")
+        await self._ensure_warehouse_name_free(clean_name, tenant_id, except_id=warehouse.id)
+
+        await self.warehouse_repo.update(warehouse, name=clean_name)
+        response = WarehouseResponse.model_validate(warehouse)
+        await self.db.commit()
+        return response
+
+    async def deactivate_warehouse(
+        self, warehouse_id: uuid.UUID, current_user: User
+    ) -> WarehouseResponse:
+        """
+        Baja lógica (D7): sólo un almacén vacío y sin pendientes. Cada regla
+        rechaza con su propio motivo para que el dueño sepa qué resolver.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        warehouse = await self._get_tenant_warehouse(warehouse_id, tenant_id)
+        if not warehouse.is_active:
+            return WarehouseResponse.model_validate(warehouse)
+
+        # D7b: el principal recibe los productos nuevos y a quien no tiene
+        # almacén asignado — primero se elige otro, nada cambia en silencio.
+        if warehouse.is_default:
+            raise _unprocessable(
+                "Es tu almacén principal. Marca otro como principal antes de darlo de baja."
+            )
+
+        active_count = (await self.db.execute(
+            select(func.count(Warehouse.id)).where(
+                Warehouse.tenant_id == tenant_id,
+                Warehouse.is_active == True,  # noqa: E712
+            )
+        )).scalar_one()
+        if active_count <= 1:
+            raise _unprocessable(
+                "Es el único almacén activo. Crea otro antes de dar este de baja."
+            )
+
+        # Existencias o apartados: el stock no puede quedar en un almacén que
+        # ya no se ve en ningún selector.
+        with_stock = (await self.db.execute(
+            select(func.count(ProductStock.id)).where(
+                ProductStock.warehouse_id == warehouse.id,
+                (ProductStock.current_stock != 0) | (ProductStock.reserved_stock != 0),
+            )
+        )).scalar_one()
+        if with_stock:
+            noun = "producto" if with_stock == 1 else "productos"
+            raise _unprocessable(
+                f"Todavía tiene existencias de {with_stock} {noun}. "
+                "Trasládalas o ajústalas a cero antes de darlo de baja."
+            )
+
+        # Sólo cuentan las personas activas: una cuenta desactivada no opera.
+        operators = (await self.db.execute(
+            select(User.full_name)
+            .where(
+                User.tenant_id == tenant_id,
+                User.default_warehouse_id == warehouse.id,
+                User.is_active == True,  # noqa: E712
+            )
+            .order_by(User.full_name.asc())
+        )).scalars().all()
+        if operators:
+            names = ", ".join(n or "sin nombre" for n in operators)
+            raise _unprocessable(
+                f"Aquí opera: {names}. Asígnales otro almacén antes de darlo de baja."
+            )
+
+        open_shifts = (await self.db.execute(
+            select(func.count(CashShift.id)).where(
+                CashShift.warehouse_id == warehouse.id,
+                CashShift.status == ShiftStatus.OPEN,
+            )
+        )).scalar_one()
+        if open_shifts:
+            raise _unprocessable(
+                "Tiene un turno de caja abierto. Ciérralo antes de darlo de baja."
+            )
+
+        pending_orders = (await self.db.execute(
+            select(func.count(PurchaseOrder.id)).where(
+                PurchaseOrder.warehouse_id == warehouse.id,
+                PurchaseOrder.status.in_([
+                    PurchaseOrderStatus.DRAFT,
+                    PurchaseOrderStatus.SENT,
+                    PurchaseOrderStatus.CONFIRMED,
+                    PurchaseOrderStatus.PARTIALLY_RECEIVED,
+                ]),
+            )
+        )).scalar_one()
+        if pending_orders:
+            noun = "compra" if pending_orders == 1 else "compras"
+            raise _unprocessable(
+                f"Tiene {pending_orders} {noun} sin recibir. "
+                "Recíbelas o cancélalas antes de darlo de baja."
+            )
+
+        warehouse.is_active = False
+        await self.db.flush()
+        response = WarehouseResponse.model_validate(warehouse)
+        await self.db.commit()
+        return response
+
+    async def activate_warehouse(
+        self, warehouse_id: uuid.UUID, current_user: User
+    ) -> WarehouseResponse:
+        """Reactiva un almacén dado de baja (D7): vuelve a los selectores."""
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        warehouse = await self._get_tenant_warehouse(warehouse_id, tenant_id)
+        warehouse.is_active = True
+        await self.db.flush()
+        response = WarehouseResponse.model_validate(warehouse)
+        await self.db.commit()
+        return response
+
+    async def make_default_warehouse(
+        self, warehouse_id: uuid.UUID, current_user: User
+    ) -> WarehouseResponse:
+        """
+        Hace principal a un almacén activo (D7b) y deja a los demás como no
+        principales: siempre hay exactamente uno.
+        """
+        tenant_id = current_user.tenant_id
+        await set_tenant_context(self.db, tenant_id)
+
+        warehouse = await self._get_tenant_warehouse(warehouse_id, tenant_id)
+        ensure_warehouse_active(warehouse)
+
+        # Por el ORM y no con un UPDATE masivo: la sesión puede tener cargados
+        # los otros almacenes y quedarían con el valor viejo.
+        for other in await self.warehouse_repo.list_by_tenant(tenant_id):
+            other.is_default = other.id == warehouse.id
+        await self.db.flush()
+        response = WarehouseResponse.model_validate(warehouse)
+        await self.db.commit()
+        return response
 
     # -------------------------------------------------------------------------
     # CONSULTA ULTRA-RÁPIDA DE CATÁLOGO SEMILLA EAN-13 (RF-29 / Const. Art. 7.5)

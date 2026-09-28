@@ -32,6 +32,7 @@ from app.modules.auth_tenancy.schemas.token import (
     TokenResponse,
 )
 from app.modules.auth_tenancy.schemas.user import (
+    ChangePasswordRequest,
     UpdateOperatingWarehouseRequest,
     UserCreate,
     UserLogin,
@@ -114,6 +115,24 @@ async def get_me(current_user: User = Depends(get_current_user)):
     Retorna la información del usuario en sesión activa, incluyendo su rol y lista de permisos.
     """
     return current_user
+
+
+@router.post(
+    "/auth/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Cambiar la contraseña del usuario en sesión",
+)
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Exige la contraseña actual (400 si no coincide); la nueva lleva mínimo 8
+    caracteres. La sesión sigue abierta (D9).
+    """
+    service = AuthService(db)
+    await service.change_password(data, current_user)
 
 
 @router.patch(

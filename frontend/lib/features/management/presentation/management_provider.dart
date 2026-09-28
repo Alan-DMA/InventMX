@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/data/auth_repository.dart';
 import '../../auth/presentation/login_provider.dart';
+import '../../inventory/data/inventory_repository.dart'
+    show inventoryRepositoryProvider;
 import '../../inventory/presentation/inventory_provider.dart' as inventory;
 import '../data/management_repository.dart';
 import '../data/management_repository_impl.dart';
@@ -15,23 +17,20 @@ import '../domain/warehouse.dart';
 // Repositorio
 // ---------------------------------------------------------------------------
 
-/// Personas y roles contra el backend real desde la Fase B (Sep 21, 2026,
-/// decisión D6a de Eduardo): la tasa de comisión por empleado sólo tiene
-/// sentido si se guarda en `users`. Almacenes, categorías y la edición de
-/// permisos siguen en el mock (la Impl delega). `--dart-define=MANAGEMENT_MOCK=true`
-/// vuelve al mock completo (tests y demos).
+/// Todo contra el backend real: personas y roles desde las Fases A y B de
+/// permisos; almacenes y categorías desde Ajustes operativos (Sep 27, 2026).
+/// `--dart-define=MANAGEMENT_MOCK=true` vuelve al mock completo (tests y
+/// demos).
 const bool kManagementUseMock =
     bool.fromEnvironment('MANAGEMENT_MOCK', defaultValue: false);
 
 final managementRepositoryProvider = Provider<ManagementRepository>((ref) {
-  final mock = ManagementRepositoryMock(
-    currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx',
-  );
-  if (kManagementUseMock) return mock;
-  return ManagementRepositoryImpl(
-    client: ref.watch(dioClientProvider),
-    fallback: mock,
-  );
+  if (kManagementUseMock) {
+    return ManagementRepositoryMock(
+      currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx',
+    );
+  }
+  return ManagementRepositoryImpl(client: ref.watch(dioClientProvider));
 });
 
 // ---------------------------------------------------------------------------
@@ -80,10 +79,21 @@ class WarehousesNotifier extends AsyncNotifier<List<Warehouse>> {
     await _reload();
   }
 
+  Future<void> activate(String id) async {
+    await _repo.activateWarehouse(id);
+    await _reload();
+  }
+
+  Future<void> makeDefault(String id) async {
+    await _repo.makeDefaultWarehouse(id);
+    await _reload();
+  }
+
   Future<void> _reload() async {
     state = await AsyncValue.guard(_repo.listWarehouses);
-    // La leyenda, "Dónde opero" y los traslados leen la lista de Inventario:
-    // un almacén recién creado tiene que aparecer ahí también.
+    // La leyenda, "Dónde opero", traslados y compras leen la lista de
+    // Inventario: un alta, un nombre nuevo, una baja o un principal nuevo
+    // tienen que verse ahí también (CA-A2).
     ref.invalidate(inventory.warehousesProvider);
   }
 }
@@ -198,6 +208,17 @@ class CategoriesNotifier extends AsyncNotifier<List<Category>> {
 
   Future<void> _reload() async {
     state = await AsyncValue.guard(_repo.listCategories);
+    // Inventario comparte estas categorías (CA-A6): los chips, los productos
+    // con el nombre viejo y la caché nombre→id del repositorio (una
+    // categoría borrada dejaría ahí un id muerto) se vuelven a pedir. Sólo lo
+    // que ya está en uso: invalidar lo que nadie ha leído lo construiría.
+    for (final ProviderBase<Object?> provider in [
+      inventory.categoriesProvider,
+      inventory.inventoryProvider,
+      inventoryRepositoryProvider,
+    ]) {
+      if (ref.exists(provider)) ref.invalidate(provider);
+    }
   }
 }
 
@@ -385,7 +406,8 @@ final canManageStoreProvider = Provider<bool>(
 /// "esto afecta a N personas" antes de ajustar un rol de fábrica; sale de la
 /// lista ya cargada, sin pedirle nada más al servidor.
 final membersWithRoleProvider = Provider.family<int, String>((ref, roleId) {
-  final members = ref.watch(membersProvider).valueOrNull ?? const <TenantMember>[];
+  final members =
+      ref.watch(membersProvider).valueOrNull ?? const <TenantMember>[];
   return members.where((m) => m.roleId == roleId && m.isActive).length;
 });
 

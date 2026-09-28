@@ -82,6 +82,12 @@ class UserRead(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ChangePasswordRequest(BaseModel):
+    """Cambio de contraseña del usuario en sesión (D9): exige la actual."""
+    current_password: str = Field(..., min_length=1, max_length=100, description="Contraseña vigente")
+    new_password: str = Field(..., min_length=8, max_length=100, description="Nueva contraseña (mín. 8)")
+
+
 class UpdateOperatingWarehouseRequest(BaseModel):
     """Esquema de entrada para que el usuario en sesión cambie su almacén operativo."""
     warehouse_id: uuid.UUID = Field(

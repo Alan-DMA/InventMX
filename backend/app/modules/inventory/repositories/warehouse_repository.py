@@ -3,7 +3,7 @@ import uuid
 # Importación de tipado estático
 from typing import List, Optional
 # Importación de constructores de consulta de SQLAlchemy
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación del modelo de dominio Warehouse
@@ -113,6 +113,18 @@ class WarehouseRepository:
 
         await self.db.flush()
         return warehouse
+
+    async def get_by_name_ci(self, name: str, tenant_id: uuid.UUID) -> Optional[Warehouse]:
+        """
+        Busca un almacén por nombre sin distinguir mayúsculas: dos iguales
+        serían indistinguibles en la leyenda y en los selectores.
+        """
+        stmt = select(Warehouse).where(
+            Warehouse.tenant_id == tenant_id,
+            func.lower(Warehouse.name) == name.lower(),
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
 
     async def delete(self, warehouse: Warehouse) -> None:
         """

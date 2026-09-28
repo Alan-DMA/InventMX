@@ -13,30 +13,35 @@ import '../domain/warehouse.dart';
 /// Es scope de **un solo tenant** — nada que ver con el panel de fundadores
 /// (`saas.manage`, Tarea 14.2), que administra la plataforma entera.
 ///
-/// Estado del backend (Sep 22, 2026 — Permisos por rol, Fase A): el modular
-/// expone `GET/POST /users`, `PUT /users/{id}` (incluye `default_warehouse_id`),
-/// `PATCH /users/{id}/status`, `GET /roles` (con `permissions[]`) y
-/// `GET /permissions`. **Personas, roles y permisos corren contra el real**
-/// (`ManagementRepositoryImpl`); almacenes y categorías siguen en el mock
-/// hasta que Alan los entregue — la Impl delega esas partes al mock. La
-/// edición de permisos por rol no existe en el servidor (Fase B): los roles
-/// son de sólo lectura.
+/// Todo corre contra el servidor real (`ManagementRepositoryImpl`): personas,
+/// roles y permisos desde las Fases A y B de permisos; almacenes y categorías
+/// desde Ajustes operativos (Sep 27, 2026 — D7/D8). El mock queda para tests
+/// y demos (`--dart-define=MANAGEMENT_MOCK=true`) y replica las reglas del
+/// servidor.
 abstract class ManagementRepository {
   /// Quién está usando la app ahora mismo.
   Future<TenantMember> getCurrentMember();
 
   // ── Almacenes ──────────────────────────────────────────────────────────
-  /// GET /inventory/warehouses
+  /// GET /inventory/warehouses — activos e inactivos (`is_active`).
   Future<List<Warehouse>> listWarehouses();
 
-  /// POST /inventory/warehouses (pendiente de Alan)
+  /// POST /inventory/warehouses — nombre único (409).
   Future<Warehouse> createWarehouse(String name);
 
-  /// PUT /inventory/warehouses/{id} (pendiente de Alan)
+  /// PUT /inventory/warehouses/{id} — renombrar, nombre único (409).
   Future<Warehouse> updateWarehouse({required String id, required String name});
 
-  /// DELETE /inventory/warehouses/{id} — baja lógica (pendiente de Alan).
+  /// DELETE /inventory/warehouses/{id} — baja lógica (D7). El servidor
+  /// rechaza con el motivo (422): principal, único activo, con existencias,
+  /// alguien opera ahí, turno abierto o compras sin recibir.
   Future<void> deactivateWarehouse(String id);
+
+  /// POST /inventory/warehouses/{id}/activate — reactivar (D7).
+  Future<void> activateWarehouse(String id);
+
+  /// POST /inventory/warehouses/{id}/make-default — "Hacer principal" (D7b).
+  Future<void> makeDefaultWarehouse(String id);
 
   // ── Personas del comercio ──────────────────────────────────────────────
   Future<List<TenantMember>> listMembers();
@@ -69,15 +74,17 @@ abstract class ManagementRepository {
   Future<void> deactivateMember(String id);
 
   // ── Categorías ─────────────────────────────────────────────────────────
-  /// GET /inventory/categories (pendiente de Alan; hoy las categorías sólo
-  /// existen como texto dentro de cada producto)
+  /// GET /inventory/categories — las mismas que usa Inventario, con
+  /// `product_count`.
   Future<List<Category>> listCategories();
 
+  /// POST /inventory/categories — nombre único (409).
   Future<Category> createCategory(String name);
 
+  /// PUT /inventory/categories/{id} — nombre único (409).
   Future<Category> renameCategory({required String id, required String name});
 
-  /// Rechaza con [CategoryInUseException] si tiene productos.
+  /// DELETE /inventory/categories/{id} — sólo sin productos (D8, 422).
   Future<void> deleteCategory(String id);
 
   // ── Roles y permisos ───────────────────────────────────────────────────
@@ -179,13 +186,39 @@ class ManagementRepositoryMock implements ManagementRepository {
   @override
   Future<void> deactivateWarehouse(String id) async {
     await Future.delayed(_fakeDelay);
+    final index = _warehouses.indexWhere((w) => w.id == id);
+    if (index < 0) throw Exception('Almacén no encontrado: $id');
+    // Mismo orden de reglas que el servidor (D7/D7b); las de existencias,
+    // turnos y compras no aplican al mock.
+    if (_warehouses[index].isDefault) throw const DefaultWarehouseException();
     final activos = _warehouses.where((w) => w.isActive).toList();
     if (activos.length <= 1 && activos.any((w) => w.id == id)) {
       throw const LastWarehouseException();
     }
+    _warehouses[index] = _warehouses[index].copyWith(isActive: false);
+  }
+
+  @override
+  Future<void> activateWarehouse(String id) async {
+    await Future.delayed(_fakeDelay);
     final index = _warehouses.indexWhere((w) => w.id == id);
     if (index < 0) throw Exception('Almacén no encontrado: $id');
-    _warehouses[index] = _warehouses[index].copyWith(isActive: false);
+    _warehouses[index] = _warehouses[index].copyWith(isActive: true);
+  }
+
+  @override
+  Future<void> makeDefaultWarehouse(String id) async {
+    await Future.delayed(_fakeDelay);
+    final index = _warehouses.indexWhere((w) => w.id == id);
+    if (index < 0) throw Exception('Almacén no encontrado: $id');
+    if (!_warehouses[index].isActive) {
+      throw Exception(
+          'El almacén "${_warehouses[index].name}" está dado de baja. '
+          'Reactívalo para operar en él.');
+    }
+    for (var i = 0; i < _warehouses.length; i++) {
+      _warehouses[i] = _warehouses[i].copyWith(isDefault: i == index);
+    }
   }
 
   void _assertWarehouseNameFree(String name, {required String? exceptId}) {
@@ -399,6 +432,7 @@ class ManagementRepositoryMock implements ManagementRepository {
           id: 'wh-001',
           name: 'Almacén Principal',
           isActive: true,
+          isDefault: true,
           createdAt: base),
       Warehouse(
           id: 'wh-002',
