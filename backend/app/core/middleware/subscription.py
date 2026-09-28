@@ -9,8 +9,11 @@ from starlette.responses import JSONResponse, Response
 from app.core.security.jwt import decode_token
 
 
-async def _current_tenant_status(tenant_id, fallback: str) -> str:
-    """Estado real del comercio (`tenants` no tiene RLS). Ante cualquier duda, el del token."""
+async def _current_tenant_lock(tenant_id, fallback: str) -> tuple:
+    """
+    Estado real del comercio y motivo del bloqueo (`tenants` no tiene RLS).
+    Ante cualquier duda, el estado del token y sin motivo.
+    """
     import uuid as _uuid
 
     from sqlalchemy import select
@@ -21,15 +24,18 @@ async def _current_tenant_status(tenant_id, fallback: str) -> str:
     try:
         tenant_uuid = _uuid.UUID(str(tenant_id))
     except (TypeError, ValueError):
-        return fallback
+        return fallback, None
     try:
         async with AsyncSessionLocal() as session:
-            status = (await session.execute(
-                select(Tenant.status).where(Tenant.id == tenant_uuid)
-            )).scalar_one_or_none()
+            row = (await session.execute(
+                select(Tenant.status, Tenant.lock_reason).where(Tenant.id == tenant_uuid)
+            )).first()
     except Exception:
-        return fallback
-    return status.value if status is not None else fallback
+        return fallback, None
+    if row is None:
+        return fallback, None
+    return row[0].value, row[1]
+
 
 # Rutas exentas de validación de bloqueo de suscripción (Auth, Webhooks, Documentación y Salud)
 EXEMPT_PATHS = [
@@ -40,8 +46,14 @@ EXEMPT_PATHS = [
     "/api/v1/auth/login",
     "/api/v1/auth/register",
     "/api/v1/auth/refresh",
+    # Recuperar el acceso (P16): también desde un comercio bloqueado
+    "/api/v1/auth/password-recovery",
+    "/api/v1/auth/set-password",
     "/api/v1/saas/plans",
     "/api/v1/billing",
+    # Un comercio bloqueado entra para ver su suscripción y renovar (P13)
+    "/api/v1/auth/me",
+    "/api/v1/subscription",
     "/api/v1/webhooks",
     "/api/v1/saas-billing/webhooks",
     "/api/v1/saas-billing/plans",
@@ -87,27 +99,36 @@ class SubscriptionLockMiddleware(BaseHTTPMiddleware):
 
         # 4. Obtener el estado del tenant almacenado o verificar en base de datos
         tenant_status = payload.get("tenant_status", "ACTIVE")
+        lock_reason = None
         # Si el token dice "bloqueado", se confirma en la base: al reactivar un
         # comercio desde el panel (pago confirmado, cortesía, cambio de estado)
         # debe poder operar de inmediato, sin esperar a renovar su token. Sólo
         # los comercios bloqueados pagan esta consulta (Panel de plataforma, CA-P7).
         if tenant_status in ("SOFT_LOCK", "HARD_LOCK"):
-            tenant_status = await _current_tenant_status(payload.get("tenant_id"), tenant_status)
+            tenant_status, lock_reason = await _current_tenant_lock(payload.get("tenant_id"), tenant_status)
 
         # 5. Aplicar reglas de bloqueo por morosidad
         if tenant_status == "HARD_LOCK":
-            # Bloqueo total: HTTP 402 Payment Required
+            # Bloqueo total: HTTP 402. Una suspensión de soporte (P17) no se
+            # arregla pagando: el mensaje y `details.lock_reason` lo distinguen.
+            if lock_reason == "ABUSE":
+                message = (
+                    "Soporte Nexus suspendió tu cuenta. En Mi suscripción está el motivo "
+                    "y cómo contactarnos."
+                )
+            else:
+                message = (
+                    "Tu cuenta se encuentra suspendida por falta de pago. "
+                    "Renueva tu suscripción para volver a operar."
+                )
             return JSONResponse(
                 status_code=402,
                 content={
                     "success": False,
                     "error": {
                         "code": "TENANT_HARD_LOCK",
-                        "message": (
-                            "Tu cuenta se encuentra suspendida por falta de pago. "
-                            "Por favor accede al módulo de facturación para regularizar tu suscripción."
-                        ),
-                        "details": None,
+                        "message": message,
+                        "details": {"lock_reason": lock_reason or "NONPAYMENT"},
                     },
                 },
             )

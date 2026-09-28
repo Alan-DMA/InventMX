@@ -3,7 +3,7 @@ import uuid
 # Importación de tipos estáticos y Callable para decorators/factories
 from typing import Callable, Optional
 # Importación de constructs de inyección de dependencias de FastAPI
-from fastapi import Depends
+from fastapi import Depends, Request
 # Importación del esquema de seguridad HTTP Bearer
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 # Importación de la sesión asíncrona de SQLAlchemy
@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Importación de utilidades de sesión de base de datos e inyector RLS
 from app.core.database.session import get_db, set_tenant_context
 # Importación de excepciones personalizadas de negocio
+from app.core.config.settings import settings
 from app.core.exceptions.base import (
+    AppException,
     ForbiddenException,
     TenantLockedException,
     UnauthorizedException,
@@ -20,7 +22,7 @@ from app.core.exceptions.base import (
 # Importación del decodificador y validador de JWT
 from app.core.security.jwt import decode_token
 # Importación de modelos de dominio
-from app.modules.auth_tenancy.domain.tenant import TenantStatus
+from app.modules.auth_tenancy.domain.tenant import TenantLockReason, TenantStatus
 from app.modules.auth_tenancy.domain.user import User
 # Importación del repositorio de usuarios
 from app.modules.auth_tenancy.repositories.user_repository import UserRepository
@@ -28,8 +30,16 @@ from app.modules.auth_tenancy.repositories.user_repository import UserRepository
 # Instanciación del esquema de seguridad HTTP Bearer (auto_error=False para control granular)
 security = HTTPBearer(auto_error=False)
 
+# Lo único que responde a quien entró con un código y aún no pone contraseña
+# nueva (Centro de soporte, P16): saber quién es y cambiarla.
+PASSWORD_CHANGE_ALLOWED_PATHS = frozenset({
+    f"{settings.API_V1_STR}/auth/me",
+    f"{settings.API_V1_STR}/auth/set-password",
+})
+
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -84,7 +94,35 @@ async def get_current_user(
     # 8. Reconfirmación de contexto RLS con el tenant_id del usuario verificado
     await set_tenant_context(db, user.tenant_id)
 
+    # 9. Entró con un código de un solo uso: primero la contraseña nueva (P16)
+    if user.must_change_password and request.url.path.rstrip("/") not in PASSWORD_CHANGE_ALLOWED_PATHS:
+        raise AppException(
+            message="Antes de seguir, pon una contraseña nueva.",
+            code="PASSWORD_CHANGE_REQUIRED",
+            status_code=403,
+        )
+
+    # 10. Bloqueo total con un token emitido antes del bloqueo: el middleware
+    # confía en el token (dice ACTIVE) y leería hasta 15 min más. El comercio ya
+    # viene cargado de la base, así que confirmarlo aquí no cuesta otra consulta
+    # (hallado en el QA de la suspensión por abuso contra el servidor real).
+    from app.core.middleware.subscription import EXEMPT_PATHS  # evita el ciclo de importación
+
+    if tenant.status == TenantStatus.HARD_LOCK and not request.url.path.startswith(tuple(EXEMPT_PATHS)):
+        raise TenantLockedException(
+            message=_hard_lock_message(user),
+            lock_type="HARD_LOCK",
+            details={"lock_reason": tenant.lock_reason or TenantLockReason.NONPAYMENT.value},
+        )
+
     return user
+
+
+def _hard_lock_message(user: User) -> str:
+    """Suspensión de soporte (P17) o falta de pago: se dice cuál de las dos."""
+    if user.tenant.lock_reason == TenantLockReason.ABUSE.value:
+        return "Soporte Nexus suspendió tu cuenta. En Mi suscripción está el motivo."
+    return "El servicio se encuentra suspendido por falta de pago. Renueva tu suscripción para volver a operar."
 
 
 async def require_active_tenant(current_user: User = Depends(get_current_user)) -> User:
@@ -93,10 +131,7 @@ async def require_active_tenant(current_user: User = Depends(get_current_user)) 
     Const. Art. 6.3.
     """
     if current_user.tenant.status == TenantStatus.HARD_LOCK:
-        raise TenantLockedException(
-            message="El servicio se encuentra suspendido por falta de pago. Accede al portal de reactivación.",
-            lock_type="HARD_LOCK",
-        )
+        raise TenantLockedException(message=_hard_lock_message(current_user), lock_type="HARD_LOCK")
     return current_user
 
 
@@ -107,10 +142,7 @@ async def require_unlocked_tenant(current_user: User = Depends(get_current_user)
     Const. Art. 6.3.
     """
     if current_user.tenant.status == TenantStatus.HARD_LOCK:
-        raise TenantLockedException(
-            message="Servicio suspendido por falta de pago.",
-            lock_type="HARD_LOCK",
-        )
+        raise TenantLockedException(message=_hard_lock_message(current_user), lock_type="HARD_LOCK")
     if current_user.tenant.status == TenantStatus.SOFT_LOCK:
         raise TenantLockedException(
             message="Comercio en periodo de gracia (Solo Lectura). Regulariza tu pago para registrar nuevas operaciones.",

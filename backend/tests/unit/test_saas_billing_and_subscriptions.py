@@ -79,25 +79,33 @@ async def test_get_current_subscription_info(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_change_plan_success(client: AsyncClient):
+async def test_upgrade_is_blocked_but_downgrade_is_allowed(client: AsyncClient, db_session: AsyncSession):
     """
-    Verifica que un comercio pueda solicitar cambio a un plan superior (Upgrade a CORPORATIVO).
+    Subir de plan sin pagar ya no es posible desde la app (antes cualquier Dueño
+    se pasaba a Corporativo gratis); bajar sí, respetando los límites de uso.
     """
-    headers, _, _ = await create_store_and_get_auth(client)
-    payload = {
-        "new_plan": "CORPORATIVO",
-        "change_immediately": True,
-        "reason": "Expansión a nueva sucursal",
-    }
-    response = await client.post(
+    from sqlalchemy import select
+    headers, tenant_id_str, _ = await create_store_and_get_auth(client)
+
+    upgrade = await client.post(
         "/api/v1/subscription/change-plan",
-        json=payload,
+        json={"new_plan": "CORPORATIVO", "change_immediately": True, "reason": "Expansión"},
         headers=headers,
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["subscription"]["plan"] == "CORPORATIVO"
-    assert data["plan_change"]["to_plan"] == "CORPORATIVO"
+    assert upgrade.status_code == 409
+    assert "Escríbenos" in upgrade.json()["detail"]
+
+    # Un comercio que ya está en Corporativo sí puede bajar a Comercio
+    tenant = (await db_session.execute(select(Tenant).where(Tenant.id == uuid.UUID(tenant_id_str)))).scalar_one()
+    tenant.plan_id = TenantPlan.CORPORATIVO
+    await db_session.commit()
+    downgrade = await client.post(
+        "/api/v1/subscription/change-plan",
+        json={"new_plan": "COMERCIO", "change_immediately": True, "reason": "Ahorro"},
+        headers=headers,
+    )
+    assert downgrade.status_code == 200, downgrade.text
+    assert downgrade.json()["subscription"]["plan"] == "COMERCIO"
 
 
 @pytest.mark.asyncio

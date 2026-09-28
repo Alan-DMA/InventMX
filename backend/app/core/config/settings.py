@@ -38,6 +38,35 @@ class Settings(BaseSettings):
     PLATFORM_MAX_FAILED_ATTEMPTS: int = 5
     PLATFORM_LOCKOUT_MINUTES: int = 15
 
+    # Ciclo de suscripción prepago (P9–P13). APAGADO hasta integrar Google Play:
+    # encendido hoy bloquearía a todos al mes sin que tengan cómo renovar.
+    SUBSCRIPTION_ENFORCEMENT_ENABLED: bool = False
+    SUBSCRIPTION_GRACE_DAYS: int = 10
+    SUBSCRIPTION_CYCLE_INTERVAL_SECONDS: int = 3600
+    # Canal de renovación que la app ofrece al tendero: "NONE" hoy;
+    # "GOOGLE_PLAY" el día de la integración (muestra el botón de compra).
+    SUBSCRIPTION_RENEWAL_CHANNEL: str = "NONE"
+
+    # Correo saliente (Centro de soporte, P20). "console" sólo escribe en el log
+    # y guarda en memoria (desarrollo y tests); en producción se niega a
+    # enviar. "brevo" usa su API transaccional (capa gratuita: 300 correos al
+    # día, remitente verificado sin necesidad de dominio propio).
+    EMAIL_BACKEND: str = "console"
+    BREVO_API_KEY: str = ""
+    EMAIL_FROM_ADDRESS: str = "soporte@nexus.mx"
+    EMAIL_FROM_NAME: str = "Soporte Nexus"
+    # Tope del adjunto de exportación (MB, ya comprimido)
+    EMAIL_MAX_ATTACHMENT_MB: int = 10
+
+    # Códigos de acceso de un solo uso que sustituyen a la contraseña (P16)
+    LOGIN_CODE_SELF_MINUTES: int = 30
+    LOGIN_CODE_ASSISTED_HOURS: int = 24
+    LOGIN_CODE_MAX_ATTEMPTS: int = 5
+    LOGIN_CODE_MAX_REQUESTS_PER_HOUR: int = 3
+
+    # Eliminación de un comercio: la segunda aprobación vence si nadie la da
+    TENANT_DELETION_APPROVAL_HOURS: int = 72
+
     # CORS
     BACKEND_CORS_ORIGINS: List[Union[str, AnyHttpUrl]] = [
         "http://localhost:3000",

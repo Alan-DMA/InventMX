@@ -2,104 +2,95 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/subscription.dart';
 
-/// La línea del ciclo — Tarea 14.2 (dirección "Línea del ciclo").
+/// La línea del ciclo — dirección "Línea del ciclo" (Tarea 14.2), adaptada al
+/// modelo prepago (P9–P13, Sep 2026).
 ///
-/// El mes como una barra con tres tramos: periodo activo (esmeralda hasta el
-/// vencimiento), ventana de solo lectura (ámbar, días 1–10) y bloqueo total
-/// (rojo, día 11+). "Hoy" es un marcador que se mueve sobre ella. Debajo,
+/// El mes como una barra con tres tramos: vigente (esmeralda hasta el
+/// vencimiento), gracia con **acceso completo** (ámbar, 10 días — P10) y
+/// suspensión (rojo). "Hoy" es un marcador que se mueve sobre ella. Debajo,
 /// las fechas exactas: el tendero nunca es sorprendido por un estado que ya
-/// vio venir (Constitución Art. VI §6.3, sin urgencia fabricada).
+/// vio venir (sin urgencia fabricada).
 ///
-/// `compact` es la versión de una línea que vive en el banner de Soft Lock.
+/// `compact` es la versión de una línea que vive en el banner.
 class CycleLine extends StatelessWidget {
   const CycleLine({
     super.key,
-    required this.dueDate,
-    required this.status,
+    required this.paidUntil,
+    required this.graceUntil,
+    required this.entitlement,
     this.now,
     this.compact = false,
   });
 
-  final DateTime dueDate;
-  final SubscriptionStatus status;
+  final DateTime paidUntil;
+  final DateTime graceUntil;
+  final Entitlement entitlement;
   final DateTime? now;
   final bool compact;
 
-  static const softLockDays = 10;
-  static const _tailDays = 4; // aire después del bloqueo para que se lea
+  static const _tailDays = 4; // aire después de la suspensión para que se lea
 
   @override
   Widget build(BuildContext context) {
     final today = _day(now ?? DateTime.now());
-    final due = _day(dueDate);
-    final softAt = due.add(const Duration(days: 1));
-    final hardAt = due.add(const Duration(days: softLockDays + 1));
-    final start = due.subtract(const Duration(days: 30));
-    final end = hardAt.add(const Duration(days: _tailDays));
+    final due = _day(paidUntil);
+    final graceEnd = _day(graceUntil);
+    final start = addMonths(due, -1);
+    final end = graceEnd.add(const Duration(days: _tailDays));
     final total = end.difference(start).inDays.toDouble();
 
     double pos(DateTime d) =>
         (d.difference(start).inDays / total).clamp(0.0, 1.0);
 
     final dueFrac = pos(due);
-    final hardFrac = pos(hardAt);
+    final graceFrac = pos(graceEnd);
     final todayFrac = pos(today);
     final daysToDue = due.difference(today).inDays;
+    final graceLeft = graceEnd.difference(today).inDays;
 
     final barHeight = compact ? 4.0 : 6.0;
 
     final bar = LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        // Al aprobar un pago el vencimiento salta un periodo: el tramo activo
-        // se extiende animado hasta la fecha nueva en vez de saltar.
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: dueFrac, end: dueFrac),
-          duration: const Duration(milliseconds: 600),
-          curve: Curves.easeOutCubic,
-          builder: (context, animatedDue, _) => _paintBar(
-            w: w,
-            dueFrac: animatedDue,
-            hardFrac: (animatedDue + (hardFrac - dueFrac)).clamp(0.0, 1.0),
-            todayFrac: todayFrac,
-            barHeight: barHeight,
-          ),
-        );
-      },
+      builder: (context, constraints) => _paintBar(
+        w: constraints.maxWidth,
+        dueFrac: dueFrac,
+        graceFrac: graceFrac,
+        todayFrac: todayFrac,
+        barHeight: barHeight,
+      ),
     );
 
     if (compact) return bar;
 
-    final statusColor = switch (status) {
-      SubscriptionStatus.active => AppColors.emerald,
-      SubscriptionStatus.softLock => AppColors.warning,
-      SubscriptionStatus.hardLock => AppColors.error,
+    final statusColor = switch (entitlement) {
+      Entitlement.gracia => AppColors.warning,
+      Entitlement.vencida => AppColors.error,
+      _ => AppColors.emerald,
     };
 
-    final headline = switch (status) {
-      SubscriptionStatus.active when daysToDue > 1 =>
+    final headline = switch (entitlement) {
+      Entitlement.gracia when graceLeft > 1 =>
+        'En gracia · $graceLeft días con acceso completo',
+      Entitlement.gracia => 'Último día de gracia',
+      Entitlement.vencida => 'Suspendida desde el ${shortDate(graceEnd)}',
+      _ when daysToDue > 1 =>
         'Vence el ${shortDate(due)} · faltan $daysToDue días',
-      SubscriptionStatus.active when daysToDue == 1 =>
-        'Vence mañana, ${shortDate(due)}',
-      SubscriptionStatus.active when daysToDue == 0 =>
-        'Vence hoy, ${shortDate(due)}',
-      SubscriptionStatus.active => 'Venció el ${shortDate(due)}',
-      SubscriptionStatus.softLock =>
-        'Solo lectura · día ${-daysToDue} de $softLockDays',
-      SubscriptionStatus.hardLock => 'Bloqueada desde el ${shortDate(hardAt)}',
+      _ when daysToDue == 1 => 'Vence mañana, ${shortDate(due)}',
+      _ => 'Vence hoy, ${shortDate(due)}',
     };
-    return _withLegend(bar, due, softAt, hardAt, statusColor, headline);
+    return _withLegend(bar, due, graceEnd, statusColor, headline);
   }
 
   Widget _paintBar({
     required double w,
     required double dueFrac,
-    required double hardFrac,
+    required double graceFrac,
     required double todayFrac,
     required double barHeight,
   }) {
+    final height = compact ? 14.0 : 22.0;
     return SizedBox(
-      height: compact ? 14 : 22,
+      height: height,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -107,7 +98,7 @@ class CycleLine extends StatelessWidget {
           Positioned(
             left: 0,
             right: 0,
-            top: (compact ? 14 : 22) / 2 - barHeight / 2,
+            top: height / 2 - barHeight / 2,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(barHeight),
               child: SizedBox(
@@ -121,11 +112,11 @@ class CycleLine extends StatelessWidget {
                       child: const ColoredBox(color: AppColors.emerald),
                     ),
                     Expanded(
-                      flex: ((hardFrac - dueFrac) * 1000).round(),
+                      flex: ((graceFrac - dueFrac) * 1000).round(),
                       child: const ColoredBox(color: AppColors.warning),
                     ),
                     Expanded(
-                      flex: ((1 - hardFrac) * 1000).round().clamp(1, 1000),
+                      flex: ((1 - graceFrac) * 1000).round().clamp(1, 1000),
                       child: const ColoredBox(color: AppColors.error),
                     ),
                   ],
@@ -134,10 +125,13 @@ class CycleLine extends StatelessWidget {
             ),
           ),
           // Marcador de vencimiento
-          _tick(w * dueFrac, compact ? 14 : 22, AppColors.onSurface),
-          // Hoy
           Positioned(
-            // Nunca fuera de la barra: un moroso de 20 días sigue viéndose.
+            left: w * dueFrac - 1,
+            top: 0,
+            child: Container(width: 2, height: height, color: AppColors.onSurface),
+          ),
+          // Hoy — nunca fuera de la barra: un suspendido hace 20 días sigue viéndose
+          Positioned(
             left: ((w * todayFrac) - (compact ? 5 : 7))
                 .clamp(0.0, w - (compact ? 10 : 14)),
             top: 0,
@@ -146,7 +140,7 @@ class CycleLine extends StatelessWidget {
               child: Container(
                 key: const Key('cycleLineToday'),
                 width: compact ? 10 : 14,
-                height: compact ? 14 : 22,
+                height: height,
                 decoration: BoxDecoration(
                   color: AppColors.darkSlate,
                   borderRadius: BorderRadius.circular(compact ? 5 : 7),
@@ -160,7 +154,7 @@ class CycleLine extends StatelessWidget {
     );
   }
 
-  Widget _withLegend(Widget bar, DateTime due, DateTime softAt, DateTime hardAt,
+  Widget _withLegend(Widget bar, DateTime due, DateTime graceEnd,
       Color statusColor, String headline) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -169,10 +163,7 @@ class CycleLine extends StatelessWidget {
           children: [
             Text(
               periodLabel(due),
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.onSurfaceMuted,
-              ),
+              style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -199,20 +190,15 @@ class CycleLine extends StatelessWidget {
           spacing: 14,
           runSpacing: 4,
           children: [
-            _legend(AppColors.emerald, 'Activa hasta el ${shortDate(due)}'),
-            _legend(AppColors.warning, 'Solo lectura ${shortDate(softAt)}'),
-            _legend(AppColors.error, 'Bloqueo ${shortDate(hardAt)}'),
+            _legend(AppColors.emerald, 'Vigente hasta el ${shortDate(due)}'),
+            _legend(AppColors.warning, 'Gracia hasta el ${shortDate(graceEnd)}'),
+            _legend(AppColors.error,
+                'Suspensión el ${shortDate(graceEnd.add(const Duration(days: 1)))}'),
           ],
         ),
       ],
     );
   }
-
-  Widget _tick(double x, double h, Color color) => Positioned(
-        left: x - 1,
-        top: 0,
-        child: Container(width: 2, height: h, color: color),
-      );
 
   Widget _legend(Color color, String text) => Row(
         mainAxisSize: MainAxisSize.min,
@@ -227,10 +213,7 @@ class CycleLine extends StatelessWidget {
             text,
             softWrap: false,
             style: const TextStyle(
-              fontSize: 11.5,
-              color: AppColors.onSurfaceMuted,
-              height: 1.2,
-            ),
+                fontSize: 11.5, color: AppColors.onSurfaceMuted, height: 1.2),
           ),
         ],
       );

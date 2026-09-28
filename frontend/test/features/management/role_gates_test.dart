@@ -247,9 +247,9 @@ void main() {
         expect(await reveals(tester, key), isTrue, reason: key);
       }
       expect(find.text('ADMINISTRACIÓN'), findsOneWidget);
-      // El mock SaaS trata a los correos @nexus.mx como fundadores (D1/D7 de
-      // 14.2): la sección Sistema aparece; para un comerciante no existe.
-      expect(await reveals(tester, 'drawerFounders'), isTrue);
+      // El panel de fundadores es una app web aparte (P1): ningún comercio
+      // lo ve en su menú, ni siquiera con correo @nexus.mx.
+      expect(await reveals(tester, 'drawerFounders'), isFalse);
     });
 
     testWidgets('el Encargado administra sin ver la suscripción (D10)',

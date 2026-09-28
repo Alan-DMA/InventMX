@@ -41,7 +41,6 @@ class AppDrawer extends ConsumerWidget {
     final isOwner = ref.watch(isOwnerProvider);
     final canSubscription = ref.watch(canSeeSubscriptionProvider);
     final isCorporativo = ref.watch(isCorporativoPlanProvider);
-    final isFounder = ref.watch(isFounderProvider);
 
     void goTo(String route, {bool replaceTab = false}) {
       Navigator.of(context).pop();
@@ -225,18 +224,6 @@ class AppDrawer extends ConsumerWidget {
                     const _DrawerHeaderCategory('ADMINISTRACIÓN'),
                     ...administration,
                   ],
-                  // Operar la plataforma no es cosa de ningún comercio.
-                  if (isFounder) ...[
-                    const Divider(color: AppColors.border, height: 24),
-                    const _DrawerHeaderCategory('SISTEMA'),
-                    _DrawerItem(
-                      key: const Key('drawerFounders'),
-                      icon: Icons.admin_panel_settings_outlined,
-                      title: 'Panel de fundadores',
-                      tint: AppColors.skyBlue,
-                      onTap: () => goTo(AppRoutes.founderAdmin),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -301,13 +288,11 @@ class _DrawerItem extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
-    this.tint,
   });
 
   final IconData icon;
   final String title;
   final VoidCallback onTap;
-  final Color? tint;
 
   @override
   Widget build(BuildContext context) {
@@ -315,13 +300,13 @@ class _DrawerItem extends StatelessWidget {
       dense: true,
       visualDensity: const VisualDensity(vertical: -1),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      leading: Icon(icon, size: 20, color: tint ?? AppColors.onSurface),
+      leading: Icon(icon, size: 20, color: AppColors.onSurface),
       title: Text(
         title,
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: 13.5,
           fontWeight: FontWeight.w500,
-          color: tint ?? AppColors.onSurface,
+          color: AppColors.onSurface,
         ),
       ),
       onTap: onTap,

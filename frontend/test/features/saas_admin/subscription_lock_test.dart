@@ -17,10 +17,9 @@ import 'package:nexus_app/features/inventory/presentation/inventory_provider.dar
 import 'package:nexus_app/features/onboarding/presentation/onboarding_provider.dart';
 import 'package:nexus_app/features/saas_admin/data/saas_repository.dart';
 import 'package:nexus_app/features/saas_admin/domain/subscription.dart';
-import 'package:nexus_app/features/saas_admin/presentation/founder_admin_dashboard_screen.dart';
 import 'package:nexus_app/features/saas_admin/presentation/hard_lock_screen.dart';
 import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart';
-import 'package:nexus_app/features/saas_admin/presentation/subscription_checkout_screen.dart';
+import 'package:nexus_app/features/saas_admin/presentation/subscription_screen.dart';
 import 'package:nexus_app/features/purchases/data/purchases_repository.dart';
 import 'package:nexus_app/features/purchases/presentation/purchases_provider.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
@@ -30,15 +29,18 @@ import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_pr
 import 'package:nexus_app/features/dashboard/data/dashboard_repository.dart';
 import 'package:nexus_app/features/dashboard/presentation/dashboard_provider.dart';
 
-/// Tarea 14.2.3 — CA-08 (puerta /admin), CA-09 (banner Soft Lock + guarda),
-/// CA-10 (Hard Lock: redirect, salida a pago, liberación al reactivar).
-/// Corre sobre el router real con el mock del SaaS.
+/// Suscripción prepago (P9–P13) sobre el router real con el mock: gracia con
+/// acceso completo (P10), sólo lectura manual, suspensión que deja entrar y
+/// sólo ve su suscripción, liberación al reactivar, y el menú sin panel de
+/// fundadores (vive en su propia app web, P1). Con `now` = 14 sep 2026.
 void main() {
   final now = DateTime(2026, 9, 14);
 
   Future<(GoRouterHandle, SaasRepositoryMock)> pumpApp(
     WidgetTester tester, {
-    required String tenant,
+    int daysUntilDue = 20,
+    SubscriptionStatus? manualStatus,
+    RenewalChannel renewalChannel = RenewalChannel.none,
     String email = 'sol@tiendita.mx',
   }) async {
     tester.view.physicalSize = const Size(412 * 3, 915 * 3);
@@ -48,53 +50,37 @@ void main() {
 
     final mock = SaasRepositoryMock(
       currentEmail: email,
-      currentTenantId: tenant,
       latency: Duration.zero,
       now: () => now,
+      daysUntilDue: daysUntilDue,
+      manualStatus: manualStatus,
+      renewalChannel: renewalChannel,
     );
     final handle = GoRouterHandle();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          // Pedidos web (20 sep 2026): el shell abre el canal en vivo; en tests
-          // se sustituye por un stream vacío y el repo mock (sin timers ni red).
+          // Pedidos web: el shell abre el canal en vivo; en tests, stream vacío.
           orderEventsProvider.overrideWithValue(const Stream<OrderEvent>.empty()),
-      // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
-      managementRepositoryProvider.overrideWith(
-          (ref) => ManagementRepositoryMock(
-                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
           // Personas/roles reales desde la Fase B (Sep 21): mock en tests.
-          managementRepositoryProvider.overrideWith(
-              (ref) => ManagementRepositoryMock(
-                  currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
-          storeOrdersRepositoryProvider.overrideWithValue(
-            StoreOrdersRepositoryMock(latency: Duration.zero)),
+          managementRepositoryProvider.overrideWith((ref) => ManagementRepositoryMock(
+              currentEmail: ref.watch(currentUserNameProvider) ?? 'demo@nexus.mx')),
+          storeOrdersRepositoryProvider
+              .overrideWithValue(StoreOrdersRepositoryMock(latency: Duration.zero)),
           sessionProvider.overrideWith((ref) => true),
           onboardingCompleteProvider.overrideWith((ref) => true),
           currentUserNameProvider.overrideWith((ref) => email),
           inventoryRepositoryProvider.overrideWithValue(InventoryRepositoryMock()),
           saasRepositoryProvider.overrideWithValue(mock),
           clockProvider.overrideWithValue(() => now),
-          // Hive no está inicializado en tests: el almacén operativo usa el
-          // doble en memoria.
-          operatingWarehouseStoreProvider
-              .overrideWithValue(OperatingWarehouseStoreMemory()),
-          // El almacén operativo ahora persiste en el backend real.
-          authRepositoryProvider
-              .overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
+          // Hive no está inicializado en tests: almacén operativo en memoria.
+          operatingWarehouseStoreProvider.overrideWithValue(OperatingWarehouseStoreMemory()),
+          authRepositoryProvider.overrideWithValue(AuthRepositoryMock(storage: SecureStorage())),
           warehousesProvider.overrideWith((ref) async => const [
-                WarehouseOption(
-                    id: 'wh-001', name: 'Almacén Principal', isDefault: true),
+                WarehouseOption(id: 'wh-001', name: 'Almacén Principal', isDefault: true),
               ]),
-          // El Dashboard también pide "Últimas ventas" — sin esto golpearía
-          // la red real desde Sep 2026 (salesRepositoryProvider ya no es
-          // Mock por defecto).
           salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock(clock: () => now)),
-          // Mismo motivo para Compras: `purchasesRepositoryProvider` apunta a
-          // `PurchasesRepositoryImpl` desde la octava sesión (Sep 19).
           purchasesRepositoryProvider.overrideWithValue(PurchasesRepositoryMock()),
-          // El Dashboard pide métricas al backend real — en tests de integración
-          // se usa el mock determinista.
           dashboardRepositoryProvider.overrideWithValue(DashboardRepositoryMock(now: now)),
         ],
         child: Consumer(
@@ -111,88 +97,101 @@ void main() {
     return (handle, mock);
   }
 
-  testWidgets('CA-09: Soft Lock muestra el banner con día N/10 y fecha de bloqueo; "Pagar ahora" abre Mi suscripción', (tester) async {
-    await pumpApp(tester, tenant: 't-lupita');
+  testWidgets('P10: en gracia el banner dice cuántos días quedan y la fecha; todo sigue funcionando',
+      (tester) async {
+    // Venció el 10 sep → gracia hasta el 20 sep (6 días)
+    final (handle, _) = await pumpApp(tester, daysUntilDue: -4);
     expect(find.byKey(const Key('softLockBanner')), findsOneWidget);
-    expect(find.text('Solo lectura · día 4 de 10'), findsOneWidget);
-    // Lupita venció hace 4 días (10 sep) → bloqueo total el 21 sep
-    expect(find.textContaining('Bloqueo total el 21 sep 2026'), findsOneWidget);
+    expect(find.text('Suscripción vencida · 6 días de gracia'), findsOneWidget);
+    expect(find.textContaining('Todo funciona normal hasta el 20 sep 2026'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('softLockPayNow')));
+    // Nueva compra NO se bloquea en gracia
+    handle.router!.push(AppRoutes.purchases);
     await tester.pumpAndSettle();
-    expect(find.byType(SubscriptionCheckoutScreen), findsOneWidget);
+    await tester.tap(find.byType(FloatingActionButton).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Tu cuenta está en solo lectura'), findsNothing);
   });
 
-  testWidgets('A9: un Cajero ve el banner de Soft Lock sin "Pagar ahora" y con el aviso a quien administra', (tester) async {
-    await pumpApp(tester, tenant: 't-lupita', email: 'jose.ramirez@nexus.mx');
-    // Quién soy (rol) carga con retardo del mock de Gestión.
+  testWidgets('en gracia, "Ver" lleva a Mi suscripción', (tester) async {
+    await pumpApp(tester, daysUntilDue: -4);
+    await tester.tap(find.byKey(const Key('softLockPayNow')));
+    await tester.pumpAndSettle();
+    expect(find.byType(MySubscriptionScreen), findsOneWidget);
+    expect(find.text('En gracia'), findsOneWidget); // chip
+  });
+
+  testWidgets('A9: un Cajero en gracia ve el aviso sin botón y con el recado para quien administra',
+      (tester) async {
+    await pumpApp(tester, daysUntilDue: -4, email: 'jose.ramirez@nexus.mx');
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('softLockBanner')), findsOneWidget);
-    expect(find.text('Solo lectura · día 4 de 10'), findsOneWidget);
     expect(find.byKey(const Key('softLockPayNow')), findsNothing);
-    expect(find.textContaining('avísale a quien administra la tienda'), findsOneWidget);
-
-    // Tocar el banner tampoco lo manda a una pantalla que el router rebotaría.
+    expect(find.textContaining('Avísale a quien administra la tienda'), findsOneWidget);
     await tester.tap(find.byKey(const Key('softLockBannerTitle')));
     await tester.pumpAndSettle();
-    expect(find.byType(SubscriptionCheckoutScreen), findsNothing);
+    expect(find.byType(MySubscriptionScreen), findsNothing);
   });
 
-  testWidgets('CA-09: sin morosidad no hay banner', (tester) async {
-    await pumpApp(tester, tenant: 't-sol');
+  testWidgets('vigente: no hay banner', (tester) async {
+    await pumpApp(tester);
     expect(find.byKey(const Key('softLockBanner')), findsNothing);
   });
 
-  testWidgets('CA-09: en Soft Lock, "Nueva compra" no abre el flujo: explica y ofrece ir a pagar', (tester) async {
-    final (handle, _) = await pumpApp(tester, tenant: 't-lupita');
+  testWidgets('sólo lectura manual: banner y "Nueva compra" explica y ofrece ver la suscripción',
+      (tester) async {
+    final (handle, _) = await pumpApp(tester, manualStatus: SubscriptionStatus.softLock);
+    expect(find.byKey(const Key('softLockBannerTitle')), findsOneWidget);
+    expect(find.text('Solo lectura'), findsOneWidget);
     handle.router!.push(AppRoutes.purchases);
     await tester.pumpAndSettle();
-    expect(find.byType(FloatingActionButton), findsWidgets);
-
     await tester.tap(find.byType(FloatingActionButton).first);
     await tester.pumpAndSettle();
     expect(find.text('Tu cuenta está en solo lectura'), findsOneWidget);
     await tester.tap(find.byKey(const Key('writeGatePayNow')));
     await tester.pumpAndSettle();
-    expect(find.byType(SubscriptionCheckoutScreen), findsOneWidget);
+    expect(find.byType(MySubscriptionScreen), findsOneWidget);
   });
 
-  testWidgets('CA-10: Hard Lock redirige todo el dashboard a /locked; solo deja pasar Mi suscripción', (tester) async {
-    final (handle, _) = await pumpApp(tester, tenant: 't-esquina');
+  testWidgets('suspendida: todo va a /locked, sin formas de pago; sólo deja ver la suscripción',
+      (tester) async {
+    // Venció el 30 ago → gracia hasta el 9 sep → suspendida
+    final (handle, _) = await pumpApp(tester, daysUntilDue: -15);
     expect(find.byType(HardLockScreen), findsOneWidget);
-    expect(find.byKey(const Key('hardLockTitle')), findsOneWidget);
-    expect(find.text('\$399.00 MXN'), findsOneWidget);
+    expect(find.textContaining('venció el 30 ago 2026'), findsOneWidget);
     expect(find.textContaining('No se borra nada'), findsOneWidget);
+    expect(find.byKey(const Key('hardLockContactUs')), findsOneWidget);
+    expect(find.byKey(const Key('hardLockRenewButton')), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
 
-    // Intentar ir a ventas → sigue bloqueado
     handle.router!.go(AppRoutes.sales);
     await tester.pumpAndSettle();
     expect(find.byType(HardLockScreen), findsOneWidget);
 
-    // Salida a pagar
-    await tester.tap(find.byKey(const Key('hardLockPayButton')));
+    await tester.tap(find.byKey(const Key('hardLockSeeSubscription')));
     await tester.pumpAndSettle();
-    expect(find.byType(SubscriptionCheckoutScreen), findsOneWidget);
-    expect(find.text('Bloqueada'), findsOneWidget); // chip
+    expect(find.byType(MySubscriptionScreen), findsOneWidget);
+    expect(find.text('Suspendida'), findsOneWidget); // chip
   });
 
-  testWidgets('CA-10: al aprobar el pago (fundador) el bloqueo se libera solo', (tester) async {
-    final (handle, mock) = await pumpApp(tester, tenant: 't-esquina', email: 'eduardo@nexus.mx');
+  testWidgets('con el canal de Google Play encendido aparece "Renovar" y usa el punto de conexión',
+      (tester) async {
+    await pumpApp(tester, daysUntilDue: -15, renewalChannel: RenewalChannel.googlePlay);
+    expect(find.byKey(const Key('hardLockRenewButton')), findsOneWidget);
+    expect(find.text(r'Renovar por $399.00'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('hardLockRenewButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('Renovación en camino'), findsOneWidget);
+  });
+
+  testWidgets('al renovar (soporte o pago) la suspensión se libera sola', (tester) async {
+    final (handle, mock) = await pumpApp(tester, daysUntilDue: -15);
     expect(find.byType(HardLockScreen), findsOneWidget);
 
-    // Un fundador aprueba el aviso pendiente de La Esquina en el backend (mock).
-    // runAsync: el mock usa Future.delayed, que no avanza bajo el reloj falso.
-    await tester.runAsync(() async {
-      final inbox = await mock.getValidationInbox();
-      final item = inbox.firstWhere((i) => i.tenantId == 't-esquina');
-      await mock.approveValidation(item.validation.id);
-    });
-
-    // La app relee la suscripción → ACTIVE → el router libera /locked
+    mock.daysUntilDue = 30; // soporte confirmó un pago en el panel
     await tester.runAsync(() async {
       handle.container!.invalidate(subscriptionProvider);
       await handle.container!.read(subscriptionProvider.future);
@@ -204,59 +203,29 @@ void main() {
     expect(find.byKey(const Key('softLockBanner')), findsNothing);
   });
 
-  testWidgets('CA-08: /admin rebota a inventario sin saas.manage y abre con él', (tester) async {
-    final (handle, _) = await pumpApp(tester, tenant: 't-sol');
-    handle.router!.go(AppRoutes.founderAdmin);
-    await tester.pumpAndSettle();
-    expect(find.byType(FounderAdminDashboardScreen), findsNothing);
-    expect(find.byType(NavigationBar), findsOneWidget);
-
-    final (handle2, _) = await pumpApp(tester, tenant: 't-sol', email: 'eduardo@nexus.mx');
-    handle2.router!.go(AppRoutes.founderAdmin);
-    await tester.pumpAndSettle();
-    expect(find.byType(FounderAdminDashboardScreen), findsOneWidget);
-  });
-
-  testWidgets('menú ☰: suscripción y panel de fundadores viven en el menú, no en Mi perfil (CA-03/CA-04)', (tester) async {
-    await pumpApp(tester, tenant: 't-sol', email: 'eduardo@nexus.mx');
-    // Los datos del miembro (rol, permisos) cargan con retardo del mock.
+  testWidgets('menú ☰: "Mi suscripción" abre la pantalla informativa y ya no hay panel de fundadores',
+      (tester) async {
+    await pumpApp(tester, email: 'eduardo@nexus.mx');
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
-    // Mi perfil: sólo lo propio, ni siquiera para el Dueño fundador.
-    await tester.tap(find.byKey(const Key('homeAccountButton')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-    expect(find.text('Mi perfil'), findsOneWidget);
-    expect(find.byKey(const Key('accountRowSubscription')), findsNothing);
-    expect(find.byKey(const Key('accountRowSystem')), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    // Menú ☰: Administración con "Mi suscripción" y Sistema con fundadores.
     await tester.tap(find.byKey(const Key('homeDrawerButton')));
     await tester.pumpAndSettle();
     expect(find.text('ADMINISTRACIÓN'), findsOneWidget);
-    expect(find.byKey(const Key('drawerSubscription')), findsOneWidget);
-    // Sistema queda al final de la lista del menú: hay que bajar.
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('drawerFounders')),
-      200,
-      scrollable: find.descendant(
-          of: find.byType(Drawer), matching: find.byType(Scrollable)),
-    );
-    expect(find.byKey(const Key('drawerFounders')), findsOneWidget);
+    expect(find.text('SISTEMA'), findsNothing);
+    expect(find.byKey(const Key('drawerFounders')), findsNothing);
+
     await tester.scrollUntilVisible(
       find.byKey(const Key('drawerSubscription')),
-      -200,
-      scrollable: find.descendant(
-          of: find.byType(Drawer), matching: find.byType(Scrollable)),
+      200,
+      scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)),
     );
-
     await tester.tap(find.byKey(const Key('drawerSubscription')));
     await tester.pumpAndSettle();
-    expect(find.byType(SubscriptionCheckoutScreen), findsOneWidget);
+    expect(find.byType(MySubscriptionScreen), findsOneWidget);
+    expect(find.byKey(const Key('subscriptionRenewalSoon')), findsOneWidget);
+    expect(find.textContaining('SPEI'), findsNothing);
+    expect(find.textContaining('OXXO'), findsNothing);
   });
 }
 

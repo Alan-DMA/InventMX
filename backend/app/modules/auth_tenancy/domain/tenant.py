@@ -21,6 +21,12 @@ class TenantStatus(str, enum.Enum):
     HARD_LOCK = "HARD_LOCK"
 
 
+class TenantLockReason(str, enum.Enum):
+    """Por qué está bloqueado un comercio (Centro de soporte, P17)."""
+    NONPAYMENT = "NONPAYMENT"  # Venció sin renovar (ciclo) o bloqueo previo por falta de pago
+    ABUSE = "ABUSE"            # Suspensión de soporte: sólo soporte la levanta
+
+
 class Tenant(Base):
     """
     Entidad raíz del comercio minorista (Tenant) en el SaaS Multi-tenant.
@@ -77,6 +83,22 @@ class Tenant(Base):
             "'precio máximo sugerido' de un producto mientras no haya "
             "suficiente historial de ventas para estimarlo por elasticidad."
         ),
+    )
+    # Vigencia prepago (P9–P13): hasta cuándo está pagada la suscripción y de
+    # dónde vino ese periodo (TRIAL, COURTESY, MANUAL, GATEWAY, GOOGLE_PLAY).
+    # Un comercio nuevo nace con un mes desde su registro.
+    paid_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    subscription_source: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    # Motivo del bloqueo vigente (`TenantLockReason`); vacío si está activo
+    lock_reason: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

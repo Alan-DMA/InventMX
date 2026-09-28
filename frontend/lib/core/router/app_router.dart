@@ -38,10 +38,9 @@ import '../../features/management/presentation/categories_screen.dart';
 import '../../features/management/presentation/members_screen.dart';
 import '../../features/management/presentation/permissions_screen.dart';
 import '../../features/saas_admin/domain/subscription.dart';
-import '../../features/saas_admin/presentation/founder_admin_dashboard_screen.dart';
 import '../../features/saas_admin/presentation/hard_lock_screen.dart';
 import '../../features/saas_admin/presentation/saas_provider.dart';
-import '../../features/saas_admin/presentation/subscription_checkout_screen.dart';
+import '../../features/saas_admin/presentation/subscription_screen.dart';
 import '../../features/analytics/presentation/analytics_dashboard_screen.dart';
 import '../../features/analytics/presentation/employee_performance_screen.dart';
 import '../../features/management/domain/app_permission.dart';
@@ -135,7 +134,6 @@ abstract final class AppRoutes {
   // Suscripción SaaS (Tarea 14.2). Fuera del shell: se alcanzan también
   // desde el bloqueo total por morosidad.
   static const subscription = '/subscription';
-  static const founderAdmin = '/admin';
   static const locked = '/locked';
 
   static String publicCatalogPath(String slug) => '/tienda/$slug';
@@ -160,7 +158,6 @@ abstract final class AppRoutes {
 ///   2. Con sesión, sin onb.    → /onboarding
 ///   3. Con sesión + onb. done  → /dashboard/home
 ///   4. HARD_LOCK (Tarea 14.2)  → /locked (solo deja pasar /subscription)
-///   5. /admin sin `saas.manage` → /dashboard/home
 ///   6. Ruta sin el permiso del rol (Permisos por rol, Fase A) → /dashboard/home
 ///
 /// Usa StatefulShellRoute para que cada branch mantenga su propio
@@ -175,7 +172,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final hasSession = ref.read(sessionProvider);
       final onboardingDone = ref.read(onboardingCompleteProvider);
       final subscriptionStatus = ref.read(subscriptionStatusProvider);
-      final isFounder = ref.read(isFounderProvider);
       final permissionsKnown = ref.read(permissionsKnownProvider);
       final permissions = ref.read(myPermissionsProvider);
       final isOwner = ref.read(isOwnerProvider);
@@ -223,11 +219,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return allowed ? null : AppRoutes.locked;
       }
       if (location == AppRoutes.locked) {
-        return AppRoutes.home;
-      }
-
-      // ── Panel de fundadores: solo con `saas.manage` (D7) ──────────────
-      if (location == AppRoutes.founderAdmin && !isFounder) {
         return AppRoutes.home;
       }
 
@@ -374,16 +365,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
-      // ── Suscripción SaaS, panel de fundadores y bloqueo — Tarea 14.2 ──
+      // ── Suscripción y suspensión (el panel de fundadores es una app web aparte, P1) ──
       GoRoute(
         path: AppRoutes.subscription,
         name: 'subscription',
-        builder: (_, __) => const SubscriptionCheckoutScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.founderAdmin,
-        name: 'founder-admin',
-        builder: (_, __) => const FounderAdminDashboardScreen(),
+        builder: (_, __) => const MySubscriptionScreen(),
       ),
       GoRoute(
         path: AppRoutes.locked,
@@ -634,7 +620,6 @@ class _CompositeRefreshListenable extends ChangeNotifier {
     ref.listen(sessionProvider, (_, __) => notifyListeners());
     ref.listen(onboardingCompleteProvider, (_, __) => notifyListeners());
     ref.listen(subscriptionStatusProvider, (_, __) => notifyListeners());
-    ref.listen(isFounderProvider, (_, __) => notifyListeners());
     ref.listen(myPermissionsProvider, (_, __) => notifyListeners());
   }
 }

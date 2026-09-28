@@ -105,8 +105,17 @@ class AuditRepository:
         actions: Optional[Sequence[str]] = None,
         limit: int = 50,
         offset: int = 0,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        exclude_actions: Optional[Sequence[str]] = None,
     ) -> Tuple[List[PlatformAuditLog], int]:
         conditions = []
+        if since is not None:
+            conditions.append(PlatformAuditLog.occurred_at >= since)
+        if until is not None:
+            conditions.append(PlatformAuditLog.occurred_at < until)
+        if exclude_actions:
+            conditions.append(PlatformAuditLog.action.not_in(list(exclude_actions)))
         if tenant_id is not None:
             conditions.append(PlatformAuditLog.target_tenant_id == tenant_id)
         if operator_id is not None:

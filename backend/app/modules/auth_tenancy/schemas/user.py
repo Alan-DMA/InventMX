@@ -63,6 +63,10 @@ class UserRead(UserBase):
     role_id: uuid.UUID
     role: Optional[RoleRead] = None
     is_active: bool
+    must_change_password: bool = Field(
+        default=False,
+        description="Entró con un código de un solo uso: la app debe pedirle contraseña nueva antes de seguir",
+    )
     default_warehouse_id: Optional[uuid.UUID] = Field(
         default=None,
         description="Almacén operativo actual del usuario, configurable desde su perfil.",
@@ -85,6 +89,22 @@ class UserRead(UserBase):
 class ChangePasswordRequest(BaseModel):
     """Cambio de contraseña del usuario en sesión (D9): exige la actual."""
     current_password: str = Field(..., min_length=1, max_length=100, description="Contraseña vigente")
+    new_password: str = Field(..., min_length=8, max_length=100, description="Nueva contraseña (mín. 8)")
+
+
+class PasswordRecoveryRequest(BaseModel):
+    """"¿Olvidaste tu contraseña?" (P16): pide un código al correo registrado."""
+    email: EmailStr = Field(..., description="Correo con el que entra a la app")
+
+
+class LoginWithCodeRequest(BaseModel):
+    """Entrar con el código de un solo uso que llegó al correo (P16)."""
+    email: EmailStr = Field(..., description="Correo con el que entra a la app")
+    code: str = Field(..., min_length=8, max_length=12, description="Código XXXX-XXXX del correo")
+
+
+class SetPasswordRequest(BaseModel):
+    """Contraseña nueva tras entrar con un código (no pide la actual)."""
     new_password: str = Field(..., min_length=8, max_length=100, description="Nueva contraseña (mín. 8)")
 
 

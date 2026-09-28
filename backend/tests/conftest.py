@@ -8,11 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config.settings import settings
 from app.core.database.base import Base
-from app.core.database.session import get_db, set_tenant_context
+from app.core.database.session import engine as app_engine, get_db, set_tenant_context
 from app.main import app
 from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
 from app.modules.auth_tenancy.domain.role import Role
 from app.modules.auth_tenancy.domain.user import User
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _release_app_pool():
+    """
+    Libera el pool global de la app al terminar cada test. El middleware de
+    bloqueo, las exportaciones en segundo plano y algunos tests usan
+    `AsyncSessionLocal` (no el motor del fixture); si una conexión queda en el
+    pool, el siguiente test la encuentra atada a un event loop ya cerrado.
+    """
+    yield
+    await app_engine.dispose()
 
 
 @pytest_asyncio.fixture

@@ -12,9 +12,17 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.session import set_tenant_context
+from app.core.config.settings import settings
+from app.modules.saas_billing.services.entitlement import (
+    SubscriptionSource,
+    entitlement_state,
+    grace_until,
+    grant_period,
+    period_from_payment,
+)
 
 # Importación de modelos y reglas de dominio
-from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
+from app.modules.auth_tenancy.domain.tenant import Tenant, TenantLockReason, TenantPlan, TenantStatus
 from app.modules.saas_billing.domain.subscription_invoice import (
     SaasPaymentMethod,
     SubscriptionInvoice,
@@ -40,6 +48,15 @@ from app.modules.saas_billing.schemas.saas_schemas import (
     WebhookConfirmationResponse,
 )
 
+
+
+def _month_before(moment: datetime) -> datetime:
+    """Inicio del periodo pagado: el mismo día del mes anterior (o el último que exista)."""
+    import calendar
+    year = moment.year if moment.month > 1 else moment.year - 1
+    month = moment.month - 1 or 12
+    day = min(moment.day, calendar.monthrange(year, month)[1])
+    return moment.replace(year=year, month=month, day=day)
 
 class SubscriptionService:
     """
@@ -98,11 +115,32 @@ class SubscriptionService:
             slug=tenant.slug,
             plan=tenant.plan_id,
             status=tenant.status,
-            current_period_start=month_start,
-            current_period_end=month_end,
+            # El periodo es el pagado (prepago); el mes calendario queda sólo
+            # para las estadísticas de ventas del mes.
+            current_period_start=_month_before(tenant.paid_until) if tenant.paid_until else month_start,
+            current_period_end=tenant.paid_until or month_end,
             monthly_fee_mxn=plan_tier.monthly_price_mxn,
             usage_stats=stats,
+            paid_until=tenant.paid_until,
+            grace_until=grace_until(tenant),
+            entitlement=entitlement_state(tenant).value,
+            subscription_source=tenant.subscription_source,
+            renewal_channel=settings.SUBSCRIPTION_RENEWAL_CHANNEL,
+            lock_reason=tenant.lock_reason if tenant.status != TenantStatus.ACTIVE else None,
+            suspension_reason=await self._suspension_reason(tenant),
         )
+
+    async def _suspension_reason(self, tenant: Tenant) -> Optional[str]:
+        """El motivo de la suspensión de soporte vigente, tal cual lo escribió (P8)."""
+        if tenant.lock_reason != TenantLockReason.ABUSE.value:
+            return None
+        from app.modules.platform_admin.domain.audit_log import AuditAction
+        from app.modules.platform_admin.repositories.audit_repository import AuditRepository
+
+        rows, _ = await AuditRepository(self.session).list(
+            tenant_id=tenant.id, actions=[AuditAction.ABUSE_SUSPENDED], limit=1,
+        )
+        return rows[0].reason if rows else None
 
     async def change_plan(
         self,
@@ -140,6 +178,20 @@ class SubscriptionService:
                     "code": "DOWNGRADE_BLOCKED_BY_USAGE",
                     "message": f"No puedes cambiar al {new_plan_tier.name}. Tienes {users_count} usuarios y el límite es {new_plan_tier.max_users}.",
                 },
+            )
+
+        # Subir de plan cuesta más y hoy no hay cómo cobrarlo desde la app
+        # (P13: el cobro será con Google Play). Antes, cualquier Dueño se pasaba
+        # a Corporativo gratis por aquí. Bajar sí se permite; subir lo hacen los
+        # fundadores desde el panel, con motivo y en la bitácora.
+        current_tier = AVAILABLE_PLANS.get(tenant.plan_id, AVAILABLE_PLANS[TenantPlan.EMPRENDEDOR])
+        if new_plan_tier.monthly_price_mxn > current_tier.monthly_price_mxn:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Subir de plan todavía no se puede hacer desde la app. "
+                    "Escríbenos y lo activamos por ti."
+                ),
             )
 
         old_plan = tenant.plan_id
@@ -355,9 +407,13 @@ class SubscriptionService:
         invoice.status = SubscriptionInvoiceStatus.PAID
         invoice.paid_at = paid_at or datetime.now(timezone.utc)
 
-        # Reactivar el comercio si estaba en SOFT_LOCK o HARD_LOCK
-        if tenant and tenant.status in [TenantStatus.SOFT_LOCK, TenantStatus.HARD_LOCK]:
-            tenant.status = TenantStatus.ACTIVE
+        # Modelo prepago (P12): el pago abre un mes desde el día en que se pagó
+        # y reactiva si estaba bloqueado. Misma función que usará Google Play.
+        if tenant:
+            until = period_from_payment(invoice.paid_at)
+            invoice.period_start = invoice.paid_at.date()
+            invoice.period_end = until.date()
+            grant_period(tenant, until, SubscriptionSource.GATEWAY)
             tenant.updated_at = datetime.now(timezone.utc)
 
         log.processed = True

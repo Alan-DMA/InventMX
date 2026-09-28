@@ -55,7 +55,7 @@ class _PersonalDataScreenState extends ConsumerState<PersonalDataScreen> {
   Widget build(BuildContext context) {
     final member = ref.watch(currentMemberProvider).valueOrNull;
     final role = ref.watch(myRoleProvider);
-    final tenant = ref.watch(saasProfileProvider).valueOrNull?.tenantName;
+    final tenant = ref.watch(tenantNameProvider);
 
     if (member != null && !_initialized) {
       _nameController.text = member.name;

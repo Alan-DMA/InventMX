@@ -61,6 +61,20 @@ class SubscriptionResponse(BaseModel):
     current_period_end: datetime = Field(..., description="Fecha de corte o renovación del ciclo")
     monthly_fee_mxn: Decimal = Field(..., description="Tarifa mensual actual en MXN")
     usage_stats: SubscriptionUsageStats = Field(..., description="Estadísticas de consumo y capacidad")
+    # Vigencia prepago (P9–P13)
+    paid_until: Optional[datetime] = Field(None, description="Hasta cuándo está pagada la suscripción")
+    grace_until: Optional[datetime] = Field(None, description="Último día con acceso completo si no renueva")
+    entitlement: str = Field("SIN_FECHA", description="VIGENTE, GRACIA, VENCIDA o SIN_FECHA")
+    subscription_source: Optional[str] = Field(None, description="De dónde vino el periodo vigente")
+    renewal_channel: str = Field(
+        "NONE",
+        description="Cómo renueva desde la app: NONE (aún no hay cobro en la app) o GOOGLE_PLAY",
+    )
+    # Centro de soporte (P17): una suspensión de soporte no se arregla pagando
+    lock_reason: Optional[str] = Field(None, description="Si está bloqueada: NONPAYMENT o ABUSE")
+    suspension_reason: Optional[str] = Field(
+        None, description="Motivo que escribió soporte al suspender por abuso (P8)",
+    )
 
 
 class SubscriptionChangePlanRequest(BaseModel):

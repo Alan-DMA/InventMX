@@ -1,28 +1,20 @@
 """
 Panel de plataforma — Fase 1 (Sep 2026): acceso con TOTP, separación de tokens,
-comercios sólo con metadatos, acciones de suscripción con motivo, bitácora
-inalterable y transparencia hacia el Dueño. Un test por criterio (CA-P3…CA-P8).
+comercios sólo con metadatos, bitácora inalterable y transparencia hacia el
+Dueño. Un test por criterio (CA-P3…CA-P8). Las acciones de soporte del Centro
+de soporte viven en `test_support_center.py`; el cobro manual se retiró (P19).
 """
 import base64
 import uuid
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database.session import engine, set_tenant_context
 from app.core.security.password import get_password_hash
-from app.modules.auth_tenancy.domain.tenant import Tenant, TenantStatus
 from app.modules.platform_admin.domain.operator import PlatformOperator
 from app.modules.platform_admin.security import totp
-from app.modules.saas_billing.domain.subscription_invoice import (
-    SaasPaymentMethod,
-    SubscriptionInvoice,
-    SubscriptionInvoiceStatus,
-)
 
 P = "/api/v1/platform"
 PASSWORD = "ClaveDeFundador2026"
@@ -86,26 +78,6 @@ async def _register_store(client: AsyncClient, prefix: str = "panel") -> tuple[d
     assert resp.status_code == 201, resp.text
     data = resp.json()
     return {"Authorization": f"Bearer {data['access_token']}"}, uuid.UUID(data["user"]["tenant_id"]), email
-
-
-async def _overdue_invoice(db: AsyncSession, tenant_id: uuid.UUID, lock: TenantStatus) -> uuid.UUID:
-    await set_tenant_context(db, tenant_id)
-    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
-    tenant.status = lock
-    invoice = SubscriptionInvoice(
-        tenant_id=tenant_id,
-        plan=tenant.plan_id,
-        amount_mxn=Decimal("199.00"),
-        payment_method=SaasPaymentMethod.SPEI,
-        status=SubscriptionInvoiceStatus.OVERDUE,
-        payment_reference=f"NX{uuid.uuid4().hex[:10].upper()}",
-        period_start=datetime.now(timezone.utc).date() - timedelta(days=40),
-        period_end=datetime.now(timezone.utc).date() - timedelta(days=10),
-    )
-    db.add(invoice)
-    await db.commit()
-    await set_tenant_context(db, None)
-    return invoice.id
 
 
 # -----------------------------------------------------------------------------
@@ -242,7 +214,9 @@ async def test_directory_shows_metadata_only(client: AsyncClient, db_session: As
     assert item["last_activity_at"] is None  # se registró pero no ha iniciado sesión por login
     assert set(item) == {
         "id", "name", "slug", "plan", "status", "created_at", "owner_name", "owner_email",
-        "users_count", "users_limit", "last_activity_at", "open_invoices",
+        "users_count", "users_limit", "last_activity_at", "lock_reason",
+        # Vigencia prepago: también metadatos de la suscripción, no contenido
+        "paid_until", "grace_until", "entitlement", "subscription_source",
     }
 
     detail = await client.get(f"{P}/tenants/{tenant_id}", headers=headers)
@@ -252,122 +226,8 @@ async def test_directory_shows_metadata_only(client: AsyncClient, db_session: As
 
 
 # -----------------------------------------------------------------------------
-# Suscripciones con motivo, reactivación inmediata y transparencia (CA-P6…P8)
+# Transparencia hacia el Dueño y retiro del cobro manual (CA-P8, P19)
 # -----------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_confirming_a_payment_reactivates_immediately_and_owner_sees_why(
-    client: AsyncClient, db_session: AsyncSession
-):
-    op, headers, _ = await _enrolled_session(client, db_session)
-    _, tenant_id, owner_email = await _register_store(client, "pago")
-    invoice_id = await _overdue_invoice(db_session, tenant_id, TenantStatus.SOFT_LOCK)
-
-    # El Dueño entra estando en sólo lectura: su token lleva SOFT_LOCK
-    login = await client.post("/api/v1/auth/login", json={"email": owner_email, "password": "password123"})
-    owner = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    blocked = await client.post("/api/v1/inventory/categories", json={"name": "Dulces"}, headers=owner)
-    assert blocked.status_code == 403
-
-    short = await client.post(
-        f"{P}/tenants/{tenant_id}/payments/confirm",
-        json={"invoice_id": str(invoice_id), "method": "CASH", "reason": "pagó"},
-        headers=headers,
-    )
-    assert short.status_code == 422
-
-    reason = "Pagó en efectivo en la visita del 27 de septiembre."
-    confirmed = await client.post(
-        f"{P}/tenants/{tenant_id}/payments/confirm",
-        json={"invoice_id": str(invoice_id), "method": "CASH", "reference": "REC-001", "reason": reason},
-        headers=headers,
-    )
-    assert confirmed.status_code == 200, confirmed.text
-    detail = confirmed.json()
-    assert detail["status"] == "ACTIVE"
-    assert detail["invoices"][0]["status"] == "PAID"
-    assert detail["activity"][0]["action"] == "PAYMENT_CONFIRMED"
-    assert detail["activity"][0]["reason"] == reason
-    assert detail["activity"][0]["operator_name"] == "Operadora de Prueba"
-
-    # CA-P7: el mismo token (aún dice SOFT_LOCK) ya puede escribir
-    unblocked = await client.post("/api/v1/inventory/categories", json={"name": "Dulces"}, headers=owner)
-    assert unblocked.status_code == 201, unblocked.text
-
-    # CA-P8: el Dueño ve qué se hizo y por qué
-    activity = (await client.get("/api/v1/subscription/activity", headers=owner)).json()
-    assert activity[0]["summary"] == "Confirmamos tu pago de $199.00 en efectivo. Tu cuenta volvió a estar activa."
-    assert activity[0]["reason"] == reason
-    assert activity[0]["by"] == "Soporte Nexus · Operadora de Prueba"
-
-    # El middleware abrió conexiones del pool global: se liberan para otros tests
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_manual_status_change_and_courtesy_month(client: AsyncClient, db_session: AsyncSession):
-    _, headers, _ = await _enrolled_session(client, db_session)
-    _, tenant_id, _ = await _register_store(client, "estado")
-
-    same = await client.post(
-        f"{P}/tenants/{tenant_id}/status",
-        json={"status": "ACTIVE", "reason": "Sin cambio, sólo probando."},
-        headers=headers,
-    )
-    assert same.status_code == 422
-
-    locked = await client.post(
-        f"{P}/tenants/{tenant_id}/status",
-        json={"status": "HARD_LOCK", "reason": "Dos meses sin pago y sin respuesta a los avisos."},
-        headers=headers,
-    )
-    assert locked.status_code == 200 and locked.json()["status"] == "HARD_LOCK"
-
-    courtesy = await client.post(
-        f"{P}/tenants/{tenant_id}/courtesy",
-        json={"reason": "Compensación por la caída del servicio del 20 de septiembre."},
-        headers=headers,
-    )
-    assert courtesy.status_code == 200, courtesy.text
-    body = courtesy.json()
-    assert body["status"] == "ACTIVE"
-    gift = body["invoices"][0]
-    assert gift["payment_method"] == "COURTESY"
-    assert Decimal(gift["amount_mxn"]) == Decimal("0.00")
-    assert gift["status"] == "PAID"
-
-
-@pytest.mark.asyncio
-async def test_plan_downgrade_blocked_when_store_exceeds_user_limit(client: AsyncClient, db_session: AsyncSession):
-    _, headers, _ = await _enrolled_session(client, db_session)
-    owner, tenant_id, _ = await _register_store(client, "plan")
-
-    up = await client.post(
-        f"{P}/tenants/{tenant_id}/plan",
-        json={"plan": "COMERCIO", "reason": "Pidió subir de plan por teléfono."},
-        headers=headers,
-    )
-    assert up.status_code == 200 and up.json()["plan"] == "COMERCIO"
-
-    roles = (await client.get("/api/v1/roles", headers=owner)).json()
-    cashier = next(r for r in roles if r["name"] == "CASHIER")
-    for i in range(2):
-        created = await client.post(
-            "/api/v1/users",
-            json={"email": f"cajero{i}_{uuid.uuid4().hex[:6]}@tienda.mx", "password": "empleado123",
-                  "full_name": f"Cajero {i}", "role_id": cashier["id"]},
-            headers=owner,
-        )
-        assert created.status_code == 201, created.text
-
-    down = await client.post(
-        f"{P}/tenants/{tenant_id}/plan",
-        json={"plan": "EMPRENDEDOR", "reason": "Pidió bajar de plan para ahorrar."},
-        headers=headers,
-    )
-    assert down.status_code == 422
-    assert "3 activos" in down.json()["detail"]
-
 
 @pytest.mark.asyncio
 async def test_cashier_cannot_read_support_activity(client: AsyncClient):
@@ -386,18 +246,26 @@ async def test_cashier_cannot_read_support_activity(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_metrics_and_open_invoices_inbox(client: AsyncClient, db_session: AsyncSession):
+async def test_metrics_show_no_invented_revenue(client: AsyncClient, db_session: AsyncSession):
+    """Sin Google Play conectado no hay cifra de ingreso (P19); tiendas por estado y altas sí."""
     _, headers, _ = await _enrolled_session(client, db_session)
-    _, tenant_id, _ = await _register_store(client, "bandeja")
-    invoice_id = await _overdue_invoice(db_session, tenant_id, TenantStatus.SOFT_LOCK)
-
+    await _register_store(client, "metricas")
     metrics = (await client.get(f"{P}/metrics", headers=headers)).json()
-    assert metrics["tenants_total"] >= 1
-    assert metrics["open_invoices"] >= 1
-    assert Decimal(metrics["mrr_mxn"]) > 0
+    assert metrics["tenants_total"] >= 1 and metrics["signups_last_30_days"] >= 1
+    assert metrics["revenue_connected"] is False and metrics["monthly_revenue_mxn"] is None
+    assert "mrr_mxn" not in metrics and "open_invoices" not in metrics
 
-    inbox = (await client.get(f"{P}/invoices/open", params={"limit": 200}, headers=headers)).json()
-    assert str(invoice_id) in [i["id"] for i in inbox["items"]]
+
+@pytest.mark.asyncio
+async def test_billing_actions_are_gone(client: AsyncClient, db_session: AsyncSession):
+    """CA-S8: el panel no ofrece ninguna acción de cobro (P19)."""
+    _, headers, _ = await _enrolled_session(client, db_session)
+    _, tenant_id, _ = await _register_store(client, "sincobro")
+    body = {"reason": "Esto ya no debería existir en el panel."}
+    for path in ("payments/confirm", "plan", "courtesy", "status"):
+        resp = await client.post(f"{P}/tenants/{tenant_id}/{path}", json=body, headers=headers)
+        assert resp.status_code in (404, 405), path
+    assert (await client.get(f"{P}/invoices/open", headers=headers)).status_code in (404, 405)
 
 
 # -----------------------------------------------------------------------------

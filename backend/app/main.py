@@ -23,6 +23,8 @@ from app.modules.core_admin.api.endpoints import router as admin_router
 from app.modules.customers_credit.api.endpoints import router as customers_router
 from app.modules.inventory.api.endpoints import router as inventory_router
 from app.modules.platform_admin.api.endpoints import router as platform_router
+from app.modules.platform_admin.api.owner_endpoints import router as support_access_router
+from app.modules.platform_admin.services.subscription_cycle import subscription_cycle_loop
 from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
 from app.modules.saas_billing.api.endpoints import router as saas_billing_router
 from app.modules.sales_pos.api.endpoints import router as sales_router
@@ -36,7 +38,15 @@ async def lifespan(app: FastAPI):
     """Gestiona el ciclo de vida de la aplicación: inicio y apagado ordenado."""
     cleanup_task = asyncio.create_task(release_expired_reservations_loop())
     logger.info("Servicio de limpieza de stock reservado iniciado.")
+    # Ciclo de suscripción prepago: sólo si está encendido (P13 — se enciende al
+    # integrar Google Play; hoy nadie tiene cómo renovar desde la app)
+    cycle_task = None
+    if settings.SUBSCRIPTION_ENFORCEMENT_ENABLED:
+        cycle_task = asyncio.create_task(subscription_cycle_loop())
+        logger.info("Ciclo de suscripción encendido.")
     yield
+    if cycle_task is not None:
+        cycle_task.cancel()
     cleanup_task.cancel()
     try:
         await cleanup_task
@@ -94,6 +104,7 @@ app.include_router(community_b2b_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(platform_router, prefix=settings.API_V1_STR)
+app.include_router(support_access_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["health"])

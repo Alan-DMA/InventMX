@@ -1,7 +1,7 @@
 """
 "Actividad de soporte" que ve el Dueño en Mi suscripción (P8, transparencia).
 
-Sólo lo que soporte cambió en su suscripción, en palabras del tendero y con el
+Sólo lo que soporte hizo en su cuenta, en palabras del tendero y con el
 motivo tal cual lo escribimos. Las lecturas de la ficha (TENANT_VIEWED) y los
 accesos al panel no se muestran aquí: no cambian nada de su cuenta.
 """
@@ -42,6 +42,14 @@ def _human_period(period: str) -> str:
     return f"{first} a {end.day} {_MONTHS[end.month - 1]} {end.year}"
 
 
+def _human_day(iso: Optional[str]) -> str:
+    try:
+        day = datetime.fromisoformat(iso).date()
+    except (TypeError, ValueError):
+        return "día de corte"
+    return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
 def _reactivated(details: dict) -> str:
     return " Tu cuenta volvió a estar activa." if details.get("reactivado") else ""
 
@@ -55,9 +63,35 @@ def describe(entry: PlatformAuditLog) -> str:
         return f"Tu cuenta pasó de {_STATUS.get(d.get('de'), d.get('de'))} a {_STATUS.get(d.get('a'), d.get('a'))}."
     if entry.action == AuditAction.PLAN_CHANGED:
         return f"Tu plan cambió de {_PLAN.get(d.get('de'), d.get('de'))} a {_PLAN.get(d.get('a'), d.get('a'))}."
+    if entry.action == AuditAction.SUBSCRIPTION_SUSPENDED:
+        return (
+            f"Tu suscripción venció el {_human_day(d.get('vencio'))} y terminó el periodo de gracia: "
+            "tu cuenta quedó suspendida hasta que renueves."
+        )
     if entry.action == AuditAction.COURTESY_GRANTED:
         return f"Te dimos un mes sin costo ({_human_period(d.get('periodo', ''))})." + _reactivated(d)
-    return "Soporte hizo un cambio en tu suscripción."
+    if entry.action == AuditAction.ASSISTED_RECOVERY_SENT:
+        return f"Te enviamos un código para recuperar el acceso a {d.get('correo', 'tu correo')}."
+    if entry.action == AuditAction.DAYS_GIFTED:
+        days = d.get("dias")
+        plural = "día" if days == 1 else "días"
+        return (
+            f"Te regalamos {days} {plural}: tu suscripción vale hasta el {_human_day(d.get('vigente_hasta'))}."
+            + _reactivated(d)
+        )
+    if entry.action == AuditAction.ABUSE_SUSPENDED:
+        return "Suspendimos tu cuenta. Mientras tanto no puedes operar; escríbenos para aclararlo."
+    if entry.action == AuditAction.ABUSE_LIFTED:
+        return f"Levantamos la suspensión: tu cuenta está {_STATUS.get(d.get('a'), 'activa')}."
+    if entry.action == AuditAction.DATA_EXPORT_REQUESTED:
+        return "Preparamos una copia de tus datos; te llega a tu correo."
+    if entry.action == AuditAction.DATA_EXPORT_SENT:
+        return f"Te enviamos la copia de tus datos a {d.get('correo', 'tu correo')}."
+    if entry.action == AuditAction.TENANT_DELETION_REQUESTED:
+        return "Se pidió eliminar tu tienda. Falta la aprobación de un segundo miembro de soporte."
+    if entry.action == AuditAction.TENANT_DELETION_CANCELLED:
+        return "Se canceló la eliminación de tu tienda: todo sigue igual."
+    return "Soporte hizo un cambio en tu cuenta."
 
 
 async def support_activity_for_tenant(db: AsyncSession, tenant_id: uuid.UUID, limit: int = 50) -> List[SupportActivityItem]:
@@ -71,7 +105,7 @@ async def support_activity_for_tenant(db: AsyncSession, tenant_id: uuid.UUID, li
             action=r.action,
             summary=describe(r),
             reason=r.reason,
-            by=f"Soporte Nexus · {names.get(r.operator_id, 'equipo')}",
+            by=(f"Soporte Nexus · {names.get(r.operator_id, 'equipo')}" if r.operator_id else "Nexus (automático)"),
         )
         for r in rows
     ]

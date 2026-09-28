@@ -1,9 +1,11 @@
 from decimal import Decimal
 import uuid
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
+from app.modules.saas_billing.services.entitlement import SubscriptionSource, add_one_month
 
 
 class TenantRepository:
@@ -29,6 +31,7 @@ class TenantRepository:
         legal_name: Optional[str] = None,
         enable_usd_secondary: bool = False,
     ) -> Tenant:
+        now = datetime.now(timezone.utc)
         tenant = Tenant(
             id=uuid.uuid4(),
             name=name,
@@ -38,6 +41,9 @@ class TenantRepository:
             rfc=rfc,
             legal_name=legal_name,
             enable_usd_secondary=enable_usd_secondary,
+            # Primer mes desde el registro (modelo prepago, P9–P13)
+            paid_until=add_one_month(now),
+            subscription_source=SubscriptionSource.TRIAL.value,
         )
         self.db.add(tenant)
         await self.db.flush()

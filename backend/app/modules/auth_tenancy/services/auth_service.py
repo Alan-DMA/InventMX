@@ -9,7 +9,6 @@ from app.core.exceptions.base import (
     BadRequestException,
     ConflictException,
     NotFoundException,
-    TenantLockedException,
     UnauthorizedException,
 )
 # Importación de utilidades de seguridad JWT y hash
@@ -17,7 +16,7 @@ from app.core.security.jwt import create_access_token, create_refresh_token, dec
 from app.core.security.password import get_password_hash, verify_password
 from app.core.database.session import set_tenant_context
 # Importación de modelos de dominio
-from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
+from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan
 from app.modules.auth_tenancy.domain.user import User
 # Importación de repositorios de datos
 from app.modules.auth_tenancy.repositories.tenant_repository import TenantRepository
@@ -28,6 +27,7 @@ from app.modules.auth_tenancy.schemas.token import (
     TokenResponse,
 )
 from app.modules.auth_tenancy.schemas.user import ChangePasswordRequest, UserLogin
+from app.modules.auth_tenancy.services.login_code_service import LOGIN_CODE_REJECTED, LoginCodeService
 
 
 class AuthService:
@@ -126,23 +126,31 @@ class AuthService:
         if not tenant:
             raise NotFoundException("Comercio no encontrado.")
 
-        # Validar estado del tenant (Hard lock)
-        if tenant.status == TenantStatus.HARD_LOCK:
-            raise TenantLockedException(
-                message="Tu cuenta está bloqueada por falta de pago. Por favor regulariza tu suscripción.",
-                lock_type="HARD_LOCK",
-            )
+        # Un comercio en HARD_LOCK SÍ inicia sesión (P13, Sep 2026): la
+        # renovación con Google Play se hace desde la app, así que tiene que
+        # poder entrar. Su token lleva HARD_LOCK y el middleware sólo le deja
+        # ver su suscripción (402 en todo lo demás).
 
+        return await self._open_session(user)
+
+    async def _open_session(self, user: User, must_change_password: bool = False) -> TokenResponse:
+        """
+        Registra el acceso y emite los tokens. Con `must_change_password` (entró
+        con un código de un solo uso, P16) la API sólo le deja poner contraseña nueva.
+        """
+        tenant = user.tenant
         # Inyectar contexto RLS para la sesión
         await set_tenant_context(self.db, tenant.id)
 
         # Última actividad del comercio para el panel de plataforma (Fase 1)
         user.last_login_at = datetime.now(timezone.utc)
+        if must_change_password:
+            user.must_change_password = True
         await self.db.commit()
 
         # Determinar nombre del rol
         role_name = user.role.name if user.role else "CASHIER"
-        
+
         # Generar tokens
         access_token = create_access_token(
             subject=user.id,
@@ -162,6 +170,34 @@ class AuthService:
             user=user,
             tenant=tenant,
         )
+
+    async def login_with_code(self, email: str, code: str) -> TokenResponse:
+        """
+        Entra con el código de un solo uso que le llegó al correo (P16). Mismo
+        mensaje para correo desconocido, código equivocado o vencido: no delata
+        qué correos existen.
+        """
+        user = await self.user_repo.get_by_email_global(email.strip())
+        if not user or not user.is_active or not user.tenant:
+            raise UnauthorizedException(LOGIN_CODE_REJECTED)
+        if not await LoginCodeService(self.db).consume(user, code):
+            raise UnauthorizedException(LOGIN_CODE_REJECTED)
+        return await self._open_session(user, must_change_password=True)
+
+    async def set_new_password(self, new_password: str, current_user: User) -> None:
+        """
+        Contraseña nueva tras entrar con un código (P16): no pide la actual,
+        por eso sólo vale mientras la cuenta esté marcada para cambiarla.
+        """
+        if not current_user.must_change_password:
+            raise BadRequestException(
+                "Tu cuenta no tiene un cambio de contraseña pendiente: usa \"Cambiar contraseña\"."
+            )
+        await set_tenant_context(self.db, current_user.tenant_id)
+        await self.user_repo.update(user=current_user, hashed_password=get_password_hash(new_password))
+        current_user.must_change_password = False
+        await LoginCodeService(self.db).invalidate_all(current_user.id)
+        await self.db.commit()
 
     async def refresh_access_token(self, refresh_token: str) -> TokenResponse:
         """
@@ -185,11 +221,8 @@ class AuthService:
             raise UnauthorizedException("Usuario inválido o inactivo.")
 
         tenant = user.tenant
-        if not tenant or tenant.status == TenantStatus.HARD_LOCK:
-            raise TenantLockedException(
-                message="Tu cuenta está bloqueada por falta de pago.",
-                lock_type="HARD_LOCK",
-            )
+        if not tenant:
+            raise NotFoundException("Comercio no encontrado.")
 
         role_name = user.role.name if user.role else "CASHIER"
         new_access_token = create_access_token(

@@ -2,6 +2,7 @@ from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantSta
 from app.modules.auth_tenancy.domain.permission import Permission, role_permissions
 from app.modules.auth_tenancy.domain.role import Role
 from app.modules.auth_tenancy.domain.user import User
+from app.modules.auth_tenancy.domain.login_code import LoginCode
 
 __all__ = [
     "Tenant",
@@ -11,4 +12,5 @@ __all__ = [
     "role_permissions",
     "Role",
     "User",
+    "LoginCode",
 ]

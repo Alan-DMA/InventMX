@@ -3,7 +3,7 @@ import uuid
 # Importación de tipos estáticos
 from typing import List
 # Importación de constructs de FastAPI
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 # Importación de sesión asíncrona de SQLAlchemy
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,9 @@ from app.modules.auth_tenancy.schemas.token import (
 )
 from app.modules.auth_tenancy.schemas.user import (
     ChangePasswordRequest,
+    LoginWithCodeRequest,
+    PasswordRecoveryRequest,
+    SetPasswordRequest,
     UpdateOperatingWarehouseRequest,
     UserCreate,
     UserLogin,
@@ -41,6 +44,7 @@ from app.modules.auth_tenancy.schemas.user import (
 )
 # Importación de servicios de lógica de negocio
 from app.modules.auth_tenancy.services.auth_service import AuthService
+from app.modules.auth_tenancy.services.login_code_service import LoginCodeService, send_recovery_email
 from app.modules.auth_tenancy.services.tenant_service import TenantService
 from app.modules.auth_tenancy.services.user_service import UserService
 
@@ -133,6 +137,59 @@ async def change_password(
     """
     service = AuthService(db)
     await service.change_password(data, current_user)
+
+
+@router.post(
+    "/auth/password-recovery",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="¿Olvidaste tu contraseña? Envía un código al correo",
+)
+async def request_password_recovery(
+    data: PasswordRecoveryRequest,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Si el correo tiene cuenta, le llega un código de un solo uso (30 min).
+    Responde siempre lo mismo, y el correo sale después de responder: ni el
+    texto ni el tiempo de respuesta revelan qué correos están registrados.
+    """
+    message = await LoginCodeService(db).request_self_recovery(data.email)
+    if message is not None:
+        background.add_task(send_recovery_email, message)
+    return {"message": "Si el correo tiene una cuenta en Nexus, te enviamos un código. Revisa tu bandeja y la de spam."}
+
+
+@router.post(
+    "/auth/login-with-code",
+    response_model=TokenResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Entrar con el código de un solo uso",
+)
+async def login_with_code(
+    data: LoginWithCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    El código sustituye a la contraseña una vez. La sesión sale con
+    `user.must_change_password = true`: hasta poner una nueva sólo responden
+    `/auth/me` y `/auth/set-password` (403 `PASSWORD_CHANGE_REQUIRED` en lo demás).
+    """
+    return await AuthService(db).login_with_code(data.email, data.code)
+
+
+@router.post(
+    "/auth/set-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Poner contraseña nueva tras entrar con un código",
+)
+async def set_password(
+    data: SetPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sólo con el cambio pendiente (400 si no); invalida cualquier otro código vigente."""
+    await AuthService(db).set_new_password(data.new_password, current_user)
 
 
 @router.patch(

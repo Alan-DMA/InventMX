@@ -27,18 +27,43 @@ class AuditAction:
     RECOVERY_CODE_USED = "RECOVERY_CODE_USED"
     OPERATOR_LOCKED = "OPERATOR_LOCKED"
     TENANT_VIEWED = "TENANT_VIEWED"
+    # Cobro manual y bloqueos de la Fase 1: retirados de la API (P19). Se
+    # conservan para que el historial ya escrito se siga leyendo.
     PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED"
     STATUS_CHANGED = "STATUS_CHANGED"
     PLAN_CHANGED = "PLAN_CHANGED"
     COURTESY_GRANTED = "COURTESY_GRANTED"
+    # Hecho por el ciclo automático (operador vacío = "Sistema")
+    SUBSCRIPTION_SUSPENDED = "SUBSCRIPTION_SUSPENDED"
+    # Centro de soporte (Sep 2026)
+    ASSISTED_RECOVERY_SENT = "ASSISTED_RECOVERY_SENT"
+    DAYS_GIFTED = "DAYS_GIFTED"
+    ABUSE_SUSPENDED = "ABUSE_SUSPENDED"
+    ABUSE_LIFTED = "ABUSE_LIFTED"
+    DATA_EXPORT_REQUESTED = "DATA_EXPORT_REQUESTED"
+    DATA_EXPORT_SENT = "DATA_EXPORT_SENT"        # sistema: el archivo salió al correo del dueño
+    DATA_EXPORT_FAILED = "DATA_EXPORT_FAILED"    # sistema
+    TENANT_DELETION_REQUESTED = "TENANT_DELETION_REQUESTED"
+    TENANT_DELETION_CANCELLED = "TENANT_DELETION_CANCELLED"
+    TENANT_DELETED = "TENANT_DELETED"            # lo registra quien dio la segunda aprobación
+    # Lo hace el dueño desde su app (operador vacío); aquí para el feed
+    SUPPORT_ACCESS_GRANTED = "SUPPORT_ACCESS_GRANTED"
+    SUPPORT_ACCESS_REVOKED = "SUPPORT_ACCESS_REVOKED"
     # Sólo desde el script de servidor `scripts/platform_operator.py`
     OPERATOR_CREATED = "OPERATOR_CREATED"
     OPERATOR_DEACTIVATED = "OPERATOR_DEACTIVATED"
     TOTP_RESET = "TOTP_RESET"
 
-    # Lo que soporte cambió en la suscripción de un comercio: su Dueño lo ve
-    # en "Actividad de soporte", con el motivo (P8, transparencia).
-    TENANT_VISIBLE = (PAYMENT_CONFIRMED, STATUS_CHANGED, PLAN_CHANGED, COURTESY_GRANTED)
+    # Lo que soporte hizo en la cuenta de un comercio: su Dueño lo ve en
+    # "Actividad de soporte", con el motivo (P8, transparencia).
+    TENANT_VISIBLE = (
+        PAYMENT_CONFIRMED, STATUS_CHANGED, PLAN_CHANGED, COURTESY_GRANTED, SUBSCRIPTION_SUSPENDED,
+        ASSISTED_RECOVERY_SENT, DAYS_GIFTED, ABUSE_SUSPENDED, ABUSE_LIFTED,
+        DATA_EXPORT_REQUESTED, DATA_EXPORT_SENT, TENANT_DELETION_REQUESTED, TENANT_DELETION_CANCELLED,
+    )
+
+    # Ruido que no entra en "Lo que pasó" del feed (sí en la bitácora completa)
+    FEED_NOISE = (TENANT_VIEWED, LOGIN_SUCCEEDED, TOTP_ENROLLED, RECOVERY_CODE_USED)
 
 
 class PlatformAuditLog(Base):

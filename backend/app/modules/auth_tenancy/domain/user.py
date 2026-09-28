@@ -49,6 +49,14 @@ class User(TenantBaseModel):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Entró con un código de un solo uso (P16): hasta poner contraseña nueva,
+    # la API sólo le deja ver quién es y cambiarla (Centro de soporte, Sep 2026)
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
     default_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(f"{SCHEMA}.warehouses.id", ondelete="SET NULL"),
