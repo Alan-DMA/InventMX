@@ -5,12 +5,11 @@ import json
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import settings
-from app.modules.auth_tenancy.domain.tenant import Tenant
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.inventory.domain.product import Product
 from app.modules.sales_pos.domain.sale import Sale
@@ -25,7 +24,9 @@ from app.modules.core_admin.schemas.backup_schemas import (
 )
 
 # Registro en memoria de copias de seguridad para persistencia de metadatos de sesión
-_BACKUP_CATALOG: Dict[str, BackupMetadataResponse] = {}
+# Cada respaldo recuerda de qué comercio es: el listado de uno no muestra los
+# de otro (antes era un catálogo común a todos los comercios).
+_BACKUP_CATALOG: Dict[str, Tuple[uuid.UUID, BackupMetadataResponse]] = {}
 
 
 class BackupService:
@@ -57,9 +58,15 @@ class BackupService:
         total_records = 0
 
         # Conteo de registros por tabla para el volcado
-        tenant_count = (await self.db.scalar(select(func.count(Tenant.id)))) or 0
-        product_count = (await self.db.scalar(select(func.count(Product.id)))) or 0
-        sales_count = (await self.db.scalar(select(func.count(Sale.id)))) or 0
+        # Sólo el comercio de quien lo pide (además de RLS, filtro explícito)
+        tenant_id = current_user.tenant_id
+        tenant_count = 1
+        product_count = (await self.db.scalar(
+            select(func.count(Product.id)).where(Product.tenant_id == tenant_id)
+        )) or 0
+        sales_count = (await self.db.scalar(
+            select(func.count(Sale.id)).where(Sale.tenant_id == tenant_id)
+        )) or 0
 
         total_records = tenant_count + product_count + sales_count
 
@@ -70,7 +77,7 @@ class BackupService:
             "environment": settings.ENVIRONMENT,
             "created_at": now.isoformat(),
             "created_by_user_id": str(current_user.id),
-            "tenant_scope": "GLOBAL" if request.include_all_tenants else str(current_user.tenant_id),
+            "tenant_scope": str(current_user.tenant_id),
             "backup_type": request.backup_type.value,
             "tables_manifest": tables,
             "summary": {
@@ -105,7 +112,7 @@ class BackupService:
             notes=request.notes,
         )
 
-        _BACKUP_CATALOG[backup_id] = metadata
+        _BACKUP_CATALOG[backup_id] = (current_user.tenant_id, metadata)
         return metadata
 
     async def list_backups(self, current_user: User) -> BackupListResponse:
@@ -118,12 +125,12 @@ class BackupService:
         total_size = 0
 
         # Depuración de respaldos vencidos
-        for b_id, backup in list(_BACKUP_CATALOG.items()):
-            if backup.expires_at > now:
+        for b_id, (owner_tenant_id, backup) in list(_BACKUP_CATALOG.items()):
+            if backup.expires_at <= now:
+                del _BACKUP_CATALOG[b_id]
+            elif owner_tenant_id == current_user.tenant_id:
                 valid_backups.append(backup)
                 total_size += backup.size_bytes
-            else:
-                del _BACKUP_CATALOG[b_id]
 
         # Ordenar cronológicamente descendente
         valid_backups.sort(key=lambda b: b.created_at, reverse=True)
@@ -151,9 +158,13 @@ class BackupService:
         latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
 
         # Conteo de métricas agregadas
-        tenants_count = (await self.db.scalar(select(func.count(Tenant.id)))) or 0
-        products_count = (await self.db.scalar(select(func.count(Product.id)))) or 0
-        sales_count = (await self.db.scalar(select(func.count(Sale.id)))) or 0
+        tenant_id = current_user.tenant_id
+        products_count = (await self.db.scalar(
+            select(func.count(Product.id)).where(Product.tenant_id == tenant_id)
+        )) or 0
+        sales_count = (await self.db.scalar(
+            select(func.count(Sale.id)).where(Sale.tenant_id == tenant_id)
+        )) or 0
 
         status = "healthy" if db_connected and latency_ms < 500 else ("degraded" if db_connected else "unhealthy")
 
@@ -165,7 +176,6 @@ class BackupService:
             version="3.0.0",
             timestamp=datetime.now(timezone.utc),
             environment=settings.ENVIRONMENT,
-            active_tenants_count=tenants_count,
             total_products_count=products_count,
             total_sales_count=sales_count,
         )

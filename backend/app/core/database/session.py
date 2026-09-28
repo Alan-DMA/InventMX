@@ -40,9 +40,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     async with AsyncSessionLocal() as session:
         try:
+            await reset_rls_context(session)
             yield session
         finally:
             await session.close()
+
+
+async def reset_rls_context(session: AsyncSession) -> None:
+    """
+    Deja la conexión sin comercio y sin salto de RLS al empezar cada petición.
+
+    `set_tenant_context` fija la variable a nivel de sesión de PostgreSQL y el
+    pool reutiliza conexiones: tras un commit, la siguiente petición heredaba el
+    comercio de la anterior. Una petición sin autenticar (webhooks) corría
+    entonces "como" el último comercio que usó esa conexión (Panel de
+    plataforma, Fase 0 — Sep 2026).
+    """
+    await session.execute(
+        text(
+            "SELECT set_config('app.current_tenant', '', false), "
+            "set_config('app.bypass_rls', 'off', false);"
+        )
+    )
 
 
 async def set_tenant_context(

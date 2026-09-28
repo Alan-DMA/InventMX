@@ -1,5 +1,6 @@
 # Importación de UUID para identificación única
 import uuid
+from datetime import datetime, timezone
 # Importación de la sesión asíncrona de base de datos
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,6 +135,10 @@ class AuthService:
 
         # Inyectar contexto RLS para la sesión
         await set_tenant_context(self.db, tenant.id)
+
+        # Última actividad del comercio para el panel de plataforma (Fase 1)
+        user.last_login_at = datetime.now(timezone.utc)
+        await self.db.commit()
 
         # Determinar nombre del rol
         role_name = user.role.name if user.role else "CASHIER"

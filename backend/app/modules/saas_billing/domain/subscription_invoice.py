@@ -44,6 +44,10 @@ class SaasPaymentMethod(str, enum.Enum):
     SPEI = "SPEI"  # Transferencia bancaria directa con CLABE interbancaria personalizada
     OXXO = "OXXO"  # Pago en efectivo en tiendas de conveniencia OXXO con código de barras
     CARD = "CARD"  # Cargo automático o domiciliado con tarjeta de débito/crédito
+    # Confirmados a mano por los fundadores desde el panel de plataforma (Fase 1)
+    CASH = "CASH"                # Efectivo recibido en persona
+    MANUAL_SPEI = "MANUAL_SPEI"  # Transferencia verificada a mano en el banco
+    COURTESY = "COURTESY"        # Mes de cortesía (monto $0)
 
 
 class SubscriptionInvoice(Base):

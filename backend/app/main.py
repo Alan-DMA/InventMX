@@ -22,6 +22,7 @@ from app.modules.community_catalog.api.endpoints import router as community_b2b_
 from app.modules.core_admin.api.endpoints import router as admin_router
 from app.modules.customers_credit.api.endpoints import router as customers_router
 from app.modules.inventory.api.endpoints import router as inventory_router
+from app.modules.platform_admin.api.endpoints import router as platform_router
 from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
 from app.modules.saas_billing.api.endpoints import router as saas_billing_router
 from app.modules.sales_pos.api.endpoints import router as sales_router
@@ -92,6 +93,7 @@ app.include_router(whatsapp_catalog_router, prefix=settings.API_V1_STR)
 app.include_router(community_b2b_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(admin_router, prefix=settings.API_V1_STR)
+app.include_router(platform_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["health"])

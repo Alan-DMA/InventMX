@@ -106,4 +106,7 @@ claude.md
 # Local environment & working copy
 Include/
 Scripts/
+# En Windows `Scripts/` también atrapa `backend/scripts/` (git ignora mayúsculas):
+# ahí vive el script de operadores de la plataforma, que sí se versiona.
+!backend/scripts/
 nexus_v3/

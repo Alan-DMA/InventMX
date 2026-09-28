@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
 # Importación de SQLAlchemy
-from sqlalchemy import extract, func, select, update
+from sqlalchemy import extract, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de modelos de dominio
@@ -76,6 +76,22 @@ class SubscriptionRepository:
             stmt = stmt.where(SubscriptionInvoice.tenant_id == tenant_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def find_invoice_by_reference_any_tenant(
+        self, reference_id: str
+    ) -> Optional[SubscriptionInvoice]:
+        """
+        Localiza una factura por referencia **sin contexto de comercio**, para los
+        webhooks: llegan sin sesión y `subscription_invoices` tiene RLS, así que
+        sin esto no veían ninguna factura fuera de los tests. El salto de RLS es
+        local a la transacción y se apaga en cuanto termina la búsqueda; quien
+        llame debe fijar después el contexto del comercio de la factura.
+        """
+        await self.session.execute(text("SELECT set_config('app.bypass_rls', 'on', true);"))
+        try:
+            return await self.get_invoice_by_reference(reference_id)
+        finally:
+            await self.session.execute(text("SELECT set_config('app.bypass_rls', 'off', true);"))
 
     async def get_invoice_by_reference(self, reference_id: str) -> Optional[SubscriptionInvoice]:
         """Localiza una factura por su referencia bancaria SPEI o código de barras OXXO."""

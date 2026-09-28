@@ -8,6 +8,29 @@ from starlette.responses import JSONResponse, Response
 # Importación de utilidades de decodificación de tokens
 from app.core.security.jwt import decode_token
 
+
+async def _current_tenant_status(tenant_id, fallback: str) -> str:
+    """Estado real del comercio (`tenants` no tiene RLS). Ante cualquier duda, el del token."""
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from app.core.database.session import AsyncSessionLocal
+    from app.modules.auth_tenancy.domain.tenant import Tenant
+
+    try:
+        tenant_uuid = _uuid.UUID(str(tenant_id))
+    except (TypeError, ValueError):
+        return fallback
+    try:
+        async with AsyncSessionLocal() as session:
+            status = (await session.execute(
+                select(Tenant.status).where(Tenant.id == tenant_uuid)
+            )).scalar_one_or_none()
+    except Exception:
+        return fallback
+    return status.value if status is not None else fallback
+
 # Rutas exentas de validación de bloqueo de suscripción (Auth, Webhooks, Documentación y Salud)
 EXEMPT_PATHS = [
     "/health",
@@ -64,6 +87,12 @@ class SubscriptionLockMiddleware(BaseHTTPMiddleware):
 
         # 4. Obtener el estado del tenant almacenado o verificar en base de datos
         tenant_status = payload.get("tenant_status", "ACTIVE")
+        # Si el token dice "bloqueado", se confirma en la base: al reactivar un
+        # comercio desde el panel (pago confirmado, cortesía, cambio de estado)
+        # debe poder operar de inmediato, sin esperar a renovar su token. Sólo
+        # los comercios bloqueados pagan esta consulta (Panel de plataforma, CA-P7).
+        if tenant_status in ("SOFT_LOCK", "HARD_LOCK"):
+            tenant_status = await _current_tenant_status(payload.get("tenant_id"), tenant_status)
 
         # 5. Aplicar reglas de bloqueo por morosidad
         if tenant_status == "HARD_LOCK":

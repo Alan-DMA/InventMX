@@ -11,6 +11,8 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database.session import set_tenant_context
+
 # Importación de modelos y reglas de dominio
 from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
 from app.modules.saas_billing.domain.subscription_invoice import (
@@ -274,84 +276,91 @@ class SubscriptionService:
         self,
         payload: SpeiWebhookPayload,
     ) -> WebhookConfirmationResponse:
-        """
-        Procesa el webhook de confirmación bancaria SPEI liquidando la factura y reactivando la cuenta.
-        """
-        # Registrar evento en la bitácora
-        await self.repo.log_webhook_event(
+        """Confirmación bancaria SPEI (la firma ya se verificó en el endpoint)."""
+        return await self._settle_invoice_from_webhook(
             provider="SPEI",
             reference_id=payload.reference_id,
-            payload=payload.model_dump(mode="json"),
-            processed=False,
-        )
-
-        # Buscar la factura por la referencia o CLABE
-        invoice = await self.repo.get_invoice_by_reference(payload.reference_id)
-        if not invoice:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": "Payment reference not found"},
-            )
-
-        if invoice.status == SubscriptionInvoiceStatus.PAID:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={"error": "Payment already processed"},
-            )
-
-        # Marcar la factura como pagada
-        invoice.status = SubscriptionInvoiceStatus.PAID
-        invoice.paid_at = payload.payment_date or datetime.now(timezone.utc)
-
-        # Reactivar el comercio si estaba en SOFT_LOCK o HARD_LOCK
-        tenant = await self.repo.get_tenant_by_id(invoice.tenant_id)
-        if tenant and tenant.status in [TenantStatus.SOFT_LOCK, TenantStatus.HARD_LOCK]:
-            tenant.status = TenantStatus.ACTIVE
-            tenant.updated_at = datetime.now(timezone.utc)
-
-        await self.session.commit()
-
-        return WebhookConfirmationResponse(
-            status="PAYMENT_CONFIRMED",
-            invoice_id=invoice.id,
-            subscription_status=tenant.status if tenant else TenantStatus.ACTIVE,
+            amount=payload.amount,
+            paid_at=payload.payment_date,
+            raw_payload=payload.model_dump(mode="json"),
         )
 
     async def process_oxxo_webhook(
         self,
         payload: OxxoWebhookPayload,
     ) -> WebhookConfirmationResponse:
-        """
-        Procesa el webhook de confirmación de pago en OXXO Pay.
-        """
-        await self.repo.log_webhook_event(
+        """Pago liquidado en tienda OXXO (la firma ya se verificó en el endpoint)."""
+        return await self._settle_invoice_from_webhook(
             provider="OXXO",
             reference_id=payload.reference_id,
-            payload=payload.model_dump(mode="json"),
+            amount=payload.amount,
+            paid_at=payload.payment_date,
+            raw_payload=payload.model_dump(mode="json"),
+        )
+
+    async def _settle_invoice_from_webhook(
+        self,
+        provider: str,
+        reference_id: str,
+        amount: Decimal,
+        paid_at: Optional[datetime],
+        raw_payload: Dict[str, Any],
+    ) -> WebhookConfirmationResponse:
+        """
+        Liquida la factura de un webhook ya autenticado (Panel de plataforma, Fase 0).
+
+        - Idempotente (Constitución, Art. III-A): una factura ya pagada responde
+          200 `ALREADY_PROCESSED` sin tocar nada; con un error la pasarela
+          reintentaría indefinidamente.
+        - El monto debe coincidir con la factura. Si no, no se marca pagada: queda
+          en la bitácora de webhooks como `AMOUNT_MISMATCH` para revisión manual.
+        - Llega sin sesión: la factura se busca saltando RLS sólo para esa
+          consulta y el resto corre con el contexto del comercio de la factura.
+        """
+        log = await self.repo.log_webhook_event(
+            provider=provider,
+            reference_id=reference_id,
+            payload=raw_payload,
             processed=False,
         )
 
-        invoice = await self.repo.get_invoice_by_reference(payload.reference_id)
+        invoice = await self.repo.find_invoice_by_reference_any_tenant(reference_id)
         if not invoice:
+            await self.session.commit()
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": "Payment reference not found"},
+                detail="Referencia de pago no encontrada.",
             )
 
+        await set_tenant_context(self.session, invoice.tenant_id)
+        tenant = await self.repo.get_tenant_by_id(invoice.tenant_id)
+        tenant_status = tenant.status if tenant else TenantStatus.ACTIVE
+
         if invoice.status == SubscriptionInvoiceStatus.PAID:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={"error": "Payment already processed"},
+            await self.session.commit()
+            return WebhookConfirmationResponse(
+                status="ALREADY_PROCESSED",
+                invoice_id=invoice.id,
+                subscription_status=tenant_status,
+            )
+
+        if Decimal(str(amount)).quantize(Decimal("0.01")) != invoice.amount_mxn.quantize(Decimal("0.01")):
+            await self.session.commit()
+            return WebhookConfirmationResponse(
+                status="AMOUNT_MISMATCH",
+                invoice_id=invoice.id,
+                subscription_status=tenant_status,
             )
 
         invoice.status = SubscriptionInvoiceStatus.PAID
-        invoice.paid_at = payload.payment_date or datetime.now(timezone.utc)
+        invoice.paid_at = paid_at or datetime.now(timezone.utc)
 
-        tenant = await self.repo.get_tenant_by_id(invoice.tenant_id)
+        # Reactivar el comercio si estaba en SOFT_LOCK o HARD_LOCK
         if tenant and tenant.status in [TenantStatus.SOFT_LOCK, TenantStatus.HARD_LOCK]:
             tenant.status = TenantStatus.ACTIVE
             tenant.updated_at = datetime.now(timezone.utc)
 
+        log.processed = True
         await self.session.commit()
 
         return WebhookConfirmationResponse(

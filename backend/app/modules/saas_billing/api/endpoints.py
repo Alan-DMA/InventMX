@@ -3,12 +3,16 @@ from typing import List, Optional
 import uuid
 
 # Importación de FastAPI y componentes de ruteo
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Importación de dependencias de seguridad y base de datos
+from app.core.config.settings import settings
 from app.core.database.session import get_db
-from app.core.security.deps import get_current_user
+from app.core.security.webhook_signature import SIGNATURE_HEADER, verify_webhook_signature
+from app.core.security.deps import get_current_user, require_owner
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.saas_billing.domain.subscription_invoice import SubscriptionInvoiceStatus
 from app.modules.saas_billing.schemas.saas_schemas import (
@@ -25,6 +29,10 @@ from app.modules.saas_billing.schemas.saas_schemas import (
     WebhookConfirmationResponse,
 )
 from app.modules.saas_billing.services.subscription_service import SubscriptionService
+from app.modules.platform_admin.services.tenant_activity import (
+    SupportActivityItem,
+    support_activity_for_tenant,
+)
 
 # Definición del enrutador principal para suscripciones y facturación SaaS
 router = APIRouter(tags=["SaaS & Facturación"])
@@ -63,6 +71,23 @@ async def get_subscription_info(
     """Devuelve la información de suscripción del comercio autenticado."""
     service = SubscriptionService(db)
     return await service.get_subscription(current_user.tenant_id)
+
+
+@router.get(
+    "/subscription/activity",
+    response_model=List[SupportActivityItem],
+    summary="Lo que soporte Nexus hizo en tu suscripción",
+)
+async def get_support_activity(
+    current_user: User = Depends(require_owner),
+    db: AsyncSession = Depends(get_db),
+) -> List[SupportActivityItem]:
+    """
+    Pagos confirmados, cambios de estado o de plan y meses de cortesía hechos
+    desde el panel de plataforma, con el motivo tal cual lo escribimos (P8,
+    transparencia). Sólo el Dueño: un cajero no ve la facturación de su patrón.
+    """
+    return await support_activity_for_tenant(db, current_user.tenant_id)
 
 
 @router.post(
@@ -152,18 +177,52 @@ async def generate_invoice_payment_method(
 # 3. WEBHOOKS DE PASARELAS DE PAGO (SPEI STP / OXXO PAY)
 # -----------------------------------------------------------------------------
 
+def _webhook_body_doc(model: type[BaseModel]) -> dict:
+    """El cuerpo se lee crudo (para verificar la firma); esto lo documenta en OpenAPI."""
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": model.model_json_schema()}},
+        }
+    }
+
+
+async def _signed_payload(
+    request: Request,
+    signature: Optional[str],
+    secret: str,
+    provider: str,
+    model: type[BaseModel],
+):
+    """Verifica la firma sobre el cuerpo crudo y sólo entonces lo interpreta."""
+    body = await request.body()
+    verify_webhook_signature(body, signature, secret, provider)
+    try:
+        return model.model_validate_json(body)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+
 @router.post(
     "/webhooks/spei/payment-confirmation",
     response_model=WebhookConfirmationResponse,
     status_code=status.HTTP_200_OK,
     summary="Webhook de confirmación de pago SPEI",
-    description="Endpoint seguro para recibir notificaciones automáticas de transferencias bancarias SPEI vía STP.",
+    description=(
+        "Recibe las transferencias SPEI vía STP. Exige la firma HMAC-SHA256 del cuerpo "
+        f"en `{SIGNATURE_HEADER}` con el secreto `SPEI_WEBHOOK_SECRET`."
+    ),
+    openapi_extra=_webhook_body_doc(SpeiWebhookPayload),
 )
 async def webhook_spei_payment_confirmation(
-    payload: SpeiWebhookPayload,
+    request: Request,
+    x_nexus_signature: Optional[str] = Header(None, alias=SIGNATURE_HEADER),
     db: AsyncSession = Depends(get_db),
 ) -> WebhookConfirmationResponse:
-    """Procesa la confirmación de pago interbancario SPEI y reactiva la cuenta si aplica."""
+    """Liquida la factura y reactiva la cuenta si la firma, la referencia y el monto cuadran."""
+    payload = await _signed_payload(
+        request, x_nexus_signature, settings.SPEI_WEBHOOK_SECRET, "SPEI", SpeiWebhookPayload,
+    )
     service = SubscriptionService(db)
     return await service.process_spei_webhook(payload)
 
@@ -173,12 +232,20 @@ async def webhook_spei_payment_confirmation(
     response_model=WebhookConfirmationResponse,
     status_code=status.HTTP_200_OK,
     summary="Webhook de confirmación de pago OXXO",
-    description="Endpoint seguro para recibir notificaciones de pagos liquidados en tiendas de conveniencia OXXO.",
+    description=(
+        "Recibe los pagos liquidados en tiendas OXXO. Exige la firma HMAC-SHA256 del cuerpo "
+        f"en `{SIGNATURE_HEADER}` con el secreto `OXXO_WEBHOOK_SECRET`."
+    ),
+    openapi_extra=_webhook_body_doc(OxxoWebhookPayload),
 )
 async def webhook_oxxo_payment_confirmation(
-    payload: OxxoWebhookPayload,
+    request: Request,
+    x_nexus_signature: Optional[str] = Header(None, alias=SIGNATURE_HEADER),
     db: AsyncSession = Depends(get_db),
 ) -> WebhookConfirmationResponse:
-    """Procesa la confirmación de abono en tiendas OXXO y reactiva la cuenta si aplica."""
+    """Liquida la factura y reactiva la cuenta si la firma, la referencia y el monto cuadran."""
+    payload = await _signed_payload(
+        request, x_nexus_signature, settings.OXXO_WEBHOOK_SECRET, "OXXO", OxxoWebhookPayload,
+    )
     service = SubscriptionService(db)
     return await service.process_oxxo_webhook(payload)

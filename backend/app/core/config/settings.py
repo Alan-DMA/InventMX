@@ -21,6 +21,23 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Webhooks de pago SaaS: secreto compartido con cada pasarela para la firma
+    # HMAC-SHA256 del cuerpo (header `X-Nexus-Signature`). Vacío = el webhook
+    # rechaza todo (falla cerrado) hasta que se configure en `.env`.
+    SPEI_WEBHOOK_SECRET: str = ""
+    OXXO_WEBHOOK_SECRET: str = ""
+
+    # Panel de plataforma (Fase 1). Llave de firma propia: un token de comercio
+    # nunca abre el panel, ni uno del panel la app del tendero. En producción
+    # ambas se fijan en `.env`; los valores de aquí son sólo de desarrollo.
+    PLATFORM_JWT_SECRET: str = "dev-platform-3f1c9a7e5b2d4c6a8e0f1a3b5c7d9e2f4a6b8c0d1e3f5a7b9c2d4e6f8a0b1c3d"
+    # Cifra el secreto TOTP guardado en la base (cualquier texto; se deriva la llave)
+    PLATFORM_TOTP_KEY: str = "dev-totp-key-cambiar-en-produccion"
+    PLATFORM_TOKEN_EXPIRE_MINUTES: int = 120
+    PLATFORM_CHALLENGE_EXPIRE_MINUTES: int = 5
+    PLATFORM_MAX_FAILED_ATTEMPTS: int = 5
+    PLATFORM_LOCKOUT_MINUTES: int = 15
+
     # CORS
     BACKEND_CORS_ORIGINS: List[Union[str, AnyHttpUrl]] = [
         "http://localhost:3000",

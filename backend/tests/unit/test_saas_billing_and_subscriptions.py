@@ -158,6 +158,7 @@ async def test_generate_payment_methods_spei_and_oxxo(
 async def test_spei_webhook_reconciliation_and_account_reactivation(
     client: AsyncClient,
     db_session: AsyncSession,
+    monkeypatch,
 ):
     """
     Verifica que la recepción de un webhook de pago SPEI STP liquide la factura
@@ -189,7 +190,11 @@ async def test_spei_webhook_reconciliation_and_account_reactivation(
     await db_session.commit()
     await set_tenant_context(db_session, tenant_id)
 
-    # 2. Disparar el webhook de confirmación bancaria
+    # 2. Disparar el webhook de confirmación bancaria, firmado (Fase 0 del panel)
+    import json
+    from app.core.config.settings import settings
+    from app.core.security.webhook_signature import sign_webhook_body
+    monkeypatch.setattr(settings, "SPEI_WEBHOOK_SECRET", "secreto-de-prueba")
     webhook_payload = {
         "reference_id": ref,
         "amount": 399.00,
@@ -198,9 +203,14 @@ async def test_spei_webhook_reconciliation_and_account_reactivation(
         "sender_account": "1234",
         "sender_bank": "BBVA",
     }
+    body = json.dumps(webhook_payload).encode("utf-8")
     response = await client.post(
         "/api/v1/webhooks/spei/payment-confirmation",
-        json=webhook_payload,
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Nexus-Signature": sign_webhook_body(body, "secreto-de-prueba"),
+        },
     )
     assert response.status_code == 200
     res_data = response.json()

@@ -31,7 +31,9 @@ class StorageProvider(str, Enum):
 class BackupCreateRequest(BaseModel):
     """Payload para solicitar la creación de un nuevo respaldo de base de datos."""
     backup_type: BackupType = Field(default=BackupType.FULL, description="Tipo de respaldo a generar")
-    include_all_tenants: bool = Field(default=True, description="Si incluye todos los esquemas o solo el tenant actual")
+    # El respaldo global es de la plataforma (Panel de fundadores, Fase 3, con
+    # aprobación de dos personas); desde la app de un comercio se rechaza.
+    include_all_tenants: bool = Field(default=False, description="Siempre falso desde un comercio: el respaldo global es de la plataforma")
     notes: Optional[str] = Field(default=None, max_length=255, description="Notas explicativas del respaldo")
 
     model_config = ConfigDict(from_attributes=True)
@@ -74,8 +76,10 @@ class SystemHealthCheckResponse(BaseModel):
     version: str = Field(description="Versión del software Nexus v3")
     timestamp: datetime = Field(description="Estampa de tiempo del diagnóstico")
     environment: str = Field(description="Entorno de ejecución (development, staging, production)")
-    active_tenants_count: int = Field(description="Número total de comercios activos en el SaaS")
-    total_products_count: int = Field(description="Total de artículos registrados en inventario")
-    total_sales_count: int = Field(description="Total de transacciones de venta procesadas")
+    # Cifras de la plataforma: sólo el panel de fundadores las ve; a un comercio
+    # no le corresponde saber cuántos comercios tiene Nexus.
+    active_tenants_count: Optional[int] = Field(default=None, description="Sólo en el panel de plataforma")
+    total_products_count: int = Field(description="Artículos registrados en el inventario del comercio")
+    total_sales_count: int = Field(description="Ventas procesadas por el comercio")
 
     model_config = ConfigDict(from_attributes=True)

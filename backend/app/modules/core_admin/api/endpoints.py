@@ -45,6 +45,13 @@ async def create_backup(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Acceso denegado: Solo el dueño de la cuenta puede generar respaldos de base de datos.",
         )
+    # Ser dueño de un comercio no es operar la plataforma: el respaldo de todos
+    # los comercios vive en el panel de fundadores (Fase 3, dos personas).
+    if request.include_all_tenants:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El respaldo de todos los comercios sólo se hace desde el panel de la plataforma.",
+        )
 
     return await service.create_database_backup(request, current_user)
 
@@ -85,6 +92,13 @@ async def get_system_health(
 ):
     """
     Retorna el estado de conectividad a PostgreSQL, latencia en ms, estado de aislamiento RLS
-    y volumen de operaciones registradas en el sistema.
+    y el volumen de operaciones **del comercio** (nunca cifras de la plataforma).
+    Requiere rol de Dueño o Encargado, como los respaldos.
     """
+    role_name = current_user.role.name if current_user.role else ""
+    if role_name not in ["OWNER", "ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso denegado: Solo el dueño de la cuenta puede consultar el diagnóstico.",
+        )
     return await service.get_system_health(current_user)

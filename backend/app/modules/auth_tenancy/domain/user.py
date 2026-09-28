@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from sqlalchemy import Boolean, Enum as SQLEnum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum as SQLEnum, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database.base import TenantBaseModel, SCHEMA
@@ -41,6 +42,12 @@ class User(TenantBaseModel):
         Boolean,
         default=True,
         nullable=False,
+    )
+    # Último inicio de sesión: la "última actividad" que ve el panel de
+    # plataforma sin asomarse al contenido del comercio (Fase 1, Sep 2026)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
     default_warehouse_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),

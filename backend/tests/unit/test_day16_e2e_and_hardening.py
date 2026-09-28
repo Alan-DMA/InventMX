@@ -259,12 +259,20 @@ async def test_day16_backup_creation_and_sha256_integrity(client: AsyncClient):
     assert reg_resp.status_code == 201
     headers = {"Authorization": f"Bearer {reg_resp.json()['access_token']}"}
 
+    # El respaldo de todos los comercios ya no se pide desde un comercio
+    # (Panel de plataforma, Fase 0): sólo el propio.
+    resp_global = await client.post(
+        "/api/v1/admin/backups/create",
+        headers=headers,
+        json={"backup_type": "FULL", "include_all_tenants": True},
+    )
+    assert resp_global.status_code == 403
+
     resp_backup = await client.post(
         "/api/v1/admin/backups/create",
         headers=headers,
         json={
             "backup_type": "FULL",
-            "include_all_tenants": True,
             "notes": "Respaldo diario automático programado",
         },
     )
@@ -337,7 +345,8 @@ async def test_day16_system_health_diagnostics(client: AsyncClient):
     assert diag["database_latency_ms"] >= 0.0
     assert diag["rls_enforced"] is True
     assert diag["version"] == "3.0.0"
-    assert diag["active_tenants_count"] >= 1
+    # Un comercio no ve cifras de la plataforma (Panel de plataforma, Fase 0)
+    assert diag["active_tenants_count"] is None
 
 
 @pytest.mark.asyncio
