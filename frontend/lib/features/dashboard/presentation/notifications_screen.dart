@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../purchases/presentation/widgets/phone_launcher.dart';
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
 import '../domain/store_notification.dart';
+import '../../support/presentation/support_provider.dart';
 import 'dashboard_provider.dart';
 
 /// Avisos del negocio — cosas que importan pero no urgen.
@@ -20,8 +21,14 @@ class NotificationsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifications = ref.watch(notificationsProvider);
-    final unread = ref.watch(unreadNotificationsProvider);
+    // Respuestas de soporte: se suman aquí, para todos los roles
+    final replies = ref.watch(supportRepliesProvider).valueOrNull;
+    final notifications = ref
+        .watch(notificationsProvider)
+        .whenData((items) => NotificationsNotifier.mergeSupportNotifications(items, replies));
+    // "Marcar leídos" sólo si hay algo que pueda marcar: las respuestas de
+    // soporte se leen al abrir el caso
+    final canMarkAll = ref.watch(notificationsProvider).valueOrNull?.any((n) => !n.isRead) ?? false;
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
@@ -29,7 +36,7 @@ class NotificationsScreen extends ConsumerWidget {
         backgroundColor: AppColors.darkSlate,
         title: const Text('Avisos'),
         actions: [
-          if (unread > 0)
+          if (canMarkAll)
             TextButton(
               key: const Key('notificationsMarkAll'),
               onPressed: () =>
@@ -152,12 +159,16 @@ class _NotificationTile extends ConsumerWidget {
                           ),
                           if (_actionLabel != null) ...[
                             const SizedBox(width: 10),
-                            Text(
-                              _actionLabel!,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.skyBlue,
+                            Flexible(
+                              child: Text(
+                                _actionLabel!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.skyBlue,
+                                ),
                               ),
                             ),
                           ],
@@ -179,6 +190,7 @@ class _NotificationTile extends ConsumerWidget {
         NotificationKind.salesMilestone => Icons.celebration_outlined,
         NotificationKind.whatsappOrder => Icons.chat_bubble_outline_rounded,
         NotificationKind.payableDue => Icons.receipt_long_outlined,
+        NotificationKind.supportReply => Icons.support_agent_rounded,
       };
 
   Color get _tint => switch (item.kind) {
@@ -186,6 +198,7 @@ class _NotificationTile extends ConsumerWidget {
         NotificationKind.salesMilestone => AppColors.emerald,
         NotificationKind.whatsappOrder => AppColors.skyBlue,
         NotificationKind.payableDue => AppColors.error,
+        NotificationKind.supportReply => AppColors.skyBlue,
       };
 
   String? get _actionLabel => switch (item.kind) {
@@ -193,6 +206,7 @@ class _NotificationTile extends ConsumerWidget {
         NotificationKind.salesMilestone => 'Ver reportes',
         NotificationKind.whatsappOrder => 'Ver el pedido',
         NotificationKind.payableDue => 'Ver cuentas',
+        NotificationKind.supportReply => 'Ver respuesta',
       };
 
   /// Abrir un aviso lo marca leído y lleva a donde se resuelve.
@@ -232,6 +246,11 @@ class _NotificationTile extends ConsumerWidget {
         router?.go(AppRoutes.reports);
       case NotificationKind.payableDue:
         router?.go(AppRoutes.purchases);
+      case NotificationKind.supportReply:
+        // Abrir el caso lo marca leído en el servidor; la insignia y este
+        // aviso se van solos (supportCaseProvider refresca la cuenta).
+        final id = item.caseId;
+        if (id != null) router?.push(AppRoutes.supportCasePath(id));
     }
   }
 }

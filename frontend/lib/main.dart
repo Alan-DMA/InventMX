@@ -10,6 +10,7 @@ import 'core/storage/secure_storage.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/login_provider.dart';
 import 'features/auth/presentation/server_signals.dart';
+import 'features/support/presentation/support_unread_poller.dart';
 import 'features/onboarding/data/onboarding_repository.dart';
 import 'features/onboarding/presentation/onboarding_provider.dart';
 
@@ -115,6 +116,9 @@ class NexusApp extends ConsumerWidget {
 
       // GoRouter como sistema de navegación declarativo.
       routerConfig: router,
+
+      // Respuestas de soporte: insignias y avisos al día sin reabrir la app
+      builder: (context, child) => SupportUnreadPoller(child: child ?? const SizedBox.shrink()),
     );
   }
 }

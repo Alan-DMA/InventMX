@@ -243,21 +243,9 @@ class AppDrawer extends ConsumerWidget {
                     key: const Key('drawerSupport'),
                     icon: Icons.support_agent_rounded,
                     title: 'Soporte',
-                    trailing: supportUnread > 0
-                        ? Container(
-                            key: const Key('drawerSupportUnread'),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.skyBlue.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              supportUnread == 1 ? '1 respuesta' : '$supportUnread respuestas',
-                              style: const TextStyle(
-                                fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.skyBlue),
-                            ),
-                          )
-                        : null,
+                    // Número sobre el nombre: hay respuestas de soporte por revisar
+                    badge: supportUnread,
+                    badgeLabel: supportUnread == 1 ? '1 respuesta nueva' : '$supportUnread respuestas nuevas',
                     onTap: () => goTo(AppRoutes.support),
                   ),
                 ],
@@ -324,13 +312,18 @@ class _DrawerItem extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
-    this.trailing,
+    this.badge = 0,
+    this.badgeLabel,
   });
 
   final IconData icon;
   final String title;
   final VoidCallback onTap;
-  final Widget? trailing;
+
+  /// Número sobre el nombre (0 = sin número); `badgeLabel` lo dice en
+  /// palabras al lector de pantalla.
+  final int badge;
+  final String? badgeLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -339,15 +332,29 @@ class _DrawerItem extends StatelessWidget {
       visualDensity: const VisualDensity(vertical: -1),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
       leading: Icon(icon, size: 20, color: AppColors.onSurface),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 13.5,
-          fontWeight: FontWeight.w500,
-          color: AppColors.onSurface,
+      title: Semantics(
+        label: badge > 0 && badgeLabel != null ? '$title, $badgeLabel' : null,
+        excludeSemantics: badge > 0 && badgeLabel != null,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Badge(
+            key: badge > 0 && key is ValueKey<String> ? Key('${(key as ValueKey<String>).value}Count') : null,
+            isLabelVisible: badge > 0,
+            label: Text(badge > 9 ? '9+' : '$badge'),
+            backgroundColor: AppColors.skyBlue,
+            textColor: AppColors.darkSlate,
+            offset: const Offset(14, -6),
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+                color: AppColors.onSurface,
+              ),
+            ),
+          ),
         ),
       ),
-      trailing: trailing,
       onTap: onTap,
     );
   }

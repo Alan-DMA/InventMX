@@ -49,6 +49,7 @@ from app.modules.support_cases.schemas import (
     DeskCasePage,
     DeskCaseSummary,
     DeskReply,
+    DeskStoreContext,
     HelpTopicAdmin,
     HelpTopicRead,
     HelpTopicUpsert,
@@ -58,6 +59,7 @@ from app.modules.support_cases.schemas import (
 
 PUBLIC_CASES_PER_DAY = 3
 ANSWER_MAX_LENGTH = 500
+PREVIEW_LENGTH = 140
 PUBLIC_ACCEPTED = (
     "Recibimos tu mensaje. Si los datos son correctos, te escribimos al correo de contacto que nos diste."
 )
@@ -98,6 +100,13 @@ def topic_read(topic: HelpTopic) -> HelpTopicRead:
         actions=topic.actions or [],
         form_fields=topic.form_fields or [],
     )
+
+
+def _preview(body: str) -> str:
+    """Primera línea con texto, sin saltos ni espacios de más, cortada a PREVIEW_LENGTH."""
+    line = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
+    line = " ".join(line.split())
+    return line if len(line) <= PREVIEW_LENGTH else line[: PREVIEW_LENGTH - 1].rstrip() + "…"
 
 
 def _answers(case: SupportCase) -> List[Answer]:
@@ -434,7 +443,8 @@ class CaseDeskService:
             .offset(offset)
         )).scalars().all()
         stores = await self._store_names(rows)
-        return DeskCasePage(items=[self._summary(c, stores) for c in rows], total=int(total))
+        previews = await self._last_messages([c.id for c in rows])
+        return DeskCasePage(items=[self._summary(c, stores, previews) for c in rows], total=int(total))
 
     async def waiting(self) -> List[SupportCase]:
         """Para el feed: casos que esperan respuesta de soporte."""
@@ -465,9 +475,10 @@ class CaseDeskService:
                 select(User.id, User.full_name).where(User.id.in_(wanted))
             )).all()}
         return DeskCaseDetail(
-            **self._summary(case, stores).model_dump(),
+            **self._summary(case, stores, await self._last_messages([case.id])).model_dump(),
             answers=_answers(case),
             messages=await _messages(self.db, case, names),
+            store=await self._store_context(case),
         )
 
     async def reply(self, case_id: uuid.UUID, data: DeskReply) -> Tuple[DeskCaseDetail, EmailMessage]:
@@ -567,6 +578,37 @@ class CaseDeskService:
             raise _not_found()
         return case
 
+    async def _last_messages(self, case_ids: Sequence[uuid.UUID]) -> Dict[uuid.UUID, Tuple[str, bool]]:
+        """Último mensaje de cada caso (una consulta, `DISTINCT ON`): su primera línea y si es de soporte."""
+        if not case_ids:
+            return {}
+        rows = (await self.db.execute(
+            select(SupportCaseMessage.case_id, SupportCaseMessage.body, SupportCaseMessage.author_kind)
+            .where(SupportCaseMessage.case_id.in_(list(case_ids)))
+            .distinct(SupportCaseMessage.case_id)
+            .order_by(SupportCaseMessage.case_id, SupportCaseMessage.created_at.desc())
+        )).all()
+        return {r[0]: (_preview(r[1]), r[2] == AuthorKind.SUPPORT) for r in rows}
+
+    async def _store_context(self, case: SupportCase) -> Optional[DeskStoreContext]:
+        """Metadatos de la tienda del caso (o la sugerida, sin sesión). Leerlos aquí no registra
+        una "tienda vista" en la bitácora: eso queda para la ficha (decisión 3 de la Fase 1)."""
+        target = case.tenant_id or case.suggested_tenant_id
+        if target is None:
+            return None
+        tenant = (await self.db.execute(select(Tenant).where(Tenant.id == target))).scalar_one_or_none()
+        if tenant is None:
+            return None
+        return DeskStoreContext(
+            tenant_id=tenant.id,
+            name=tenant.name,
+            status=getattr(tenant.status, "value", tenant.status),
+            plan=getattr(tenant.plan_id, "value", tenant.plan_id),
+            paid_until=tenant.paid_until,
+            lock_reason=getattr(tenant.lock_reason, "value", tenant.lock_reason),
+            suggested=case.tenant_id is None,
+        )
+
     async def _store_names(self, cases: Sequence[SupportCase]) -> Dict[uuid.UUID, str]:
         ids = {c.tenant_id for c in cases if c.tenant_id} | {c.suggested_tenant_id for c in cases if c.suggested_tenant_id}
         if not ids:
@@ -575,7 +617,12 @@ class CaseDeskService:
         return {r[0]: r[1] for r in rows}
 
     @staticmethod
-    def _summary(case: SupportCase, stores: Dict[uuid.UUID, str]) -> DeskCaseSummary:
+    def _summary(
+        case: SupportCase,
+        stores: Dict[uuid.UUID, str],
+        previews: Optional[Dict[uuid.UUID, Tuple[str, bool]]] = None,
+    ) -> DeskCaseSummary:
+        preview = (previews or {}).get(case.id)
         return DeskCaseSummary(
             id=case.id,
             number=case.number,
@@ -592,6 +639,8 @@ class CaseDeskService:
             suggested_tenant_name=stores.get(case.suggested_tenant_id) if case.suggested_tenant_id else None,
             created_at=case.created_at,
             last_message_at=case.last_message_at,
+            last_message_preview=preview[0] if preview else None,
+            last_message_by_support=preview[1] if preview else None,
         )
 
     @staticmethod

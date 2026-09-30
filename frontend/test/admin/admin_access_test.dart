@@ -223,7 +223,7 @@ void main() {
     expect(find.byKey(const Key('adminNavCases')), findsOneWidget);
     await tester.tap(find.byKey(const Key('adminNavCases')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Llega en la etapa 3b'), findsOneWidget);
+    expect(find.text('Sin casos esperando'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

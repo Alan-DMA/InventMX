@@ -20,7 +20,8 @@ class AccessHeading extends StatelessWidget {
             header: true,
             child: Text(
               title,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.onSurface, height: 1.2),
+              style:
+                  const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.onSurface, height: 1.2),
             ),
           ),
           const SizedBox(height: 8),

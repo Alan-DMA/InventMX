@@ -74,8 +74,9 @@ void main() {
     await tester.scrollUntilVisible(find.byKey(const Key('drawerSupport')), 200,
         scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)).first);
     expect(find.text('AYUDA'), findsOneWidget);
-    expect(find.byKey(const Key('drawerSupportUnread')), findsOneWidget);
-    expect(find.text('1 respuesta'), findsOneWidget);
+    // Número sobre el nombre "Soporte"
+    expect(find.byKey(const Key('drawerSupportCount')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('drawerSupportCount')), matching: find.text('1')), findsOneWidget);
     // P26: el acceso de soporte todavía no se ofrece
     expect(find.byKey(const Key('drawerSupportAccess')), findsNothing);
 
@@ -109,7 +110,7 @@ void main() {
     await tester.scrollUntilVisible(find.byKey(const Key('drawerSupport')), 200,
         scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)).first);
     expect(find.byKey(const Key('drawerSupport')), findsOneWidget);
-    expect(find.byKey(const Key('drawerSupportUnread')), findsNothing);
+    expect(find.byKey(const Key('drawerSupportCount')), findsNothing);
   });
 
   testWidgets('ayuda primero, luego el formulario del tema y el caso con su número', (tester) async {
@@ -307,6 +308,82 @@ void main() {
     await pumpSupportApp(tester, daysUntilDue: -15);
     expect(find.text('Tu cuenta está suspendida'), findsOneWidget);
     expect(find.byKey(const Key('hardLockContactSupport')), findsOneWidget);
+  });
+
+  group('avisos de soporte (QA de Eduardo, Sep 30)', () {
+    Finder menuCount(String n) =>
+        find.descendant(of: find.byKey(const Key('homeDrawerSupportBadge')), matching: find.text(n));
+
+    Future<void> openNotifications(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('homeNotificationsButton')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('la respuesta llega a Avisos; abrirla lleva al caso y apaga los números', (tester) async {
+      final support = SupportRepositoryMock(latency: Duration.zero, now: () => now, cases: [answeredCase()]);
+      final app = await pumpSupportApp(tester, support: support);
+      expect(menuCount('1'), findsOneWidget); // ☰ con número, no sólo un punto
+
+      await openNotifications(tester);
+      final tile = find.byKey(const Key('notification-support-case-1001'));
+      expect(tile, findsOneWidget);
+      expect(find.text('Soporte respondió tu caso 1001'), findsOneWidget);
+      expect(find.text('Ver respuesta'), findsOneWidget);
+
+      // "Marcar leídos" no la borra: se lee al abrir el caso (como los pedidos)
+      if (find.byKey(const Key('notificationsMarkAll')).evaluate().isNotEmpty) {
+        await tester.tap(find.byKey(const Key('notificationsMarkAll')));
+        await tester.pumpAndSettle();
+      }
+      expect(tile, findsOneWidget);
+
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+      expect(find.byType(CaseDetailScreen), findsOneWidget);
+      expect(find.text('Revisa que el turno de ayer esté cerrado.'), findsOneWidget);
+
+      app.router!.pop();
+      await tester.pumpAndSettle();
+      expect(tile, findsNothing);
+      app.router!.pop();
+      await tester.pumpAndSettle();
+      expect(tester.widget<Badge>(find.byKey(const Key('homeDrawerSupportBadge'))).isLabelVisible, isFalse);
+    });
+
+    testWidgets('dos casos respondidos: 2 en el ☰ y sobre "Soporte"', (tester) async {
+      final support = SupportRepositoryMock(latency: Duration.zero, now: () => now, cases: [answeredCase()]);
+      final second = (await tester.runAsync(
+        () => support.createCase(topicKey: 'other', answers: const {}, description: '¿Puedo tener dos tiendas?'),
+      ))!;
+      support.supportReplies(second.id, 'Sí, desde Mi cuenta.');
+      await pumpSupportApp(tester, support: support);
+      expect(menuCount('2'), findsOneWidget);
+
+      await openDrawer(tester);
+      await tester.scrollUntilVisible(find.byKey(const Key('drawerSupport')), 200,
+          scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)).first);
+      expect(find.descendant(of: find.byKey(const Key('drawerSupportCount')), matching: find.text('2')), findsOneWidget);
+    });
+
+    testWidgets('la app se entera sin reabrirse: consulta cada 60 s', (tester) async {
+      final support = SupportRepositoryMock(latency: Duration.zero, now: () => now, cases: [answeredCase(unread: false)]);
+      await pumpSupportApp(tester, support: support, pollEvery: const Duration(seconds: 60));
+      expect(tester.widget<Badge>(find.byKey(const Key('homeDrawerSupportBadge'))).isLabelVisible, isFalse);
+
+      support.supportReplies('case-1001', 'Ya quedó, vuelve a intentarlo.');
+      await tester.pump(const Duration(seconds: 61));
+      await tester.pumpAndSettle();
+      expect(menuCount('1'), findsOneWidget);
+      await openNotifications(tester);
+      expect(find.byKey(const Key('notification-support-case-1001')), findsOneWidget);
+    });
+
+    testWidgets('un cajero también recibe el aviso (Soporte es de todos los roles)', (tester) async {
+      final support = SupportRepositoryMock(latency: Duration.zero, now: () => now, cases: [answeredCase()]);
+      await pumpSupportApp(tester, support: support, email: 'jose.ramirez@nexus.mx');
+      await openNotifications(tester);
+      expect(find.byKey(const Key('notification-support-case-1001')), findsOneWidget);
+    });
   });
 
   group('Acceso de soporte (dueño)', () {

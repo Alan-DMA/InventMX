@@ -126,6 +126,22 @@ class DeskCaseSummary(BaseModel):
     suggested_tenant_name: Optional[str] = None
     created_at: datetime
     last_message_at: datetime
+    # Primera línea del último mensaje, para leer la cola sin abrir cada caso
+    last_message_preview: Optional[str] = None
+    last_message_by_support: Optional[bool] = None
+
+
+class DeskStoreContext(BaseModel):
+    """Franja de contexto del hilo en el panel: sólo metadatos de la tienda (P2)."""
+    tenant_id: uuid.UUID
+    name: str
+    status: str
+    plan: str
+    paid_until: Optional[datetime] = None
+    lock_reason: Optional[str] = None
+    suggested: bool = Field(
+        False, description="Caso sin sesión: tienda cuyo correo coincide con el que dio; hay que validar (P21)",
+    )
 
 
 class DeskCasePage(BaseModel):
@@ -136,6 +152,7 @@ class DeskCasePage(BaseModel):
 class DeskCaseDetail(DeskCaseSummary):
     answers: List[Answer]
     messages: List[MessageRead]
+    store: Optional[DeskStoreContext] = None
 
 
 class DeskReply(BaseModel):

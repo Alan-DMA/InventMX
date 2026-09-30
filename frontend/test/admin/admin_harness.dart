@@ -6,10 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/admin/access/data/access_repository.dart';
 import 'package:nexus_app/admin/access/domain/access_models.dart';
 import 'package:nexus_app/admin/admin_app.dart';
+import 'package:nexus_app/admin/cases/data/cases_repository.dart';
 import 'package:nexus_app/admin/core/admin_http.dart';
 import 'package:nexus_app/admin/core/browser/session_store.dart';
 import 'package:nexus_app/admin/router/admin_router.dart';
 import 'package:nexus_app/admin/session/admin_session.dart';
+
+import 'fake_cases.dart';
 
 /// Reloj que el test mueve a mano.
 class TestClock {
@@ -96,6 +99,8 @@ Future<AdminTestApp> pumpAdmin(
   FakeAccess? access,
   MemorySessionStore? store,
   Size size = const Size(1440, 900),
+  CasesRepository? cases,
+  List<Override> overrides = const [],
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -109,6 +114,9 @@ Future<AdminTestApp> pumpAdmin(
       sessionStoreProvider.overrideWithValue(memory),
       adminClockProvider.overrideWithValue(() => testClock.now),
       accessRepositoryProvider.overrideWithValue(fake),
+      // Sin red en los tests: la mesa de casos es falsa salvo que el test traiga la suya
+      casesRepositoryProvider.overrideWithValue(cases ?? FakeCases(testClock)),
+      ...overrides,
     ],
   );
   addTearDown(container.dispose);
@@ -126,4 +134,21 @@ Future<void> signIn(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.enterText(find.byKey(const Key('accessCodeField')), '123456');
   await tester.pumpAndSettle();
+}
+
+/// Almacén de pestaña con una sesión ya abierta (de "Eduardo Cristancho",
+/// 2 h desde el reloj del test): el panel arranca dentro.
+MemorySessionStore signedInStore(TestClock clock, {Duration left = const Duration(hours: 2)}) {
+  final store = MemorySessionStore();
+  store.write(
+    AdminSessionNotifier.storageKey,
+    jsonEncode(AdminSession(
+      token: 'sesion-test',
+      expiresAt: clock.now.add(left),
+      operatorName: 'Eduardo Cristancho',
+      operatorEmail: 'eduardo@nexus.mx',
+      recoveryCodesRemaining: 10,
+    ).toJson()),
+  );
+  return store;
 }

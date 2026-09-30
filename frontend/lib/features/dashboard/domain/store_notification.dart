@@ -13,6 +13,10 @@ enum NotificationKind {
 
   /// Cuenta por pagar que vence → Compras / CxP.
   payableDue,
+
+  /// Soporte respondió un caso tuyo y no lo has abierto → el caso. Uno por
+  /// caso (no por mensaje); se lee al abrir el caso, no desde aquí.
+  supportReply,
 }
 
 /// Aviso personalizado del negocio.
@@ -31,6 +35,7 @@ class StoreNotification extends Equatable {
     this.productId,
     this.customerPhone,
     this.orderFolio,
+    this.caseId,
   });
 
   final String id;
@@ -48,6 +53,9 @@ class StoreNotification extends Equatable {
   final String? customerPhone;
   final String? orderFolio;
 
+  /// [NotificationKind.supportReply] — el caso que soporte respondió.
+  final String? caseId;
+
   StoreNotification copyWith({bool? isRead}) => StoreNotification(
         id: id,
         kind: kind,
@@ -58,6 +66,7 @@ class StoreNotification extends Equatable {
         productId: productId,
         customerPhone: customerPhone,
         orderFolio: orderFolio,
+        caseId: caseId,
       );
 
   @override
@@ -70,6 +79,7 @@ class StoreNotification extends Equatable {
         isRead,
         productId,
         customerPhone,
-        orderFolio
+        orderFolio,
+        caseId,
       ];
 }

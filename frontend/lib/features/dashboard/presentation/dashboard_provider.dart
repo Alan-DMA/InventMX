@@ -9,6 +9,8 @@ import '../../auth/data/auth_repository.dart'
 import '../../sales_pos/data/sales_repository.dart';
 import '../../sales_pos/domain/sale_summary.dart';
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
+import '../../support/domain/support_models.dart';
+import '../../support/presentation/support_provider.dart';
 import '../../whatsapp_catalog/domain/store_order.dart';
 import '../../whatsapp_catalog/domain/whatsapp_order.dart';
 import '../../whatsapp_catalog/presentation/store_orders_provider.dart';
@@ -87,14 +89,17 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
   }
 
   static const orderIdPrefix = 'order-';
+  static const supportIdPrefix = 'support-';
 
   /// Permiso que hace visible cada tipo de aviso. Coincide con el destino al
   /// tocarlo: nadie recibe un aviso cuyo destino el router le rebotaría.
-  static String permissionFor(NotificationKind kind) => switch (kind) {
+  /// `null` = no pide permiso: Soporte es de todos los roles (P25).
+  static String? permissionFor(NotificationKind kind) => switch (kind) {
         NotificationKind.lowStock => Permissions.inventoryView,
         NotificationKind.payableDue => Permissions.purchasesView,
         NotificationKind.whatsappOrder => Permissions.salesView,
         NotificationKind.salesMilestone => Permissions.reportsViewBasic,
+        NotificationKind.supportReply => null,
       };
 
   static List<StoreNotification> filterByPermissions(
@@ -102,7 +107,10 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
     Set<String> permissions,
   ) =>
       items
-          .where((n) => permissions.contains(permissionFor(n.kind)))
+          .where((n) {
+            final needed = permissionFor(n.kind);
+            return needed == null || permissions.contains(needed);
+          })
           .toList();
 
   static List<StoreNotification> mergeOrderNotifications(
@@ -118,6 +126,32 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
     return [...fromOrders, ...others]
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
+
+  /// Un aviso por caso con respuesta de soporte sin abrir. Se combina al
+  /// mostrar y al contar (no dentro de `build`): que llegue una respuesta no
+  /// recarga los demás avisos. Se "lee" al abrir el caso (el servidor limpia
+  /// la marca), igual que un pedido al abrirlo.
+  static List<StoreNotification> mergeSupportNotifications(
+    List<StoreNotification> base,
+    List<SupportCase>? replies,
+  ) {
+    if (replies == null || replies.isEmpty) return base;
+    return [
+      for (final c in replies) supportNotification(c),
+      ...base.where((n) => n.kind != NotificationKind.supportReply),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  static StoreNotification supportNotification(SupportCase c) =>
+      StoreNotification(
+        id: '$supportIdPrefix${c.id}',
+        kind: NotificationKind.supportReply,
+        title: 'Soporte respondió tu caso ${c.number}',
+        body: c.topicTitle,
+        createdAt: c.lastMessageAt,
+        isRead: !c.unread,
+        caseId: c.id,
+      );
 
   static StoreNotification orderNotification(StoreOrder o) {
     final saved = o.order;
@@ -138,8 +172,8 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
   DashboardRepository get _repo => ref.read(dashboardRepositoryProvider);
 
   Future<void> markRead(String id) async {
-    // Los avisos de pedido se marcan al abrir el pedido (seen), no aquí.
-    if (id.startsWith(orderIdPrefix)) return;
+    // Los avisos de pedido y de soporte se leen al abrir el pedido o el caso.
+    if (id.startsWith(orderIdPrefix) || id.startsWith(supportIdPrefix)) return;
     await _repo.markRead(id);
     await _reload();
   }
@@ -173,7 +207,9 @@ final notificationsProvider =
 final unreadNotificationsProvider = Provider<int>((ref) {
   final items = ref.watch(notificationsProvider).valueOrNull;
   if (items == null) return 0;
-  return items.where((n) => !n.isRead).length;
+  // + respuestas de soporte sin abrir (todas cuentan: sólo se listan ésas)
+  final replies = ref.watch(supportRepliesProvider).valueOrNull?.length ?? 0;
+  return items.where((n) => !n.isRead).length + replies;
 });
 
 // ---------------------------------------------------------------------------

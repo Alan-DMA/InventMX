@@ -78,19 +78,24 @@ class HomeDashboardScreen extends ConsumerWidget {
         // Botón hamburguesa que abre el AppDrawer
         leading: Builder(
           builder: (scaffoldContext) {
-            // Punto cuando soporte respondió un caso y no se ha abierto (P23)
+            // Número de casos con respuesta de soporte sin abrir (P23)
             final supportUnread = ref.watch(supportUnreadProvider).valueOrNull ?? 0;
             return IconButton(
               key: const Key('homeDrawerButton'),
               icon: Badge(
                 key: const Key('homeDrawerSupportBadge'),
                 isLabelVisible: supportUnread > 0,
-                smallSize: 9,
+                label: Text(supportUnread > 9 ? '9+' : '$supportUnread'),
                 backgroundColor: AppColors.skyBlue,
+                textColor: AppColors.darkSlate,
                 child: const Icon(Icons.menu_rounded, color: AppColors.onSurface),
               ),
               onPressed: () => Scaffold.of(scaffoldContext).openDrawer(),
-              tooltip: supportUnread > 0 ? 'Menú principal · soporte te respondió' : 'Menú principal',
+              tooltip: switch (supportUnread) {
+                0 => 'Menú principal',
+                1 => 'Menú principal · 1 respuesta de soporte',
+                _ => 'Menú principal · $supportUnread respuestas de soporte',
+              },
             );
           },
         ),

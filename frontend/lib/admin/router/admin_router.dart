@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../access/presentation/access_screen.dart';
+import '../cases/presentation/cases_screen.dart';
 import '../session/admin_session.dart';
 import '../shell/admin_shell.dart';
 import 'admin_routes.dart';
+
+const _casesPage = ValueKey('casesPage');
 
 /// Router del panel. Sin sesión todo lleva al acceso con `volver` (la ruta
 /// donde estaba) y `vencio=1` si la sesión terminó sola; al entrar, regresa
@@ -53,14 +56,16 @@ final adminRouterProvider = Provider<GoRouter>((ref) {
               ),
             ),
           ),
+          // Cola y caso abierto comparten página: abrir un caso no reconstruye la cola
           GoRoute(
             path: AdminRoutes.cases,
-            pageBuilder: (_, __) => const NoTransitionPage(
-              child: AdminPendingSection(
-                title: 'Casos',
-                arrivesIn: 'etapa 3b',
-                what: 'La cola de casos de soporte con su conversación y las respuestas al tendero.',
-              ),
+            pageBuilder: (_, __) => const NoTransitionPage(key: _casesPage, child: CasesScreen()),
+          ),
+          GoRoute(
+            path: '${AdminRoutes.cases}/:id',
+            pageBuilder: (_, state) => NoTransitionPage(
+              key: _casesPage,
+              child: CasesScreen(selectedId: state.pathParameters['id']),
             ),
           ),
           GoRoute(

@@ -400,14 +400,15 @@ void main() {
               .map((n) => n.id)
               .toList();
 
-      expect(visible(Permissions.all).length, 4);
+      expect(visible(Permissions.all).length, 5);
       // Cajero: stock y pedidos web; ni cuentas por pagar ni hitos.
+      // La respuesta de soporte no pide permiso: Soporte es de todos (P25).
       expect(visible({Permissions.inventoryView, Permissions.salesView}),
-          ['lowStock', 'whatsappOrder']);
+          ['lowStock', 'whatsappOrder', 'supportReply']);
       // Almacenista: stock y cuentas por pagar; nada de pedidos.
       expect(visible({Permissions.inventoryView, Permissions.purchasesView}),
-          ['lowStock', 'payableDue']);
-      expect(visible(const {}), isEmpty);
+          ['lowStock', 'payableDue', 'supportReply']);
+      expect(visible(const {}), ['supportReply']);
     });
 
     test('la campana del Almacenista no cuenta pedidos web', () async {

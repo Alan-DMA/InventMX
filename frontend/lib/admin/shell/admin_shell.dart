@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../cases/presentation/cases_providers.dart';
 import '../core/admin_colors.dart';
 import '../router/admin_routes.dart';
 import '../session/admin_session.dart';
@@ -24,37 +27,75 @@ class AdminShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(adminSessionProvider).session;
     final compact = MediaQuery.sizeOf(context).width < compactBelow;
-    final nav = _AdminNav(location: location, horizontal: compact);
+    final waiting = ref.watch(waitingCountProvider).valueOrNull;
+    final nav = _AdminNav(location: location, horizontal: compact, waiting: waiting);
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
-      body: Column(
-        children: [
-          const PlatformStrip(),
-          if (session != null && session.enteredWithRecoveryCode)
-            _RecoveryNotice(
-              remaining: session.recoveryCodesRemaining,
-              onDismiss: () => ref.read(adminSessionProvider.notifier).dismissRecoveryNotice(),
-            ),
-          if (compact) ...[
-            nav,
-            const Divider(height: 1),
-            Expanded(child: child),
-          ] else
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(width: railWidth, child: nav),
-                  const VerticalDivider(width: 1, color: AppColors.border),
-                  Expanded(child: child),
-                ],
+      body: _Poller(
+        child: Column(
+          children: [
+            const PlatformStrip(),
+            if (session != null && session.enteredWithRecoveryCode)
+              _RecoveryNotice(
+                remaining: session.recoveryCodesRemaining,
+                onDismiss: () => ref.read(adminSessionProvider.notifier).dismissRecoveryNotice(),
               ),
-            ),
-        ],
+            if (compact) ...[
+              nav,
+              const Divider(height: 1),
+              Expanded(child: child),
+            ] else
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(width: railWidth, child: nav),
+                    const VerticalDivider(width: 1, color: AppColors.border),
+                    Expanded(child: child),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
+}
+
+/// Cada 60 s, en silencio: el contador de "Casos" y la cola si está abierta
+/// (P33). Sin sonidos ni emergentes.
+class _Poller extends ConsumerStatefulWidget {
+  const _Poller({required this.child});
+  final Widget child;
+
+  static const every = Duration(seconds: 60);
+
+  @override
+  ConsumerState<_Poller> createState() => _PollerState();
+}
+
+class _PollerState extends ConsumerState<_Poller> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(_Poller.every, (_) {
+      if (!mounted) return;
+      ref.invalidate(waitingCountProvider);
+      if (ref.exists(caseListProvider)) ref.read(caseListProvider.notifier).refreshSilently();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _NavEntry {
@@ -73,15 +114,23 @@ const _entries = [
 ];
 
 class _AdminNav extends StatelessWidget {
-  const _AdminNav({required this.location, required this.horizontal});
+  const _AdminNav({required this.location, required this.horizontal, this.waiting});
   final String location;
   final bool horizontal;
+
+  /// Casos que esperan respuesta (sólo eso cuenta).
+  final int? waiting;
 
   @override
   Widget build(BuildContext context) {
     final items = [
       for (final e in _entries)
-        _NavItem(entry: e, selected: location == e.path || location.startsWith('${e.path}/'), dense: horizontal),
+        _NavItem(
+          entry: e,
+          selected: location == e.path || location.startsWith('${e.path}/'),
+          dense: horizontal,
+          count: e.path == AdminRoutes.cases && (waiting ?? 0) > 0 ? waiting : null,
+        ),
     ];
     return Semantics(
       container: true,
@@ -99,10 +148,11 @@ class _AdminNav extends StatelessWidget {
 }
 
 class _NavItem extends StatelessWidget {
-  const _NavItem({required this.entry, required this.selected, required this.dense});
+  const _NavItem({required this.entry, required this.selected, required this.dense, this.count});
   final _NavEntry entry;
   final bool selected;
   final bool dense;
+  final int? count;
 
   @override
   Widget build(BuildContext context) {
@@ -122,6 +172,8 @@ class _NavItem extends StatelessWidget {
       child: Semantics(
         selected: selected,
         button: true,
+        label: count == null ? null : '${entry.label}, $count esperando',
+        excludeSemantics: count != null,
         child: Material(
           color: selected ? AdminColors.indigoSoft : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
@@ -138,6 +190,19 @@ class _NavItem extends StatelessWidget {
                   const SizedBox(width: 12),
                   // En la fila horizontal el ancho no tiene tope: ahí no cabe un Flexible
                   if (dense) label else Flexible(child: label),
+                  if (count != null) ...[
+                    if (!dense) const Spacer() else const SizedBox(width: 8),
+                    Text(
+                      '$count',
+                      key: Key('${entry.key}Count'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AdminColors.indigo,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

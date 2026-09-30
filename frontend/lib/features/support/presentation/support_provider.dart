@@ -45,3 +45,18 @@ final supportUnreadProvider = FutureProvider<int>((ref) async {
     return 0;
   }
 });
+
+/// Casos con respuesta de soporte sin abrir: los avisos de soporte en
+/// "Avisos". Sale de la misma cuenta que las insignias (☰, Soporte, Mis
+/// casos), así todas coinciden; sin nada pendiente ni se consulta la lista.
+/// Un fallo de red deja la lista vacía: un aviso no debe romper "Avisos".
+final supportRepliesProvider = FutureProvider<List<SupportCase>>((ref) async {
+  final unread = await ref.watch(supportUnreadProvider.future);
+  if (unread == 0) return const [];
+  try {
+    final cases = await ref.watch(supportRepositoryProvider).cases();
+    return cases.where((c) => c.unread).toList();
+  } catch (_) {
+    return const [];
+  }
+});

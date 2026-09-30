@@ -25,6 +25,7 @@ import 'package:nexus_app/features/saas_admin/presentation/saas_provider.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/support/data/support_repository.dart';
 import 'package:nexus_app/features/support/presentation/support_provider.dart';
+import 'package:nexus_app/features/support/presentation/support_unread_poller.dart';
 import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
 import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
 import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
@@ -81,6 +82,9 @@ Future<SupportApp> pumpSupportApp(
   String email = 'sol@tiendita.mx',
   SupportRepositoryMock? support,
   DateTime? now,
+  // La consulta de respuestas: en 1 h por omisión para no cruzarse con los
+  // demás tests; el que la prueba pide 60 s
+  Duration pollEvery = const Duration(hours: 1),
 }) async {
   final today = now ?? DateTime(2026, 9, 14);
   tester.view.physicalSize = const Size(412 * 3, 915 * 3);
@@ -117,6 +121,7 @@ Future<SupportApp> pumpSupportApp(
         secureStorageProvider.overrideWithValue(app.storage),
         authRepositoryProvider.overrideWith((ref) => AuthRepositoryMock(storage: app.storage)),
         supportRepositoryProvider.overrideWithValue(app.support),
+        supportPollIntervalProvider.overrideWithValue(pollEvery),
         warehousesProvider.overrideWith((ref) async => const [
               WarehouseOption(id: 'wh-001', name: 'Almacén Principal', isDefault: true),
             ]),
@@ -129,7 +134,12 @@ Future<SupportApp> pumpSupportApp(
           final router = ref.watch(appRouterProvider);
           app.router = router;
           app.container = ProviderScope.containerOf(context);
-          return MaterialApp.router(theme: AppTheme.dark, routerConfig: router);
+          return MaterialApp.router(
+            theme: AppTheme.dark,
+            routerConfig: router,
+            // Igual que en main.dart: insignias y avisos al día cada 60 s
+            builder: (context, child) => SupportUnreadPoller(child: child!),
+          );
         },
       ),
     ),

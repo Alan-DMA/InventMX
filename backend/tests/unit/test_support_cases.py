@@ -152,13 +152,25 @@ async def test_case_round_trip_between_store_and_panel(client: AsyncClient, db_s
     assert any(e["kind"] == "CASE" and f"Caso {case['number']}" in e["summary"] for e in feed["events"])
     listed = (await client.get(f"{P}/cases", params={"q": str(case["number"])}, headers=desk)).json()
     assert listed["total"] == 1 and listed["items"][0]["tenant_name"].startswith("Abarrotes idavuelta")
+    assert listed["items"][0]["last_message_preview"] == BROKEN["description"]
+    assert listed["items"][0]["last_message_by_support"] is False
     detail = (await client.get(f"{P}/cases/{case['id']}", headers=desk)).json()
     assert detail["answers"][0]["value"] == "Caja" and detail["messages"][0]["author_name"] == "Cajera Lupita"
+    # Franja de contexto: sólo metadatos, y leerla no registra una "tienda vista"
+    store = detail["store"]
+    assert store["tenant_id"] == str(tenant_id) and store["suggested"] is False
+    assert store["status"] == "ACTIVE" and store["plan"] and set(store) == {
+        "tenant_id", "name", "status", "plan", "paid_until", "lock_reason", "suggested",
+    }
+    views = (await client.get(f"{P}/audit", params={"action": "TENANT_VIEWED"}, headers=desk)).json()["items"]
+    assert not any(e.get("target_tenant_id") == str(tenant_id) for e in views)
 
     reply = "Ya lo vimos: fue una falla del cierre de turno. Actualiza la app y vuelve a intentarlo."
     answered = await client.post(f"{P}/cases/{case['id']}/messages", json={"body": reply}, headers=desk)
     assert answered.status_code == 200, answered.text
     assert answered.json()["status"] == "ANSWERED"
+    after = (await client.get(f"{P}/cases", params={"q": str(case["number"])}, headers=desk)).json()["items"][0]
+    assert after["last_message_preview"].startswith("Ya lo vimos") and after["last_message_by_support"] is True
     [mail] = [m for m in console_outbox if m.to_email == cashier_email]
     assert reply in mail.text and "☰ · Soporte" in mail.text
 
@@ -237,6 +249,8 @@ async def test_public_form_opens_a_case_that_only_the_panel_sees(client: AsyncCl
     case = page["items"][0]
     assert case["channel"] == "PUBLIC" and case["tenant_id"] is None
     assert case["suggested_tenant_id"] == str(tenant_id) and case["claimed_store_name"] == "Abarrotes Doña Chuy"
+    store = (await client.get(f"{P}/cases/{case['id']}", headers=desk)).json()["store"]
+    assert store["tenant_id"] == str(tenant_id) and store["suggested"] is True  # hay que validar (P21)
 
     console_outbox.clear()
     await client.post(

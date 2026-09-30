@@ -301,6 +301,25 @@ class SupportRepositoryMock implements SupportRepository {
     return _cases.where((c) => c.unread && c.isMine).length;
   }
 
+  /// Demo y tests: soporte responde un caso; queda sin leer para quien lo
+  /// escribió, como en el servidor.
+  void supportReplies(String id, String body, {String by = 'Soporte Nexus · Eduardo'}) {
+    final index = _cases.indexWhere((c) => c.id == id);
+    final current = _cases[index];
+    final now = _now();
+    _cases[index] = _copy(
+      current,
+      status: CaseStatus.answered,
+      unread: true,
+      lastMessageAt: now,
+      messages: [
+        ...current.messages,
+        CaseMessage(id: 'm-${current.number}-${current.messages.length + 1}', fromSupport: true,
+            authorName: by, body: body, createdAt: now),
+      ],
+    );
+  }
+
   @override
   Future<String> createPublicCase({
     required String topicKey,
