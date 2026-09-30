@@ -26,6 +26,9 @@ dependencies:
   # Canal en vivo de pedidos web (WS /ws/orders) — paquete oficial de Dart,
   # ya venía como transitiva; cubre móvil y web con la misma API.
   web_socket_channel: ^3.0.0
+  # Panel de plataforma (web): sesión en sessionStorage y descarga de los
+  # códigos de recuperación. Paquete oficial de Dart; ya venía como transitiva.
+  web: ^1.1.0
 
   # --- Almacenamiento local ---
   hive: ^2.2.3
