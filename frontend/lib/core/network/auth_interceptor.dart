@@ -11,12 +11,22 @@ import '../storage/secure_storage.dart';
 ///
 /// CA-06: Bearer adjunto en cada request
 /// CA-07: Refresh ante 401 antes de logout
+///
+/// Además avisa a la app de dos señales del servidor (Centro de soporte):
+/// `PASSWORD_CHANGE_REQUIRED` (403: entró con código y falta la contraseña
+/// nueva) y `TENANT_HARD_LOCK` (402: la tienda se suspendió con la app
+/// abierta). Quien escucha actualiza el estado y el router hace el resto.
 class AuthInterceptor extends Interceptor {
   AuthInterceptor({
     required this.storage,
     required this.dio,
     this.onLogout,
+    this.onServerSignal,
   });
+
+  /// Señales que la app escucha en [onServerSignal].
+  static const passwordChangeRequired = 'PASSWORD_CHANGE_REQUIRED';
+  static const tenantHardLock = 'TENANT_HARD_LOCK';
 
   final SecureStorage storage;
 
@@ -27,6 +37,9 @@ class AuthInterceptor extends Interceptor {
   /// Callback opcional que el router/provider llama para limpiar estado
   /// de autenticación en Riverpod cuando el refresh falla.
   final Future<void> Function()? onLogout;
+
+  /// Recibe el código de error de un 402/403 que la app debe atender.
+  final void Function(String code)? onServerSignal;
 
   // Evita reintentos infinitos si el propio endpoint de refresh devuelve 401.
   static const _retryHeader = 'X-Retry-Request';
@@ -53,6 +66,9 @@ class AuthInterceptor extends Interceptor {
     ErrorInterceptorHandler handler,
   ) async {
     final response = err.response;
+
+    final signal = _signalOf(response);
+    if (signal != null) onServerSignal?.call(signal);
 
     // Solo actuamos ante 401 y si no es ya un reintento
     if (response?.statusCode != 401 ||
@@ -105,6 +121,15 @@ class AuthInterceptor extends Interceptor {
   }
 
   // ---------- Helpers ----------
+
+  static String? _signalOf(Response<dynamic>? response) {
+    final status = response?.statusCode;
+    if (status != 402 && status != 403) return null;
+    final dynamic data = response?.data;
+    final dynamic error = data is Map ? data['error'] : null;
+    final code = error is Map ? error['code']?.toString() : null;
+    return code == passwordChangeRequired || code == tenantHardLock ? code : null;
+  }
 
   Future<void> _handleLogout(
     ErrorInterceptorHandler handler,

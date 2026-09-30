@@ -10,7 +10,7 @@ import 'saas_provider.dart';
 import 'subscription_screen.dart';
 import 'widgets/cycle_line.dart';
 
-/// Cuenta suspendida (modelo prepago, P9–P13).
+/// Cuenta suspendida (modelo prepago, P9–P13; por soporte, P17).
 ///
 /// El router manda aquí cualquier ruta del dashboard mientras el comercio está
 /// en HARD_LOCK. Es un usuario en crisis (Cat. 7 del catálogo de
@@ -24,6 +24,9 @@ class HardLockScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sub = ref.watch(subscriptionProvider).valueOrNull;
     final isOwner = ref.watch(canSeeSubscriptionProvider);
+    if (sub != null && sub.isAbuseSuspension) {
+      return _AbuseSuspension(subscription: sub, isOwner: isOwner);
+    }
     final since = sub?.graceUntil;
 
     return Scaffold(
@@ -100,13 +103,21 @@ class HardLockScreen extends ConsumerWidget {
                       icon: Icons.autorenew_rounded,
                       onPressed: () => ref.read(renewalActionProvider)(context),
                     )
-                  else
+                  else ...[
                     const Text(
                       'Muy pronto podrás renovar desde la app. Mientras tanto, escríbenos y la '
                       'reactivamos por ti.',
                       key: Key('hardLockContactUs'),
                       style: TextStyle(fontSize: 14, color: AppColors.onSurfaceMuted, height: 1.4),
                     ),
+                    const SizedBox(height: 10),
+                    _PrimaryButton(
+                      key: const Key('hardLockContactSupport'),
+                      label: 'Escribir a soporte',
+                      icon: Icons.support_agent_rounded,
+                      onPressed: () => context.push(AppRoutes.supportTopicPath('subscription')),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   SizedBox(
                     height: 48,
@@ -126,6 +137,112 @@ class HardLockScreen extends ConsumerWidget {
                   const Text(
                     'Avísale a quien administra la tienda para que la renueve.',
                     key: Key('hardLockTellOwner'),
+                    style: TextStyle(fontSize: 14, color: AppColors.onSurfaceMuted, height: 1.4),
+                  ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 48,
+                  child: TextButton(
+                    key: const Key('hardLockLogout'),
+                    onPressed: () => ref.read(loginProvider.notifier).logout(),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.onSurfaceMuted),
+                    child: const Text('Cerrar sesión', style: TextStyle(fontSize: 15)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Suspendida por soporte (P17): no es falta de pago y **renovar no la
+/// levanta**, así que nunca se ofrece (sería Bait and Switch). El dueño lee el
+/// motivo tal cual lo escribió soporte (P8) y escribe a Soporte desde aquí; el
+/// empleado sólo sabe que la suspendió soporte y a quién avisarle.
+class _AbuseSuspension extends ConsumerWidget {
+  const _AbuseSuspension({required this.subscription, required this.isOwner});
+  final Subscription subscription;
+  final bool isOwner;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reason = subscription.suspensionReason;
+    return Scaffold(
+      backgroundColor: AppColors.darkSlate,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+              shrinkWrap: true,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(Icons.gpp_maybe_rounded, color: AppColors.error, size: 28),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  isOwner ? 'Soporte Nexus suspendió tu cuenta' : 'Soporte Nexus suspendió la cuenta de la tienda',
+                  key: const Key('abuseLockTitle'),
+                  style: const TextStyle(
+                      fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.onSurface, height: 1.15),
+                ),
+                const SizedBox(height: 16),
+                if (isOwner && reason != null && reason.isNotEmpty) ...[
+                  Container(
+                    key: const Key('abuseLockReason'),
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Motivo',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.onSurfaceMuted)),
+                        const SizedBox(height: 6),
+                        Text('“$reason”',
+                            style: const TextStyle(fontSize: 15, color: AppColors.onSurface, height: 1.45)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                const _Fact(
+                  icon: Icons.inventory_2_outlined,
+                  text: 'Tus productos, ventas y reportes siguen guardados. No se borra nada.',
+                ),
+                const _Fact(
+                  icon: Icons.info_outline_rounded,
+                  text: 'No es un tema de pago: renovar la suscripción no la levanta. La revisa soporte.',
+                ),
+                const SizedBox(height: 20),
+                if (isOwner)
+                  _PrimaryButton(
+                    key: const Key('abuseLockContactSupport'),
+                    label: 'Escribir a soporte',
+                    icon: Icons.support_agent_rounded,
+                    onPressed: () => context.push(AppRoutes.supportTopicPath('account_suspended')),
+                  )
+                else
+                  const Text(
+                    'Avísale a quien administra la tienda para que lo aclare con soporte.',
+                    key: Key('abuseLockTellOwner'),
                     style: TextStyle(fontSize: 14, color: AppColors.onSurfaceMuted, height: 1.4),
                   ),
                 const SizedBox(height: 10),

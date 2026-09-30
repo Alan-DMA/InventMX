@@ -8,14 +8,15 @@ factura $0 se retiraron; Google Play es la única fuente de cobro y plan.
 """
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import settings
 from app.core.database.session import get_db
+from app.core.email.sender import send_email_quietly
 from app.modules.auth_tenancy.domain.tenant import TenantPlan, TenantStatus
 from app.modules.platform_admin.domain.operator import PlatformOperator
 from app.modules.platform_admin.repositories.audit_repository import RequestMeta
@@ -51,6 +52,15 @@ from app.modules.platform_admin.services.platform_admin_service import PlatformA
 from app.modules.platform_admin.services.platform_auth_service import PlatformAuthService
 from app.modules.platform_admin.services.subscription_cycle import run_subscription_cycle
 from app.modules.platform_admin.services.support_service import SupportService, run_export_job
+from app.modules.support_cases.schemas import (
+    DeskCaseDetail,
+    DeskCasePage,
+    DeskReply,
+    DeskStatusChange,
+    HelpTopicAdmin,
+    HelpTopicUpsert,
+)
+from app.modules.support_cases.services.cases import CaseDeskService
 
 router = APIRouter(prefix="/platform", tags=["Plataforma (fundadores)"])
 
@@ -260,6 +270,68 @@ async def cancel(
     service: SupportService = Depends(_support),
 ):
     return await service.cancel_deletion(request_id, data)
+
+
+# ── Casos de soporte (P23–P25) ─────────────────────────────────────────────
+
+def _desk(
+    operator: PlatformOperator = Depends(get_current_operator),
+    meta: RequestMeta = Depends(request_meta),
+    db: AsyncSession = Depends(get_db),
+) -> CaseDeskService:
+    return CaseDeskService(db, operator, meta)
+
+
+@router.get("/cases", response_model=DeskCasePage, summary="Casos de soporte (lo que espera respuesta primero)")
+async def list_cases(
+    status: Optional[str] = Query(None, pattern="^(WAITING_SUPPORT|ANSWERED|RESOLVED)$"),
+    tenant_id: Optional[uuid.UUID] = Query(None),
+    q: Optional[str] = Query(None, max_length=100, description="Número de caso, correo, tienda o tema"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    desk: CaseDeskService = Depends(_desk),
+):
+    return await desk.list(status, tenant_id, q, limit, offset)
+
+
+@router.get("/cases/{case_id}", response_model=DeskCaseDetail, summary="Un caso con su conversación")
+async def get_case(case_id: uuid.UUID, desk: CaseDeskService = Depends(_desk)):
+    return await desk.detail(case_id)
+
+
+@router.post("/cases/{case_id}/messages", response_model=DeskCaseDetail, summary="Responder al tendero")
+async def reply_case(
+    case_id: uuid.UUID,
+    data: DeskReply,
+    background: BackgroundTasks,
+    desk: CaseDeskService = Depends(_desk),
+):
+    """Lo ve en la app (con insignia) y le llega por correo; sin sesión, sólo por correo."""
+    detail, email = await desk.reply(case_id, data)
+    background.add_task(send_email_quietly, email)
+    return detail
+
+
+@router.post("/cases/{case_id}/status", response_model=DeskCaseDetail, summary="Cambiar el estado del caso")
+async def case_status(case_id: uuid.UUID, data: DeskStatusChange, desk: CaseDeskService = Depends(_desk)):
+    return await desk.set_status(case_id, data.status)
+
+
+# ── Temas de ayuda (se sirven a la app; editables sin publicar otra versión) ─
+
+@router.get("/help-topics", response_model=List[HelpTopicAdmin], summary="Temas de ayuda (todos, activos o no)")
+async def help_topics(desk: CaseDeskService = Depends(_desk)):
+    return await desk.help_topics()
+
+
+@router.put("/help-topics/{key}", response_model=HelpTopicAdmin, summary="Crear o editar un tema de ayuda")
+async def upsert_help_topic(
+    data: HelpTopicUpsert,
+    key: str = Path(..., min_length=2, max_length=40, pattern=r"^[a-z][a-z0-9_]*$"),
+    desk: CaseDeskService = Depends(_desk),
+):
+    """Texto, botones y campos del formulario del tema. Queda en la bitácora con motivo."""
+    return await desk.upsert_help_topic(key, data)
 
 
 # ── Ciclo de suscripción ────────────────────────────────────────────────────

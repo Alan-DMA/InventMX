@@ -105,6 +105,8 @@ class Subscription extends Equatable {
     this.renewalChannel = RenewalChannel.none,
     this.usersCount = 0,
     this.usersLimit = 0,
+    this.lockReason,
+    this.suspensionReason,
   });
 
   final String tenantId;
@@ -123,6 +125,18 @@ class Subscription extends Equatable {
   final int usersCount;
   final int usersLimit;
 
+  /// Si está bloqueada, por qué: `NONPAYMENT` o `ABUSE` (Centro de soporte, P17).
+  final String? lockReason;
+
+  /// El motivo que escribió soporte al suspender por abuso (sólo lo recibe el dueño).
+  final String? suspensionReason;
+
+  /// Suspensión de soporte: renovar no la levanta, se aclara con soporte.
+  bool get isAbuseSuspension => status.isLocked && lockReason == 'ABUSE';
+
+  /// Hay canal para renovar **y** renovar serviría (no si la suspendió soporte).
+  bool get canRenewInApp => renewalChannel != RenewalChannel.none && !isAbuseSuspension;
+
   factory Subscription.fromJson(Map<dynamic, dynamic> json) {
     final usage = (json['usage_stats'] as Map?) ?? const {};
     return Subscription(
@@ -137,10 +151,10 @@ class Subscription extends Equatable {
       renewalChannel: RenewalChannel.fromApi(json['renewal_channel']?.toString()),
       usersCount: (usage['users_count'] as num?)?.toInt() ?? 0,
       usersLimit: (usage['users_limit'] as num?)?.toInt() ?? 0,
+      lockReason: json['lock_reason']?.toString(),
+      suspensionReason: json['suspension_reason']?.toString(),
     );
   }
-
-  bool get canRenewInApp => renewalChannel != RenewalChannel.none;
 
   /// Días que faltan para el vencimiento (negativo = ya venció).
   int? daysUntilDue(DateTime now) =>
@@ -162,6 +176,8 @@ class Subscription extends Equatable {
         renewalChannel,
         usersCount,
         usersLimit,
+        lockReason,
+        suspensionReason,
       ];
 }
 

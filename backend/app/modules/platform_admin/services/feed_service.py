@@ -28,6 +28,7 @@ from app.modules.platform_admin.domain.support import (
 from app.modules.platform_admin.schemas.platform_schemas import AttentionItem, Feed, FeedEvent
 from app.modules.platform_admin.services.platform_admin_service import PlatformAdminService
 from app.modules.platform_admin.services.support_service import EXPORT_STALE_AFTER
+from app.modules.support_cases.services.cases import CaseDeskService
 
 FEED_EVENT_LIMIT = 500
 # Una exportación fallida deja de pedir atención tras una semana (o al reintentarla)
@@ -47,6 +48,9 @@ _ACTIONS = {
     AuditAction.LOGIN_FAILED: "Acceso fallido al panel",
     AuditAction.TOTP_FAILED: "Código de autenticador incorrecto en el acceso de {op}",
     AuditAction.OPERATOR_LOCKED: "La cuenta de {op} se bloqueó por intentos fallidos",
+    AuditAction.CASE_REPLIED: "{op} respondió un caso de {store}",
+    AuditAction.CASE_STATUS_CHANGED: "{op} cambió el estado de un caso de {store}",
+    AuditAction.HELP_TOPIC_UPDATED: "{op} editó un tema de ayuda",
     AuditAction.OPERATOR_CREATED: "Alta de un operador del panel",
     AuditAction.OPERATOR_DEACTIVATED: "Baja de un operador del panel",
     AuditAction.TOTP_RESET: "Se reinició el autenticador de un operador",
@@ -182,6 +186,23 @@ class FeedService(PlatformAdminService):
                 summary=f"Suspendida por abuso: {rows[0].reason}" if rows and rows[0].reason else "Suspendida por abuso",
             ))
 
+        desk = CaseDeskService(self.db, self.operator, self.meta)
+        waiting = await desk.waiting()
+        case_stores = await self.reader.tenant_names(list({c.tenant_id for c in waiting if c.tenant_id}))
+        for case in waiting:
+            store = (
+                case_stores.get(case.tenant_id, "Tienda") if case.tenant_id
+                else f"Sin sesión · {case.claimed_store_name or case.contact_email}"
+            )
+            items.append(AttentionItem(
+                kind="CASE_WAITING",
+                tenant_id=case.tenant_id,
+                tenant_name=store,
+                since=case.last_message_at,
+                summary=f"Caso {case.number} · {case.topic_title}: espera respuesta de soporte",
+                ref_id=str(case.id),
+            ))
+
         # Lo que te toca a ti primero; luego lo más antiguo
         items.sort(key=lambda i: (not i.awaiting_you, i.since))
         return items
@@ -216,6 +237,21 @@ class FeedService(PlatformAdminService):
                 tenant_id=tenant.id,
                 tenant_name=tenant.name,
                 summary=f"Se registró {tenant.name}",
+            ))
+        desk = CaseDeskService(self.db, self.operator, self.meta)
+        opened = await desk.created_between(since, until)
+        case_stores = await self.reader.tenant_names(list({c.tenant_id for c in opened if c.tenant_id}))
+        for case in opened:
+            store = case_stores.get(case.tenant_id) if case.tenant_id else None
+            events.append(FeedEvent(
+                kind="CASE",
+                occurred_at=case.created_at,
+                tenant_id=case.tenant_id,
+                tenant_name=store or case.claimed_store_name,
+                summary=(
+                    f"Caso {case.number} ({case.topic_title}) de {store}" if store
+                    else f"Caso {case.number} ({case.topic_title}) sin sesión, de {case.contact_email}"
+                ),
             ))
         events.sort(key=lambda e: e.occurred_at, reverse=True)
         return events[:FEED_EVENT_LIMIT]

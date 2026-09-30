@@ -7,7 +7,9 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/storage/secure_storage.dart';
+import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/login_provider.dart';
+import 'features/auth/presentation/server_signals.dart';
 import 'features/onboarding/data/onboarding_repository.dart';
 import 'features/onboarding/presentation/onboarding_provider.dart';
 
@@ -23,6 +25,7 @@ Future<void> main() async {
   bool hasSession = false;
   bool onboardingDone = false;
   String? sessionEmail;
+  bool mustChangePassword = false;
 
   // ── Hidratación de estado persistido ANTES del runApp ──────────────────
   //
@@ -43,6 +46,7 @@ Future<void> main() async {
     final storage = SecureStorage();
     hasSession = await storage.hasSession();
     sessionEmail = await storage.readUserEmail();
+    mustChangePassword = hasSession && await storage.readMustChangePassword();
 
     final onboardingRepo = OnboardingRepositoryHive();
     final onboardingData = await onboardingRepo.load();
@@ -76,6 +80,10 @@ Future<void> main() async {
       overrides: [
         sessionProvider.overrideWith((ref) => hasSession),
         currentUserNameProvider.overrideWith((ref) => sessionEmail),
+        mustChangePasswordProvider.overrideWith((ref) => mustChangePassword),
+        serverSignalHandlerProvider.overrideWith(
+          (ref) => (code) => handleServerSignal(ref, code),
+        ),
         onboardingCompleteProvider.overrideWith((ref) => onboardingDone),
       ],
       child: const NexusApp(),

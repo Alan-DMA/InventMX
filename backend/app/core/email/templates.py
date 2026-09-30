@@ -3,6 +3,7 @@ Textos de los correos al tendero: cortos, en sus palabras y sin enlaces (un
 correo de "recupera tu cuenta" con enlace es justo lo que imita el phishing).
 """
 from datetime import datetime
+from typing import Optional
 
 from app.core.email.sender import Attachment, EmailMessage
 
@@ -74,3 +75,32 @@ def store_deleted_email(to_email: str, full_name: str, store_name: str) -> Email
         f"{_SIGNATURE}"
     )
     return EmailMessage(to_email=to_email, to_name=full_name, subject=f"Eliminamos {store_name} de Nexus", text=text)
+
+
+def case_reply_email(to_email: str, name: Optional[str], number: int, title: str, reply: str, in_app: bool) -> EmailMessage:
+    """Soporte respondió un caso. Va el texto completo: quien escribió sin sesión no tiene otro lugar donde leerlo."""
+    where = (
+        "Puedes seguir la conversación en la app, en el menú ☰ · Soporte."
+        if in_app
+        else "Si necesitas agregar algo, vuelve a escribirnos desde \"No puedo entrar a mi cuenta\" y menciona "
+             f"el caso {number}."
+    )
+    text = (
+        f"Hola{', ' + name if name else ''}:\n\n"
+        f"Soporte respondió tu caso {number} ({title}):\n\n"
+        f"{reply}\n\n"
+        f"{where}"
+        f"{_SIGNATURE}"
+    )
+    return EmailMessage(to_email=to_email, to_name=name, subject=f"Respuesta a tu caso {number}", text=text)
+
+
+def public_case_received_email(to_email: str, name: Optional[str], number: int) -> EmailMessage:
+    text = (
+        f"Hola{', ' + name if name else ''}:\n\n"
+        f"Recibimos tu caso {number}. Lo revisamos y te respondemos a este correo.\n\n"
+        "Si lo que pasa es que no puedes entrar, es posible que te pidamos algunos datos de tu tienda para "
+        "confirmar que la cuenta es tuya. Nadie de Nexus te va a pedir tu contraseña."
+        f"{_SIGNATURE}"
+    )
+    return EmailMessage(to_email=to_email, to_name=name, subject=f"Recibimos tu caso {number}", text=text)

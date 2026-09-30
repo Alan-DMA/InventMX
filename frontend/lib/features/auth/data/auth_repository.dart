@@ -14,6 +14,19 @@ abstract class AuthRepository {
 
   Future<void> logout();
 
+  /// POST /api/v1/auth/password-recovery — "¿Olvidaste tu contraseña?" (P16).
+  /// Responde igual exista o no el correo; devuelve el texto del servidor.
+  Future<String> requestPasswordRecovery(String email);
+
+  /// POST /api/v1/auth/login-with-code — entra con el código de un solo uso
+  /// (el que pidió o el que le mandó soporte). La sesión sale con
+  /// `mustChangePassword = true`.
+  Future<AuthToken> loginWithCode({required String email, required String code});
+
+  /// POST /api/v1/auth/set-password — contraseña nueva tras entrar con código
+  /// (no pide la actual; sólo vale con el cambio pendiente).
+  Future<void> setNewPassword(String newPassword);
+
   Future<bool> hasSession();
 
   /// GET /api/v1/auth/me — almacén operativo persistido en el perfil del
@@ -82,6 +95,59 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> logout() => storage.clearAll();
+
+  @override
+  Future<String> requestPasswordRecovery(String email) async {
+    try {
+      final response = await client.post(
+        '/api/v1/auth/password-recovery',
+        data: {'email': email.trim()},
+      );
+      final dynamic data = response.data;
+      return data is Map && data['message'] != null
+          ? data['message'].toString()
+          : kRecoverySentMessage;
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
+  @override
+  Future<AuthToken> loginWithCode({required String email, required String code}) async {
+    try {
+      final response = await client.post(
+        '/api/v1/auth/login-with-code',
+        data: {'email': email.trim(), 'code': code.trim()},
+      );
+      final dynamic data = response.data;
+      if (data == null || data is! Map) {
+        throw const AuthException('Respuesta inválida del servidor.');
+      }
+      final token = AuthToken.fromJson(data);
+      await storage.saveTokens(
+        accessToken: token.accessToken,
+        refreshToken: token.refreshToken,
+      );
+      return token;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw const AuthException(kWrongCodeMessage);
+      }
+      throw _mapDioError(e);
+    }
+  }
+
+  @override
+  Future<void> setNewPassword(String newPassword) async {
+    try {
+      await client.post(
+        '/api/v1/auth/set-password',
+        data: {'new_password': newPassword},
+      );
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
 
   @override
   Future<bool> hasSession() => storage.hasSession();
@@ -208,6 +274,36 @@ class AuthRepositoryMock implements AuthRepository {
   @override
   Future<void> logout() => storage.clearAll();
 
+  /// Código de un solo uso de la demo (el mock no manda correos).
+  static const demoCode = 'NXS2-2026';
+
+  @override
+  Future<String> requestPasswordRecovery(String email) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return kRecoverySentMessage;
+  }
+
+  @override
+  Future<AuthToken> loginWithCode({required String email, required String code}) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    final normalized = code.replaceAll('-', '').replaceAll(' ', '').toUpperCase();
+    if (email.trim() != _validEmail || normalized != demoCode.replaceAll('-', '')) {
+      throw const AuthException(kWrongCodeMessage);
+    }
+    const token = AuthToken(
+      accessToken: 'mock.access.token',
+      refreshToken: 'mock.refresh.token',
+      mustChangePassword: true,
+    );
+    await storage.saveTokens(accessToken: token.accessToken, refreshToken: token.refreshToken);
+    return token;
+  }
+
+  @override
+  Future<void> setNewPassword(String newPassword) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+  }
+
   @override
   Future<bool> hasSession() => storage.hasSession();
 
@@ -229,6 +325,18 @@ class AuthRepositoryMock implements AuthRepository {
     _maxMarginPercent = percent;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Textos de la recuperación (los mismos para la app real y el mock)
+// ---------------------------------------------------------------------------
+
+/// Igual exista o no el correo: la app no delata qué correos tienen cuenta.
+const kRecoverySentMessage =
+    'Si el correo tiene una cuenta en Nexus, te enviamos un código. Revisa tu bandeja y la de spam.';
+
+/// Código equivocado, vencido o ya usado: el servidor no distingue, la app tampoco.
+const kWrongCodeMessage =
+    'El código no es correcto o ya venció. Si fallaste varias veces, pide uno nuevo.';
 
 // ---------------------------------------------------------------------------
 // Excepción tipada de autenticación
@@ -256,8 +364,16 @@ final dioClientProvider = Provider<DioClient>((ref) {
   return DioClient(
     baseUrl: getEffectiveApiBaseUrl(),
     storage: storage,
+    onServerSignal: (code) => ref.read(serverSignalHandlerProvider)(code),
   );
 });
+
+/// Quién atiende las señales del servidor que detecta el interceptor
+/// (`PASSWORD_CHANGE_REQUIRED`, `TENANT_HARD_LOCK`). Por omisión no hace nada;
+/// la app lo sustituye en `main` con `handleServerSignal` (así la capa de red
+/// no depende de las features).
+final serverSignalHandlerProvider =
+    Provider<void Function(String code)>((ref) => (_) {});
 
 /// Repositorio de autenticación conectado al Backend real
 final authRepositoryProvider = Provider<AuthRepository>(

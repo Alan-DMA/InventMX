@@ -4,6 +4,7 @@ import uuid
 from typing import List
 # Importación de constructs de FastAPI
 from fastapi import APIRouter, BackgroundTasks, Depends, status
+from app.core.email.sender import send_email_quietly
 # Importación de sesión asíncrona de SQLAlchemy
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,7 +45,7 @@ from app.modules.auth_tenancy.schemas.user import (
 )
 # Importación de servicios de lógica de negocio
 from app.modules.auth_tenancy.services.auth_service import AuthService
-from app.modules.auth_tenancy.services.login_code_service import LoginCodeService, send_recovery_email
+from app.modules.auth_tenancy.services.login_code_service import LoginCodeService
 from app.modules.auth_tenancy.services.tenant_service import TenantService
 from app.modules.auth_tenancy.services.user_service import UserService
 
@@ -156,7 +157,7 @@ async def request_password_recovery(
     """
     message = await LoginCodeService(db).request_self_recovery(data.email)
     if message is not None:
-        background.add_task(send_recovery_email, message)
+        background.add_task(send_email_quietly, message)
     return {"message": "Si el correo tiene una cuenta en Nexus, te enviamos un código. Revisa tu bandeja y la de spam."}
 
 

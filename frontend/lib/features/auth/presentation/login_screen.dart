@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/utils/form_focus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import 'login_provider.dart';
 
@@ -76,7 +78,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   _buildHeader(context),
                   const SizedBox(height: 32),
                   _buildForm(loginState),
-                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: const Key('loginForgotPassword'),
+                      style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+                      onPressed: loginState.isLoading
+                          ? null
+                          : () => context.push(AppRoutes.recoverPath(_emailController.text.trim())),
+                      child: const Text('¿Olvidaste tu contraseña?'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   _buildSubmitButton(loginState),
                   const SizedBox(height: 40),
                   _buildFooter(context),

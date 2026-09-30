@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../features/auth/presentation/enter_code_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/auth/presentation/recover_access_screen.dart';
+import '../../features/auth/presentation/set_new_password_screen.dart';
+import '../../features/support/presentation/case_detail_screen.dart';
+import '../../features/support/presentation/case_form_screen.dart';
+import '../../features/support/presentation/support_home_screen.dart';
+import '../../features/support/presentation/topic_help_screen.dart';
+import '../../features/support_access/presentation/support_access_screen.dart';
 import '../../features/auth/presentation/login_provider.dart';
 import '../../features/onboarding/presentation/onboarding_wizard_screen.dart';
 import '../../features/onboarding/presentation/onboarding_provider.dart';
@@ -53,6 +61,30 @@ import '../theme/app_colors.dart';
 
 abstract final class AppRoutes {
   static const login = '/login';
+
+  // Recuperar acceso (Centro de soporte, P16) — sin sesión, salvo la
+  // contraseña nueva, que exige haber entrado con el código.
+  static const recover = '/recuperar';
+  static const recoverCode = '/recuperar/codigo';
+  static const newPassword = '/nueva-contrasena';
+  static String recoverPath([String? email]) =>
+      email == null || email.isEmpty ? recover : '$recover?correo=${Uri.encodeQueryComponent(email)}';
+  static String recoverCodePath(String email, {required bool sent}) =>
+      '$recoverCode?correo=${Uri.encodeQueryComponent(email)}${sent ? '&enviado=1' : ''}';
+
+  // Soporte sin sesión (P24): ayuda de "No puedo entrar" y su formulario.
+  static const publicHelp = '/ayuda';
+  static const publicHelpForm = '/ayuda/escribir';
+
+  // Soporte dentro de la app (P23). Fuera del shell y exento del bloqueo
+  // total: una tienda suspendida tiene que poder escribir.
+  static const support = '/soporte';
+  static const supportTopic = '/soporte/tema/:key';
+  static const supportTopicForm = '/soporte/tema/:key/escribir';
+  static const supportCase = '/soporte/caso/:id';
+  static String supportTopicPath(String key) => '/soporte/tema/$key';
+  static String supportTopicFormPath(String key) => '/soporte/tema/$key/escribir';
+  static String supportCasePath(String id) => '/soporte/caso/$id';
   static const onboarding = '/onboarding';
   static const onboardingSuccess = '/onboarding/success';
 
@@ -119,6 +151,10 @@ abstract final class AppRoutes {
   static const warehouses = '/negocio/preferencias/almacenes';
   static const categories = '/negocio/preferencias/categorias';
 
+  /// El dueño concede acceso de soporte (P26). Oculto en el menú hasta la
+  /// etapa 4 ([kSupportAccessVisible]); la ruta existe para probarla.
+  static const supportAccess = '/negocio/acceso-soporte';
+
   // Kardex de ventas (Fase 2). Fuera del shell: se entra desde Reportes,
   // el POS y el Dashboard, y el detalle cubre la barra de navegación.
   static const salesHistory = '/ventas/historial';
@@ -154,7 +190,8 @@ abstract final class AppRoutes {
 // ---------------------------------------------------------------------------
 
 /// GoRouter con redirect reactivo:
-///   1. Sin sesión              → /login
+///   1. Sin sesión              → /login (salvo recuperar acceso y ayuda sin sesión)
+///   1b. Entró con un código    → /nueva-contrasena hasta cambiarla (P16)
 ///   2. Con sesión, sin onb.    → /onboarding
 ///   3. Con sesión + onb. done  → /dashboard/home
 ///   4. HARD_LOCK (Tarea 14.2)  → /locked (solo deja pasar /subscription)
@@ -187,10 +224,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return null;
       }
 
-      // ── Sin sesión: siempre al login ──────────────────────────────────
+      // ── Recuperar acceso y ayuda sin sesión (P16, P24) ────────────────
+      final isRecoveryFlow = location == AppRoutes.recover ||
+          location == AppRoutes.recoverCode ||
+          location == AppRoutes.publicHelp ||
+          location == AppRoutes.publicHelpForm;
+
+      // ── Sin sesión: al login (salvo recuperar acceso) ─────────────────
       if (!hasSession) {
-        return location == AppRoutes.login ? null : AppRoutes.login;
+        return location == AppRoutes.login || isRecoveryFlow ? null : AppRoutes.login;
       }
+
+      // ── Entró con un código: primero la contraseña nueva (P16) ────────
+      // Antes que el onboarding y el bloqueo: el servidor no responde nada
+      // más hasta que la cambie (403 PASSWORD_CHANGE_REQUIRED).
+      if (ref.read(mustChangePasswordProvider)) {
+        return location == AppRoutes.newPassword ? null : AppRoutes.newPassword;
+      }
+      if (location == AppRoutes.newPassword) return AppRoutes.home;
 
       // ── Con sesión, onboarding incompleto ─────────────────────────────
       if (!onboardingDone) {
@@ -203,6 +254,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // Redirige al Dashboard Home si el usuario intenta entrar al login,
       // al flujo de onboarding ya culminado, o a la ruta base /dashboard.
       if (location == AppRoutes.login ||
+          isRecoveryFlow ||
           location == AppRoutes.onboarding ||
           location == AppRoutes.onboardingSuccess ||
           location == AppRoutes.dashboard) {
@@ -210,12 +262,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       // ── Bloqueo total por morosidad (Constitución Art. VI §6.3) ───────
-      // Solo la pantalla de bloqueo y "Mi suscripción" siguen accesibles;
+      // Solo la pantalla de bloqueo, "Mi suscripción" y Soporte siguen accesibles;
       // al volver a ACTIVE el redirect se libera solo (refreshListenable).
       final isHardLocked = subscriptionStatus == SubscriptionStatus.hardLock;
       if (isHardLocked) {
-        final allowed =
-            location == AppRoutes.locked || location == AppRoutes.subscription;
+        // Soporte también: una tienda suspendida tiene que poder escribir (P23)
+        final allowed = location == AppRoutes.locked ||
+            location == AppRoutes.subscription ||
+            location == AppRoutes.support ||
+            location.startsWith('${AppRoutes.support}/');
         return allowed ? null : AppRoutes.locked;
       }
       if (location == AppRoutes.locked) {
@@ -250,6 +305,74 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.login,
         name: 'login',
         builder: (_, __) => const LoginScreen(),
+      ),
+
+      // ── Recuperar acceso (P16) y ayuda sin sesión (P24) ─────────────
+      GoRoute(
+        path: AppRoutes.recover,
+        name: 'recover',
+        builder: (_, state) => RecoverAccessScreen(initialEmail: state.uri.queryParameters['correo']),
+        routes: [
+          GoRoute(
+            path: 'codigo',
+            name: 'recover-code',
+            builder: (_, state) => EnterCodeScreen(
+              initialEmail: state.uri.queryParameters['correo'],
+              justSent: state.uri.queryParameters['enviado'] == '1',
+            ),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: AppRoutes.newPassword,
+        name: 'new-password',
+        builder: (_, __) => const SetNewPasswordScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.publicHelp,
+        name: 'public-help',
+        builder: (_, state) => TopicHelpScreen(public: true, topicKey: state.uri.queryParameters['tema']),
+        routes: [
+          GoRoute(
+            path: 'escribir',
+            name: 'public-help-form',
+            builder: (_, state) => CaseFormScreen(
+              public: true,
+              topicKey: state.uri.queryParameters['tema'] ?? 'cannot_login',
+            ),
+          ),
+        ],
+      ),
+
+      // ── Soporte dentro de la app (P23). Fuera del shell y exento del bloqueo ──
+      GoRoute(
+        path: AppRoutes.support,
+        name: 'support',
+        builder: (_, __) => const SupportHomeScreen(),
+        routes: [
+          GoRoute(
+            path: 'tema/:key',
+            name: 'support-topic',
+            builder: (_, state) => TopicHelpScreen(topicKey: state.pathParameters['key']),
+            routes: [
+              GoRoute(
+                path: 'escribir',
+                name: 'support-topic-form',
+                builder: (_, state) => CaseFormScreen(topicKey: state.pathParameters['key']!),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: 'caso/:id',
+            name: 'support-case',
+            builder: (_, state) => CaseDetailScreen(caseId: state.pathParameters['id']!),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: AppRoutes.supportAccess,
+        name: 'support-access',
+        builder: (_, __) => const SupportAccessScreen(),
       ),
 
       // ── Onboarding ───────────────────────────────────────────────────
@@ -618,6 +741,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 class _CompositeRefreshListenable extends ChangeNotifier {
   _CompositeRefreshListenable(Ref ref) {
     ref.listen(sessionProvider, (_, __) => notifyListeners());
+    ref.listen(mustChangePasswordProvider, (_, __) => notifyListeners());
     ref.listen(onboardingCompleteProvider, (_, __) => notifyListeners());
     ref.listen(subscriptionStatusProvider, (_, __) => notifyListeners());
     ref.listen(myPermissionsProvider, (_, __) => notifyListeners());
@@ -639,6 +763,7 @@ String? requiredPermissionFor(String location) {
       location == base || location.startsWith('$base/');
 
   if (location == AppRoutes.subscription) return _ownerOnly;
+  if (location == AppRoutes.supportAccess) return _ownerOnly;
   if (under(AppRoutes.reports)) return Permissions.reportsViewBasic;
   if (under(AppRoutes.stockAlerts) ||
       location.startsWith('${AppRoutes.home}/products/')) {

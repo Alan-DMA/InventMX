@@ -9,13 +9,15 @@ import '../../../auth/presentation/login_provider.dart';
 import '../../../inventory/presentation/widgets/clone_catalog_sheet.dart';
 import '../../../management/presentation/management_provider.dart';
 import '../../../saas_admin/presentation/saas_provider.dart';
+import '../../../support/presentation/support_provider.dart';
+import '../../../support_access/presentation/support_access_screen.dart' show kSupportAccessVisible;
 
 /// Menú ☰ del Centro de Mando, con puertas por rol (Permisos por rol, Fase A).
 ///
 /// Tres secciones que siguen la propiedad de cada cosa: **Operación** (lo que
 /// se hace en el día, por permiso), **Administración** (lo del negocio: sólo
 /// Dueño/Encargado; la sección no existe para quien no tenga nada en ella) y
-/// **Sistema** (panel de fundadores, que ningún comercio ve). La cabecera
+/// **Ayuda** (Soporte, para todos, con la insignia de respuestas). La cabecera
 /// lleva a "Mi perfil": lo propio de cada quien no va en la lista.
 ///
 /// Regla: ocultar, no deshabilitar — nunca se ofrece una entrada cuyo destino
@@ -41,6 +43,7 @@ class AppDrawer extends ConsumerWidget {
     final isOwner = ref.watch(isOwnerProvider);
     final canSubscription = ref.watch(canSeeSubscriptionProvider);
     final isCorporativo = ref.watch(isCorporativoPlanProvider);
+    final supportUnread = ref.watch(supportUnreadProvider).valueOrNull ?? 0;
 
     void goTo(String route, {bool replaceTab = false}) {
       Navigator.of(context).pop();
@@ -79,6 +82,15 @@ class AppDrawer extends ConsumerWidget {
           icon: Icons.card_membership_rounded,
           title: 'Mi suscripción',
           onTap: () => goTo(AppRoutes.subscription),
+        ),
+      // P26: se construye ya pero se ofrece hasta la etapa 4 (suplantación de
+      // sólo lectura); hoy conceder no tendría efecto.
+      if (isOwner && kSupportAccessVisible)
+        _DrawerItem(
+          key: const Key('drawerSupportAccess'),
+          icon: Icons.admin_panel_settings_outlined,
+          title: 'Acceso de soporte',
+          onTap: () => goTo(AppRoutes.supportAccess),
         ),
       // RF-31: Dueño con Plan Corporativo. No se ofrece para luego negar.
       if (isOwner && isCorporativo)
@@ -224,6 +236,30 @@ class AppDrawer extends ConsumerWidget {
                     const _DrawerHeaderCategory('ADMINISTRACIÓN'),
                     ...administration,
                   ],
+                  // Ayuda: para todos los roles (P25)
+                  const Divider(color: AppColors.border, height: 24),
+                  const _DrawerHeaderCategory('AYUDA'),
+                  _DrawerItem(
+                    key: const Key('drawerSupport'),
+                    icon: Icons.support_agent_rounded,
+                    title: 'Soporte',
+                    trailing: supportUnread > 0
+                        ? Container(
+                            key: const Key('drawerSupportUnread'),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.skyBlue.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              supportUnread == 1 ? '1 respuesta' : '$supportUnread respuestas',
+                              style: const TextStyle(
+                                fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.skyBlue),
+                            ),
+                          )
+                        : null,
+                    onTap: () => goTo(AppRoutes.support),
+                  ),
                 ],
               ),
             ),
@@ -288,11 +324,13 @@ class _DrawerItem extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
+    this.trailing,
   });
 
   final IconData icon;
   final String title;
   final VoidCallback onTap;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -309,6 +347,7 @@ class _DrawerItem extends StatelessWidget {
           color: AppColors.onSurface,
         ),
       ),
+      trailing: trailing,
       onTap: onTap,
     );
   }

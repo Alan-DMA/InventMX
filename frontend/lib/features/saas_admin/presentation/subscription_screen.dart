@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/saas_repository.dart';
 import '../domain/subscription.dart';
@@ -137,6 +139,7 @@ class _PlanHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch ((sub.status, sub.entitlement)) {
+      _ when sub.isAbuseSuspension => ('Suspendida por soporte', AppColors.error),
       (SubscriptionStatus.hardLock, _) => ('Suspendida', AppColors.error),
       (SubscriptionStatus.softLock, _) => ('Solo lectura', AppColors.warning),
       (_, Entitlement.gracia) => ('En gracia', AppColors.warning),
@@ -192,6 +195,9 @@ class _RenewalCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final now = ref.watch(clockProvider)();
     final message = switch (sub.entitlement) {
+      _ when sub.isAbuseSuspension =>
+        'Soporte Nexus suspendió tu cuenta${sub.suspensionReason != null ? ': “${sub.suspensionReason}”' : '.'} '
+            'Renovar no la levanta; escríbenos para aclararlo.',
       Entitlement.gracia =>
         'Tu suscripción venció el ${longDate(sub.paidUntil!)}. Conservas acceso completo '
             'hasta el ${longDate(sub.graceUntil!)}; después la cuenta se suspende hasta renovar.',
@@ -228,13 +234,25 @@ class _RenewalCard extends ConsumerWidget {
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
               ),
             )
-          else
-            const Text(
-              'Muy pronto podrás renovar desde la app. Si necesitas renovar o cambiar '
-              'de plan antes, escríbenos y lo resolvemos por ti.',
-              key: Key('subscriptionRenewalSoon'),
-              style: TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted, height: 1.4),
+          else ...[
+            if (!sub.isAbuseSuspension)
+              const Text(
+                'Muy pronto podrás renovar desde la app. Si necesitas renovar o cambiar '
+                'de plan antes, escríbenos y lo resolvemos por ti.',
+                key: Key('subscriptionRenewalSoon'),
+                style: TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted, height: 1.4),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                key: const Key('subscriptionContactSupport'),
+                style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 44)),
+                onPressed: () => context.push(AppRoutes.supportTopicPath(
+                    sub.isAbuseSuspension ? 'account_suspended' : 'subscription')),
+                child: const Text('Escribir a soporte'),
+              ),
             ),
+          ],
         ],
       ),
     );

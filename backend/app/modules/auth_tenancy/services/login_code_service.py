@@ -21,7 +21,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import settings
-from app.core.email.sender import EmailDeliveryError, EmailMessage, send_email
+from app.core.email.sender import EmailMessage
 from app.core.email.templates import login_code_email
 from app.modules.auth_tenancy.domain.login_code import LoginCode, LoginCodeOrigin
 from app.modules.auth_tenancy.domain.user import User
@@ -152,10 +152,3 @@ class LoginCodeService:
         await self.db.commit()
         return login_code_email(user.email, user.full_name, code, expires_at, assisted=False)
 
-
-async def send_recovery_email(message: EmailMessage) -> None:
-    """Envío en segundo plano de la recuperación: un fallo del proveedor sólo queda en el log."""
-    try:
-        await send_email(message)
-    except EmailDeliveryError:
-        logger.exception("No se pudo enviar el código de recuperación.")

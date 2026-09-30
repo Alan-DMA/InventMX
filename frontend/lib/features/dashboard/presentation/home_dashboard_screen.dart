@@ -37,6 +37,7 @@ import '../../whatsapp_catalog/presentation/store_orders_provider.dart';
 import 'dashboard_provider.dart';
 import 'quick_actions_preference.dart';
 import 'widgets/app_drawer.dart';
+import '../../support/presentation/support_provider.dart';
 import 'widgets/currency_selector.dart';
 import 'widgets/customize_actions_modal.dart';
 import 'widgets/quick_stock_adjust_sheet.dart';
@@ -76,12 +77,22 @@ class HomeDashboardScreen extends ConsumerWidget {
         elevation: 0,
         // Botón hamburguesa que abre el AppDrawer
         leading: Builder(
-          builder: (scaffoldContext) => IconButton(
-            key: const Key('homeDrawerButton'),
-            icon: const Icon(Icons.menu_rounded, color: AppColors.onSurface),
-            onPressed: () => Scaffold.of(scaffoldContext).openDrawer(),
-            tooltip: 'Menú principal',
-          ),
+          builder: (scaffoldContext) {
+            // Punto cuando soporte respondió un caso y no se ha abierto (P23)
+            final supportUnread = ref.watch(supportUnreadProvider).valueOrNull ?? 0;
+            return IconButton(
+              key: const Key('homeDrawerButton'),
+              icon: Badge(
+                key: const Key('homeDrawerSupportBadge'),
+                isLabelVisible: supportUnread > 0,
+                smallSize: 9,
+                backgroundColor: AppColors.skyBlue,
+                child: const Icon(Icons.menu_rounded, color: AppColors.onSurface),
+              ),
+              onPressed: () => Scaffold.of(scaffoldContext).openDrawer(),
+              tooltip: supportUnread > 0 ? 'Menú principal · soporte te respondió' : 'Menú principal',
+            );
+          },
         ),
         // Identificador de marca Nexus
         // El Inicio sigue el alcance: Dueño y Encargado cambian de almacén

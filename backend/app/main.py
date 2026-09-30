@@ -28,6 +28,7 @@ from app.modules.platform_admin.services.subscription_cycle import subscription_
 from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
 from app.modules.saas_billing.api.endpoints import router as saas_billing_router
 from app.modules.sales_pos.api.endpoints import router as sales_router
+from app.modules.support_cases.api.endpoints import router as support_cases_router
 from app.modules.whatsapp_catalog.api.endpoints import router as whatsapp_catalog_router
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,7 @@ app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(platform_router, prefix=settings.API_V1_STR)
 app.include_router(support_access_router, prefix=settings.API_V1_STR)
+app.include_router(support_cases_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["health"])

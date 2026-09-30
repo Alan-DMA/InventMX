@@ -46,6 +46,10 @@ class AuditAction:
     TENANT_DELETION_REQUESTED = "TENANT_DELETION_REQUESTED"
     TENANT_DELETION_CANCELLED = "TENANT_DELETION_CANCELLED"
     TENANT_DELETED = "TENANT_DELETED"            # lo registra quien dio la segunda aprobación
+    # Apartado de Soporte (P23): respuestas y estados de casos, y el contenido de ayuda
+    CASE_REPLIED = "CASE_REPLIED"
+    CASE_STATUS_CHANGED = "CASE_STATUS_CHANGED"
+    HELP_TOPIC_UPDATED = "HELP_TOPIC_UPDATED"
     # Lo hace el dueño desde su app (operador vacío); aquí para el feed
     SUPPORT_ACCESS_GRANTED = "SUPPORT_ACCESS_GRANTED"
     SUPPORT_ACCESS_REVOKED = "SUPPORT_ACCESS_REVOKED"

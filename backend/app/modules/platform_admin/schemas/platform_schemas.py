@@ -261,13 +261,13 @@ class OwnerPreview(BaseModel):
 
 AttentionKind = Literal[
     "DELETION_PENDING", "EXPORT_IN_PROGRESS", "EXPORT_FAILED",
-    "SUPPORT_ACCESS_ACTIVE", "ASSISTED_CODE_UNUSED", "ABUSE_SUSPENSION",
+    "SUPPORT_ACCESS_ACTIVE", "ASSISTED_CODE_UNUSED", "ABUSE_SUSPENSION", "CASE_WAITING",
 ]
 
 
 class AttentionItem(BaseModel):
     kind: AttentionKind
-    tenant_id: uuid.UUID
+    tenant_id: Optional[uuid.UUID] = Field(None, description="Vacío en un caso escrito sin sesión")
     tenant_name: str
     since: datetime
     until: Optional[datetime] = None
@@ -279,7 +279,7 @@ class AttentionItem(BaseModel):
 
 
 class FeedEvent(BaseModel):
-    kind: Literal["AUDIT", "SIGNUP"]
+    kind: Literal["AUDIT", "SIGNUP", "CASE"]
     occurred_at: datetime
     action: Optional[str] = None
     tenant_id: Optional[uuid.UUID] = None

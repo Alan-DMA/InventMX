@@ -70,6 +70,17 @@ async def send_email(message: EmailMessage) -> None:
         raise EmailDeliveryError(f"EMAIL_BACKEND desconocido: {settings.EMAIL_BACKEND!r}")
 
 
+async def send_email_quietly(message: EmailMessage) -> None:
+    """
+    Para correos que salen en segundo plano, después de responder la petición:
+    un fallo del proveedor sólo queda en el log (nadie espera la respuesta).
+    """
+    try:
+        await send_email(message)
+    except EmailDeliveryError:
+        logger.exception("No se pudo enviar un correo en segundo plano (%s).", message.subject)
+
+
 def _echo(text: str) -> None:
     """
     Imprime en la consola del servidor sin romper nunca la petición: en Windows

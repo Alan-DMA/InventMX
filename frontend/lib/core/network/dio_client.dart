@@ -13,6 +13,7 @@ class DioClient {
     required String baseUrl,
     required SecureStorage storage,
     Future<void> Function()? onLogout,
+    void Function(String code)? onServerSignal,
   }) {
     _dio = Dio(
       BaseOptions(
@@ -28,7 +29,12 @@ class DioClient {
     );
 
     _dio.interceptors.addAll([
-      AuthInterceptor(storage: storage, dio: _dio, onLogout: onLogout),
+      AuthInterceptor(
+        storage: storage,
+        dio: _dio,
+        onLogout: onLogout,
+        onServerSignal: onServerSignal,
+      ),
       _buildLogInterceptor(),
     ]);
   }

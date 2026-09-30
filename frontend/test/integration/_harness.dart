@@ -14,7 +14,10 @@ import 'package:nexus_app/features/auth/data/auth_repository.dart';
 /// Usan un tenant dedicado (`integrationTestEmail`) para no mezclar datos
 /// de prueba con el tenant real que se usa para QA manual
 /// (`eduardo@nexus.com`).
-const String integrationBaseUrl = 'http://127.0.0.1:8000';
+/// Se cambia con `--dart-define=INTEGRATION_API_URL=http://127.0.0.1:8001`
+/// para probar contra un servidor de QA aparte sin tocar el de desarrollo.
+const String integrationBaseUrl =
+    String.fromEnvironment('INTEGRATION_API_URL', defaultValue: 'http://127.0.0.1:8000');
 
 const String integrationTestEmail = 'integration-test@nexus.mx';
 const String integrationTestPassword = 'Integracion123';

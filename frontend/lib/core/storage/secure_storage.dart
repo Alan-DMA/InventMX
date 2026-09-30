@@ -16,6 +16,7 @@ class SecureStorage {
   static const _keyAccessToken = 'nexus_access_token';
   static const _keyRefreshToken = 'nexus_refresh_token';
   static const _keyUserEmail = 'nexus_user_email';
+  static const _keyMustChangePassword = 'nexus_must_change_password';
   static const _webAuthBoxName = 'web_secure_auth_store';
 
   Future<Box<dynamic>?> _getWebBox() async {
@@ -111,6 +112,26 @@ class SecureStorage {
     return val?.toString();
   }
 
+  // ---------- Contraseña nueva pendiente ----------
+
+  /// Entró con un código de un solo uso y aún no pone contraseña nueva
+  /// (Centro de soporte, P16). Se persiste para que reabrir la app no se
+  /// salte el paso: el router lo lee antes del primer redirect.
+  Future<void> saveMustChangePassword(bool value) async {
+    if (value) {
+      await write(_keyMustChangePassword, 'true');
+      return;
+    }
+    try {
+      if (!kIsWeb) await _storage.delete(key: _keyMustChangePassword);
+    } catch (_) {}
+    final box = await _getWebBox();
+    await box?.delete(_keyMustChangePassword);
+  }
+
+  Future<bool> readMustChangePassword() async =>
+      (await read(_keyMustChangePassword)) == 'true';
+
   // ---------- Par completo ----------
 
   Future<void> saveTokens({
@@ -121,7 +142,8 @@ class SecureStorage {
     await saveRefreshToken(refreshToken);
   }
 
-  /// Borra **sólo las llaves de sesión** (tokens y correo).
+  /// Borra **sólo las llaves de sesión** (tokens, correo y el cambio de
+  /// contraseña pendiente).
   ///
   /// Antes borraba todo el almacén (`deleteAll`), lo que tiraba también las
   /// preferencias locales de cada persona: quien cerraba sesión perdía sus
@@ -129,7 +151,12 @@ class SecureStorage {
   /// esas preferencias van con el correo en la clave y sobreviven al logout
   /// sin mezclarse entre usuarios (`scopedKey`).
   Future<void> clearSession() async {
-    for (final key in const [_keyAccessToken, _keyRefreshToken, _keyUserEmail]) {
+    for (final key in const [
+      _keyAccessToken,
+      _keyRefreshToken,
+      _keyUserEmail,
+      _keyMustChangePassword,
+    ]) {
       try {
         if (!kIsWeb) await _storage.delete(key: key);
       } catch (_) {}

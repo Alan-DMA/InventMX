@@ -82,6 +82,7 @@ class SaasRepositoryMock implements SaasRepository {
     this.plan = SaasPlanId.comercio,
     this.renewalChannel = RenewalChannel.none,
     this.manualStatus,
+    this.abuseReason,
     List<SupportActivity>? activity,
     DateTime Function()? now,
   })  : now = now ?? DateTime.now,
@@ -96,6 +97,9 @@ class SaasRepositoryMock implements SaasRepository {
 
   /// Fuerza un estado (p. ej. sólo lectura aplicado a mano desde el panel).
   final SubscriptionStatus? manualStatus;
+
+  /// Suspendida por soporte (P17) con este motivo: HARD_LOCK con `ABUSE`.
+  final String? abuseReason;
   final DateTime Function() now;
   final List<SupportActivity>? _activity;
 
@@ -126,10 +130,12 @@ class SaasRepositoryMock implements SaasRepository {
         : today.isBefore(graceUntil)
             ? Entitlement.gracia
             : Entitlement.vencida;
-    final status = manualStatus ??
-        (entitlement == Entitlement.vencida
-            ? SubscriptionStatus.hardLock
-            : SubscriptionStatus.active);
+    final status = abuseReason != null
+        ? SubscriptionStatus.hardLock
+        : manualStatus ??
+            (entitlement == Entitlement.vencida
+                ? SubscriptionStatus.hardLock
+                : SubscriptionStatus.active);
     return _delay(Subscription(
       tenantId: 't-sol',
       tenantName: 'Abarrotes Sol',
@@ -142,6 +148,8 @@ class SaasRepositoryMock implements SaasRepository {
       renewalChannel: renewalChannel,
       usersCount: 2,
       usersLimit: limits[plan]!,
+      lockReason: abuseReason != null ? 'ABUSE' : (status.isLocked ? 'NONPAYMENT' : null),
+      suspensionReason: abuseReason,
     ));
   }
 

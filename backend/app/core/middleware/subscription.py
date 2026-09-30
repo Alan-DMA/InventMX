@@ -54,6 +54,8 @@ EXEMPT_PATHS = [
     # Un comercio bloqueado entra para ver su suscripción y renovar (P13)
     "/api/v1/auth/me",
     "/api/v1/subscription",
+    # Soporte (P23): una tienda suspendida tiene que poder escribir
+    "/api/v1/support/",
     "/api/v1/webhooks",
     "/api/v1/saas-billing/webhooks",
     "/api/v1/saas-billing/plans",

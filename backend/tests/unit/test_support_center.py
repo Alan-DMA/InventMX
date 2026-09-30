@@ -320,6 +320,12 @@ async def _store_with_history(client: AsyncClient, prefix: str):
         headers=owner,
     )
     assert received.status_code == 200, received.text
+    case = await client.post(
+        "/api/v1/support/cases",
+        json={"topic_key": "other", "description": "Quiero cerrar la tienda y borrar mis datos."},
+        headers=owner,
+    )
+    assert case.status_code == 201, case.text
     return owner, tenant_id, email
 
 
@@ -361,7 +367,8 @@ async def test_deleting_a_store_takes_two_founders_and_removes_everything(client
     login = await client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
     assert login.status_code == 401
     await db_session.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
-    for table in ("sales", "products", "suppliers", "purchase_orders", "users", "warehouses"):
+    for table in ("sales", "products", "suppliers", "purchase_orders", "users", "warehouses",
+                  "support_cases", "support_case_messages"):
         left = (await db_session.execute(text(f"SELECT count(*) FROM {table} WHERE tenant_id = :t"), {"t": tenant_id})).scalar_one()
         assert left == 0, table
     await db_session.rollback()
