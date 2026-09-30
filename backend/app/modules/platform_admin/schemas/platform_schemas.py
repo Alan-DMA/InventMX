@@ -107,6 +107,7 @@ class AuditEntryRead(BaseModel):
     operator_id: Optional[uuid.UUID] = None
     operator_name: Optional[str] = None
     action: str
+    summary: Optional[str] = Field(None, description="La acción en palabras (la misma frase que en el feed)")
     target_tenant_id: Optional[uuid.UUID] = None
     target_type: Optional[str] = None
     target_id: Optional[str] = None

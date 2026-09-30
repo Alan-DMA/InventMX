@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../cases/presentation/cases_providers.dart';
 import '../core/admin_colors.dart';
+import '../tenants/presentation/store_search.dart';
+import '../tenants/presentation/tenant_sheet.dart';
+import '../today/presentation/today_providers.dart';
 import '../router/admin_routes.dart';
 import '../session/admin_session.dart';
 import 'platform_strip.dart';
@@ -15,13 +19,21 @@ import 'platform_strip.dart';
 /// (Hoy · Casos · Bitácora · Temas de ayuda, P28) y la sección a la derecha.
 /// En pantalla chica la navegación pasa a una fila bajo la franja.
 class AdminShell extends ConsumerWidget {
-  const AdminShell({super.key, required this.location, required this.child});
+  const AdminShell({super.key, required this.location, required this.uri, required this.child});
 
   final String location;
+
+  /// La dirección completa: `?tienda=<id>` abre la ficha encima de la sección.
+  final Uri uri;
   final Widget child;
 
   static const railWidth = 220.0;
   static const compactBelow = 900.0;
+
+  Future<void> _search(BuildContext context) async {
+    final picked = await showStoreSearch(context);
+    if (picked != null && context.mounted) context.go(AdminRoutes.withStore(uri, picked.id));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,42 +41,66 @@ class AdminShell extends ConsumerWidget {
     final compact = MediaQuery.sizeOf(context).width < compactBelow;
     final waiting = ref.watch(waitingCountProvider).valueOrNull;
     final nav = _AdminNav(location: location, horizontal: compact, waiting: waiting);
+    final storeId = uri.queryParameters[AdminRoutes.storeParam];
 
     return Scaffold(
       backgroundColor: AppColors.darkSlate,
       body: _Poller(
-        child: Column(
-          children: [
-            const PlatformStrip(),
-            if (session != null && session.enteredWithRecoveryCode)
-              _RecoveryNotice(
-                remaining: session.recoveryCodesRemaining,
-                onDismiss: () => ref.read(adminSessionProvider.notifier).dismissRecoveryNotice(),
-              ),
-            if (compact) ...[
-              nav,
-              const Divider(height: 1),
-              Expanded(child: child),
-            ] else
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        // Ctrl K desde cualquier sección (P15: buscador global)
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.keyK, control: true): () => _search(context),
+            const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () => _search(context),
+          },
+          child: Focus(
+            autofocus: true,
+            child: Stack(
+              children: [
+                Column(
                   children: [
-                    SizedBox(width: railWidth, child: nav),
-                    const VerticalDivider(width: 1, color: AppColors.border),
-                    Expanded(child: child),
+                    const PlatformStrip(),
+                    if (session != null && session.enteredWithRecoveryCode)
+                      _RecoveryNotice(
+                        remaining: session.recoveryCodesRemaining,
+                        onDismiss: () => ref.read(adminSessionProvider.notifier).dismissRecoveryNotice(),
+                      ),
+                    if (compact) ...[
+                      nav,
+                      const Divider(height: 1),
+                      Expanded(child: child),
+                    ] else
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(width: railWidth, child: nav),
+                            const VerticalDivider(width: 1, color: AppColors.border),
+                            Expanded(child: child),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
-              ),
-          ],
+                if (storeId != null)
+                  Positioned.fill(
+                    top: PlatformStrip.height,
+                    child: TenantSheet(
+                      key: ValueKey('sheet_$storeId'),
+                      tenantId: storeId,
+                      onClose: () => context.go(AdminRoutes.withoutStore(uri)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-/// Cada 60 s, en silencio: el contador de "Casos" y la cola si está abierta
-/// (P33). Sin sonidos ni emergentes.
+/// Cada 60 s, en silencio: el contador de "Casos", la cola y "Hoy" si están
+/// abiertos (P33). Sin sonidos ni emergentes.
 class _Poller extends ConsumerStatefulWidget {
   const _Poller({required this.child});
   final Widget child;
@@ -85,6 +121,8 @@ class _PollerState extends ConsumerState<_Poller> {
       if (!mounted) return;
       ref.invalidate(waitingCountProvider);
       if (ref.exists(caseListProvider)) ref.read(caseListProvider.notifier).refreshSilently();
+      if (ref.exists(feedProvider)) ref.read(feedProvider.notifier).refreshSilently();
+      if (ref.exists(metricsProvider)) ref.invalidate(metricsProvider);
     });
   }
 

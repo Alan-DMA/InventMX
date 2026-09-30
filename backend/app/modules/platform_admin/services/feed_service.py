@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import select
 
-from app.modules.platform_admin.domain.audit_log import AuditAction, PlatformAuditLog
+from app.modules.platform_admin.domain.audit_log import AuditAction
 from app.modules.platform_admin.domain.support import (
     ApprovalStatus,
     ExportStatus,
@@ -26,6 +26,7 @@ from app.modules.platform_admin.domain.support import (
     PlatformExportJob,
 )
 from app.modules.platform_admin.schemas.platform_schemas import AttentionItem, Feed, FeedEvent
+from app.modules.platform_admin.services.audit_text import operator_summary  # noqa: F401 (compatibilidad)
 from app.modules.platform_admin.services.platform_admin_service import PlatformAdminService
 from app.modules.platform_admin.services.support_service import EXPORT_STALE_AFTER
 from app.modules.support_cases.services.cases import CaseDeskService
@@ -33,49 +34,6 @@ from app.modules.support_cases.services.cases import CaseDeskService
 FEED_EVENT_LIMIT = 500
 # Una exportación fallida deja de pedir atención tras una semana (o al reintentarla)
 EXPORT_ATTENTION_WINDOW = timedelta(days=7)
-
-_ACTIONS = {
-    AuditAction.ASSISTED_RECOVERY_SENT: "{op} envió un código de recuperación al dueño de {store}",
-    AuditAction.ABUSE_SUSPENDED: "{op} suspendió {store} por abuso",
-    AuditAction.ABUSE_LIFTED: "{op} levantó la suspensión de {store}",
-    AuditAction.DATA_EXPORT_REQUESTED: "{op} pidió exportar los datos de {store}",
-    AuditAction.DATA_EXPORT_SENT: "La exportación de {store} llegó al correo del dueño",
-    AuditAction.TENANT_DELETION_REQUESTED: "{op} pidió eliminar {store}; falta la segunda aprobación",
-    AuditAction.TENANT_DELETION_CANCELLED: "{op} canceló la eliminación de {store}",
-    AuditAction.TENANT_DELETED: "{op} aprobó la eliminación: {store} ya no existe",
-    AuditAction.SUPPORT_ACCESS_REVOKED: "El dueño de {store} retiró el acceso de soporte",
-    AuditAction.SUBSCRIPTION_SUSPENDED: "{store} quedó suspendida al terminar su gracia sin renovar",
-    AuditAction.LOGIN_FAILED: "Acceso fallido al panel",
-    AuditAction.TOTP_FAILED: "Código de autenticador incorrecto en el acceso de {op}",
-    AuditAction.OPERATOR_LOCKED: "La cuenta de {op} se bloqueó por intentos fallidos",
-    AuditAction.CASE_REPLIED: "{op} respondió un caso de {store}",
-    AuditAction.CASE_STATUS_CHANGED: "{op} cambió el estado de un caso de {store}",
-    AuditAction.HELP_TOPIC_UPDATED: "{op} editó un tema de ayuda",
-    AuditAction.OPERATOR_CREATED: "Alta de un operador del panel",
-    AuditAction.OPERATOR_DEACTIVATED: "Baja de un operador del panel",
-    AuditAction.TOTP_RESET: "Se reinició el autenticador de un operador",
-    # Historial previo a P19
-    AuditAction.PAYMENT_CONFIRMED: "{op} confirmó un pago manual de {store}",
-    AuditAction.STATUS_CHANGED: "{op} cambió el estado de {store}",
-    AuditAction.PLAN_CHANGED: "{op} cambió el plan de {store}",
-    AuditAction.COURTESY_GRANTED: "{op} regaló un mes a {store}",
-}
-
-
-def operator_summary(entry: PlatformAuditLog, operator: Optional[str], store: Optional[str]) -> str:
-    d = entry.details or {}
-    op = operator or "Nexus"
-    store = store or d.get("tienda") or "una tienda"
-    if entry.action == AuditAction.DAYS_GIFTED:
-        days = d.get("dias")
-        return f"{op} regaló {days} {'día' if days == 1 else 'días'} a {store}"
-    if entry.action == AuditAction.DATA_EXPORT_FAILED:
-        return f"Falló la exportación de {store}: {d.get('error', 'sin detalle')}"
-    if entry.action == AuditAction.SUPPORT_ACCESS_GRANTED:
-        return f"El dueño de {store} concedió acceso de soporte por {d.get('horas', '?')} h"
-    template = _ACTIONS.get(entry.action)
-    return template.format(op=op, store=store) if template else entry.action
-
 
 class FeedService(PlatformAdminService):
 

@@ -15,6 +15,9 @@ abstract class CasesRepository {
 
   Future<DeskCaseDetail> detail(String id);
 
+  /// Los casos de una tienda (todos los estados), para su ficha.
+  Future<List<DeskCase>> forTenant(String tenantId, {int limit = 10});
+
   Future<DeskCaseDetail> reply(String id, String body, {bool resolve = false});
 
   Future<DeskCaseDetail> setStatus(String id, DeskCaseStatus status);
@@ -43,6 +46,16 @@ class CasesRepositoryImpl implements CasesRepository {
   Future<int> waitingCount() async {
     final page = await list(status: DeskCaseStatus.waiting, limit: 1);
     return page.total;
+  }
+
+  @override
+  Future<List<DeskCase>> forTenant(String tenantId, {int limit = 10}) async {
+    try {
+      final res = await _dio.get('/cases', queryParameters: {'tenant_id': tenantId, 'limit': limit});
+      return DeskCasePage.fromJson(res.data as Map<String, dynamic>).items;
+    } catch (e) {
+      throw toAdminError(e, 'No pudimos cargar los casos de la tienda.');
+    }
   }
 
   @override

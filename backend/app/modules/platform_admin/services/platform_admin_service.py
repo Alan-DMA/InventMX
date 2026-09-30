@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config.settings import settings
 from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
 from app.modules.auth_tenancy.services.user_service import PLAN_USER_LIMITS
+from app.modules.platform_admin.services.audit_text import operator_summary
 from app.modules.platform_admin.domain.audit_log import AuditAction, PlatformAuditLog
 from app.modules.platform_admin.domain.operator import PlatformOperator
 from app.modules.platform_admin.domain.support import (
@@ -149,13 +150,14 @@ class PlatformAdminService:
         if row is None:
             raise not_found()
         tenant: Tenant = row[0]
-        activity, _ = await self.audit.list(tenant_id=tenant_id, limit=30)
+        # Sin el ruido del feed: abrir la ficha no llena la actividad de "abrió la ficha"
+        activity, _ = await self.audit.list(tenant_id=tenant_id, limit=30, exclude_actions=AuditAction.FEED_NOISE)
         return TenantDetail(
             **summary_from_row(row).model_dump(),
             suspension_reason=await self._suspension_reason(tenant),
             diagnostics=await self._diagnostics(tenant_id),
             support=await self._support_state(tenant_id),
-            activity=await self.audit_reads(activity),
+            activity=await self.audit_reads(activity, store_name=tenant.name),
         )
 
     async def _suspension_reason(self, tenant: Tenant) -> Optional[str]:
@@ -260,7 +262,7 @@ class PlatformAdminService:
             raise not_found()
         return tenant
 
-    async def audit_reads(self, rows: List[PlatformAuditLog]) -> List[AuditEntryRead]:
+    async def audit_reads(self, rows: List[PlatformAuditLog], store_name: Optional[str] = None) -> List[AuditEntryRead]:
         names = await self.operators.names_by_id(list({r.operator_id for r in rows if r.operator_id}))
         return [
             AuditEntryRead(
@@ -268,6 +270,7 @@ class PlatformAdminService:
                 occurred_at=r.occurred_at,
                 operator_id=r.operator_id,
                 operator_name=names.get(r.operator_id),
+                summary=operator_summary(r, names.get(r.operator_id), store_name),
                 action=r.action,
                 target_tenant_id=r.target_tenant_id,
                 target_type=r.target_type,

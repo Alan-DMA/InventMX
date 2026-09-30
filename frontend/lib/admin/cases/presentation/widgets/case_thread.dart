@@ -10,6 +10,7 @@ import '../../../core/admin_format.dart';
 import '../../../core/admin_http.dart';
 import '../../../session/admin_session.dart';
 import '../../domain/desk_case.dart';
+import '../../../tenants/presentation/tenant_providers.dart';
 import '../cases_providers.dart';
 import 'cases_widgets.dart';
 
@@ -180,6 +181,14 @@ class _Header extends ConsumerWidget {
           DeskStatusChip(c.status),
           const SizedBox(height: 10),
           _StoreLine(detail: detail),
+          if (detail.store != null)
+            TextButton.icon(
+              key: const Key('caseOpenStore'),
+              onPressed: () => openStore(context, detail.store!.tenantId),
+              style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
+              icon: const Icon(Icons.storefront_outlined, size: 16),
+              label: Text(detail.store!.suggested ? 'Ver ficha de la tienda sugerida' : 'Ver ficha de la tienda'),
+            ),
           const SizedBox(height: 4),
           Text(
             [

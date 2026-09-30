@@ -131,6 +131,10 @@ class FakeCases implements CasesRepository {
   Future<int> waitingCount() async => (await list(status: DeskCaseStatus.waiting, limit: 1)).total;
 
   @override
+  Future<List<DeskCase>> forTenant(String tenantId, {int limit = 10}) async =>
+      _cases.values.map((d) => d.summary).where((c) => c.tenantId == tenantId).take(limit).toList();
+
+  @override
   Future<DeskCaseDetail> detail(String id) async {
     final d = _cases[id];
     if (d == null) throw const AdminApiException('Caso no encontrado.', statusCode: 404);

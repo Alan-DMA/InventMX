@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../access/presentation/access_screen.dart';
 import '../cases/presentation/cases_screen.dart';
+import '../today/presentation/today_screen.dart';
 import '../session/admin_session.dart';
 import '../shell/admin_shell.dart';
 import 'admin_routes.dart';
@@ -43,18 +44,12 @@ final adminRouterProvider = Provider<GoRouter>((ref) {
       ),
       ShellRoute(
         pageBuilder: (context, state, child) => NoTransitionPage(
-          child: AdminShell(location: state.matchedLocation, child: child),
+          child: AdminShell(location: state.matchedLocation, uri: state.uri, child: child),
         ),
         routes: [
           GoRoute(
             path: AdminRoutes.today,
-            pageBuilder: (_, __) => const NoTransitionPage(
-              child: AdminPendingSection(
-                title: 'Hoy',
-                arrivesIn: 'etapa 3c',
-                what: 'Lo que requiere atención, lo que pasó por día, las métricas y el buscador de tiendas.',
-              ),
-            ),
+            pageBuilder: (_, __) => const NoTransitionPage(key: ValueKey('todayPage'), child: TodayScreen()),
           ),
           // Cola y caso abierto comparten página: abrir un caso no reconstruye la cola
           GoRoute(

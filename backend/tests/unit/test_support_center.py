@@ -164,7 +164,11 @@ async def test_assisted_recovery_requires_validation_and_operator_never_sees_the
     assert any(a["kind"] == "ASSISTED_CODE_UNUSED" and a["tenant_id"] == str(tenant_id) for a in feed["attention"])
     detail = (await client.get(f"{P}/tenants/{tenant_id}", headers=headers)).json()
     assert detail["support"]["assisted_code_until"] is not None
-    assert detail["activity"][1]["details"]["orden_google"] == "GPA.3312-4455-6677-88990"
+    [sent] = [a for a in detail["activity"] if a["action"] == "ASSISTED_RECOVERY_SENT"]
+    assert sent["details"]["orden_google"] == "GPA.3312-4455-6677-88990"
+    assert sent["summary"].startswith("Operadora de Prueba envió un código de recuperación")
+    # La ficha no se llena de "abrió la ficha" (ruido del feed)
+    assert not any(a["action"] == "TENANT_VIEWED" for a in detail["activity"])
     assert code not in str(detail)
 
     owner = await client.post("/api/v1/auth/login-with-code", json={"email": email, "code": code})

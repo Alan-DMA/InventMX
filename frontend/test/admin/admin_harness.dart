@@ -7,12 +7,15 @@ import 'package:nexus_app/admin/access/data/access_repository.dart';
 import 'package:nexus_app/admin/access/domain/access_models.dart';
 import 'package:nexus_app/admin/admin_app.dart';
 import 'package:nexus_app/admin/cases/data/cases_repository.dart';
+import 'package:nexus_app/admin/tenants/data/tenants_repository.dart';
+import 'package:nexus_app/admin/today/data/today_repository.dart';
 import 'package:nexus_app/admin/core/admin_http.dart';
 import 'package:nexus_app/admin/core/browser/session_store.dart';
 import 'package:nexus_app/admin/router/admin_router.dart';
 import 'package:nexus_app/admin/session/admin_session.dart';
 
 import 'fake_cases.dart';
+import 'fake_today.dart';
 
 /// Reloj que el test mueve a mano.
 class TestClock {
@@ -100,6 +103,8 @@ Future<AdminTestApp> pumpAdmin(
   MemorySessionStore? store,
   Size size = const Size(1440, 900),
   CasesRepository? cases,
+  TodayRepository? today,
+  TenantsRepository? tenants,
   List<Override> overrides = const [],
 }) async {
   tester.view.physicalSize = size;
@@ -116,6 +121,8 @@ Future<AdminTestApp> pumpAdmin(
       accessRepositoryProvider.overrideWithValue(fake),
       // Sin red en los tests: la mesa de casos es falsa salvo que el test traiga la suya
       casesRepositoryProvider.overrideWithValue(cases ?? FakeCases(testClock)),
+      todayRepositoryProvider.overrideWithValue(today ?? FakeToday()),
+      tenantsRepositoryProvider.overrideWithValue(tenants ?? FakeTenants()),
       ...overrides,
     ],
   );
