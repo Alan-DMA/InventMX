@@ -9,10 +9,23 @@ import '../data/tenants_repository.dart';
 import '../domain/tenant_models.dart';
 
 /// La ficha abierta. Cada apertura queda en la bitácora (decisión 3 de la
-/// Fase 1); por eso no se refresca sola.
-final tenantDetailProvider = FutureProvider.autoDispose.family<TenantDetail, String>(
-  (ref, id) => ref.watch(tenantsRepositoryProvider).detail(id),
-);
+/// Fase 1): no se refresca sola, y tras una acción se actualiza en el lugar
+/// (`replace` / `patchSupport`) en vez de volver a pedirla.
+class TenantDetailNotifier extends AutoDisposeFamilyAsyncNotifier<TenantDetail, String> {
+  @override
+  Future<TenantDetail> build(String id) => ref.watch(tenantsRepositoryProvider).detail(id);
+
+  void replace(TenantDetail detail) => state = AsyncData(detail);
+
+  void patchSupport(SupportState Function(SupportState current) change) {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    state = AsyncData(current.withSupport(change(current.support)));
+  }
+}
+
+final tenantDetailProvider =
+    AsyncNotifierProvider.autoDispose.family<TenantDetailNotifier, TenantDetail, String>(TenantDetailNotifier.new);
 
 /// Los casos de esa tienda, para la ficha.
 final tenantCasesProvider = FutureProvider.autoDispose.family<List<DeskCase>, String>(

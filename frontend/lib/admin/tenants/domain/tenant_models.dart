@@ -100,16 +100,28 @@ class SupportState {
   const SupportState({
     this.accessGrantedUntil,
     this.assistedCodeUntil,
+    this.deletionRequestId,
+    this.deletionRequestedById,
     this.deletionRequestedBy,
+    this.deletionReason,
     this.deletionExpiresAt,
+    this.deletionExpired = false,
     this.lastExportStatus,
     this.lastExportAt,
   });
 
   final DateTime? accessGrantedUntil;
   final DateTime? assistedCodeUntil;
+
+  /// Eliminación esperando la segunda aprobación (P4).
+  final String? deletionRequestId;
+  final String? deletionRequestedById;
   final String? deletionRequestedBy;
+  final String? deletionReason;
   final DateTime? deletionExpiresAt;
+
+  /// Venció sin segunda aprobación: hay que pedirla de nuevo.
+  final bool deletionExpired;
 
   /// PENDING / SENT / FAILED.
   final String? lastExportStatus;
@@ -117,6 +129,32 @@ class SupportState {
 
   bool get isEmpty =>
       accessGrantedUntil == null && assistedCodeUntil == null && deletionExpiresAt == null && lastExportStatus == null;
+
+  bool get hasPendingDeletion => deletionRequestId != null && !deletionExpired;
+
+  bool get exportInProgress => lastExportStatus == 'PENDING';
+
+  /// Lo que cambia tras una acción, sin volver a pedir la ficha (cada lectura
+  /// queda en la bitácora).
+  SupportState copyWith({
+    DateTime? assistedCodeUntil,
+    String? lastExportStatus,
+    DateTime? lastExportAt,
+    ({String id, String? byId, String? by, String reason, DateTime expiresAt})? deletion,
+    bool clearDeletion = false,
+  }) =>
+      SupportState(
+        accessGrantedUntil: accessGrantedUntil,
+        assistedCodeUntil: assistedCodeUntil ?? this.assistedCodeUntil,
+        deletionRequestId: clearDeletion ? null : deletion?.id ?? deletionRequestId,
+        deletionRequestedById: clearDeletion ? null : deletion?.byId ?? deletionRequestedById,
+        deletionRequestedBy: clearDeletion ? null : deletion?.by ?? deletionRequestedBy,
+        deletionReason: clearDeletion ? null : deletion?.reason ?? deletionReason,
+        deletionExpiresAt: clearDeletion ? null : deletion?.expiresAt ?? deletionExpiresAt,
+        deletionExpired: clearDeletion || deletion != null ? false : deletionExpired,
+        lastExportStatus: lastExportStatus ?? this.lastExportStatus,
+        lastExportAt: lastExportAt ?? this.lastExportAt,
+      );
 }
 
 class TenantDetail {
@@ -137,6 +175,19 @@ class TenantDetail {
   final SupportState support;
   final List<AuditLine> activity;
   final String? suspensionReason;
+
+  /// Suspendida por soporte (no por falta de pago): se ofrece "Levantar".
+  bool get suspendedForAbuse => summary.lockReason == 'ABUSE' && summary.status != 'ACTIVE';
+
+  TenantDetail withSupport(SupportState support) => TenantDetail(
+        summary: summary,
+        catalogEnabled: catalogEnabled,
+        warehouses: warehouses,
+        users: users,
+        support: support,
+        activity: activity,
+        suspensionReason: suspensionReason,
+      );
 
   factory TenantDetail.fromJson(Map<String, dynamic> json) {
     final diagnostics = (json['diagnostics'] as Map?) ?? const {};
@@ -167,8 +218,12 @@ class TenantDetail {
       support: SupportState(
         accessGrantedUntil: TenantSummary._date(support['access_granted_until']),
         assistedCodeUntil: TenantSummary._date(support['assisted_code_until']),
+        deletionRequestId: deletion?['id']?.toString(),
+        deletionRequestedById: deletion?['requested_by']?.toString(),
         deletionRequestedBy: deletion?['requested_by_name'] as String?,
+        deletionReason: deletion?['reason'] as String?,
         deletionExpiresAt: TenantSummary._date(deletion?['expires_at']),
+        deletionExpired: deletion?['expired'] == true,
         lastExportStatus: export?['status'] as String?,
         lastExportAt: TenantSummary._date(export?['created_at']),
       ),

@@ -11,7 +11,9 @@ import '../../core/admin_http.dart';
 import '../../core/store_status.dart';
 import '../../router/admin_routes.dart';
 import '../../session/admin_session.dart';
+import '../../today/presentation/today_providers.dart';
 import '../domain/tenant_models.dart';
+import 'support_action_dialog.dart';
 import 'tenant_providers.dart';
 
 /// Ficha de la tienda en panel deslizante (≈480 px; pantalla completa en
@@ -33,6 +35,30 @@ class TenantSheet extends ConsumerStatefulWidget {
 
 class _TenantSheetState extends ConsumerState<TenantSheet> {
   final _focus = FocusNode(debugLabel: 'tenantSheet');
+
+  /// Lo que pasó con la última acción, dicho en la ficha (no sólo un aviso fugaz).
+  String? _notice;
+  final _noticeKey = GlobalKey(debugLabel: 'tenantSheetNotice');
+
+  Future<void> _run(SupportActionKind kind, TenantDetail detail) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final outcome = await showSupportAction(context, kind, detail);
+    if (outcome == null || !mounted) return;
+    // "Hoy" y los conteos cambian con la acción
+    if (ref.exists(feedProvider)) ref.read(feedProvider.notifier).refreshSilently();
+    if (ref.exists(metricsProvider)) ref.invalidate(metricsProvider);
+    if (outcome.storeDeleted) {
+      messenger.showSnackBar(SnackBar(content: Text(outcome.message)));
+      widget.onClose();
+      return;
+    }
+    setState(() => _notice = outcome.message);
+    _focus.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _noticeKey.currentContext;
+      if (target != null) Scrollable.ensureVisible(target, alignment: 0.2);
+    });
+  }
 
   @override
   void initState() {
@@ -101,7 +127,13 @@ class _TenantSheetState extends ConsumerState<TenantSheet> {
                     data: (d) => _Frame(
                       onClose: widget.onClose,
                       title: d.summary.name,
-                      child: _Body(detail: d),
+                      child: _Body(
+                        detail: d,
+                        notice: _notice,
+                        noticeKey: _noticeKey,
+                        onDismissNotice: () => setState(() => _notice = null),
+                        onAction: (kind) => _run(kind, d),
+                      ),
                     ),
                   ),
                 ),
@@ -155,8 +187,18 @@ class _Frame extends StatelessWidget {
 }
 
 class _Body extends ConsumerWidget {
-  const _Body({required this.detail});
+  const _Body({
+    required this.detail,
+    required this.onAction,
+    required this.onDismissNotice,
+    required this.noticeKey,
+    this.notice,
+  });
   final TenantDetail detail;
+  final ValueChanged<SupportActionKind> onAction;
+  final String? notice;
+  final GlobalKey noticeKey;
+  final VoidCallback onDismissNotice;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -199,6 +241,9 @@ class _Body extends ConsumerWidget {
             text: 'Suspendida por soporte: ${detail.suspensionReason}',
           ),
         ],
+        if (!detail.support.isEmpty) _InProgress(support: detail.support),
+        _Actions(
+            detail: detail, onAction: onAction, notice: notice, noticeKey: noticeKey, onDismissNotice: onDismissNotice),
         _Section(
           title: 'Suscripción',
           children: [
@@ -220,7 +265,6 @@ class _Body extends ConsumerWidget {
             _Row('Última actividad', t.lastActivityAt == null ? 'Sin registro' : adminAgo(t.lastActivityAt!, now)),
           ],
         ),
-        if (!detail.support.isEmpty) _InProgress(support: detail.support),
         _Section(
           title: 'Diagnóstico',
           children: [
@@ -277,12 +321,6 @@ class _Body extends ConsumerWidget {
               ),
           ],
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'Las acciones de soporte (regalar días, suspender, recuperación asistida, exportar y eliminar) llegan en la '
-          'etapa 3d.',
-          style: TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted, height: 1.45),
-        ),
       ],
     );
   }
@@ -335,6 +373,165 @@ class _InProgress extends StatelessWidget {
             ),
         ],
       );
+}
+
+/// Acciones de soporte (P36: arriba). Cada botón dice el verbo; si no aplica,
+/// se ve desactivado y dice por qué. Eliminar va aparte y en rojo.
+class _Actions extends ConsumerWidget {
+  const _Actions({
+    required this.detail,
+    required this.onAction,
+    required this.noticeKey,
+    required this.onDismissNotice,
+    this.notice,
+  });
+  final TenantDetail detail;
+  final ValueChanged<SupportActionKind> onAction;
+
+  /// Lo que pasó con la última acción: aquí, sobre los botones, donde está la
+  /// atención del operador (al principio de la ficha quedaba fuera de la vista).
+  final String? notice;
+  final GlobalKey noticeKey;
+  final VoidCallback onDismissNotice;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = detail.support;
+    final me = ref.watch(adminSessionProvider.select((x) => x.session?.operatorId));
+    final mine = s.hasPendingDeletion && me != null && s.deletionRequestedById == me;
+    final exporting = s.exportInProgress;
+
+    // Lo irreversible se distingue: rojo y con el verbo completo; deshacer no
+    final dangerStyle = OutlinedButton.styleFrom(
+      foregroundColor: AppColors.error,
+      side: BorderSide(color: AppColors.error.withValues(alpha: 0.6)),
+    );
+
+    Widget action(String key, IconData icon, String label, SupportActionKind kind,
+            {String? disabledWhy, bool danger = false}) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              OutlinedButton.icon(
+                key: Key(key),
+                onPressed: disabledWhy == null ? () => onAction(kind) : null,
+                style: danger ? dangerStyle : null,
+                icon: Icon(icon, size: 18),
+                label: Text(label),
+              ),
+              if (disabledWhy != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, left: 4),
+                  child: Text(disabledWhy, style: const TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted)),
+                ),
+            ],
+          ),
+        );
+
+    return _Section(
+      title: 'Acciones',
+      children: [
+        if (notice != null)
+          Semantics(
+            liveRegion: true,
+            child: Container(
+              key: noticeKey,
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+              decoration: BoxDecoration(
+                color: AppColors.skyBlue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_rounded, size: 18, color: AppColors.skyBlue),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      notice!,
+                      key: const Key('tenantSheetNotice'),
+                      style: const TextStyle(fontSize: 13.5, color: AppColors.onSurface, height: 1.4),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar aviso',
+                    onPressed: onDismissNotice,
+                    icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.onSurfaceMuted),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Wrap(
+          spacing: 8,
+          children: [
+            action('tenantActionRecovery', Icons.key_outlined, 'Enviar código de acceso', SupportActionKind.recovery),
+            action('tenantActionGift', Icons.card_giftcard_outlined, 'Regalar días', SupportActionKind.giftDays),
+            if (detail.suspendedForAbuse)
+              action('tenantActionLift', Icons.lock_open_outlined, 'Levantar la suspensión', SupportActionKind.lift)
+            else
+              action('tenantActionSuspend', Icons.block_rounded, 'Suspender por abuso', SupportActionKind.suspend),
+            action(
+              'tenantActionExport',
+              Icons.download_rounded,
+              'Exportar sus datos',
+              SupportActionKind.export,
+              disabledWhy: exporting ? 'Ya hay una exportación en proceso.' : null,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Divider(height: 1),
+        const SizedBox(height: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (s.hasPendingDeletion) ...[
+              Text(
+                mine
+                    ? 'Pediste eliminarla; falta que otro fundador la apruebe (vence el ${adminDate(s.deletionExpiresAt!)}).'
+                    : '${s.deletionRequestedBy ?? 'Otro fundador'} pidió eliminarla'
+                        '${(s.deletionReason ?? '').isEmpty ? '' : ': "${s.deletionReason}"'} '
+                        '(vence el ${adminDate(s.deletionExpiresAt!)}).',
+                key: const Key('tenantDeletionPending'),
+                style: const TextStyle(fontSize: 13.5, color: AppColors.onSurface, height: 1.4),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  if (!mine)
+                    action('tenantActionApprove', Icons.delete_forever_outlined, 'Aprobar la eliminación',
+                        SupportActionKind.approveDeletion,
+                        danger: true),
+                  action('tenantActionCancelDeletion', Icons.undo_rounded, 'Cancelar la eliminación',
+                      SupportActionKind.cancelDeletion),
+                ],
+              ),
+            ] else ...[
+              if (s.deletionExpired)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Text('La solicitud anterior venció sin segunda aprobación.',
+                      style: TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted)),
+                ),
+              action(
+                'tenantActionDelete',
+                Icons.delete_outline_rounded,
+                'Eliminar la tienda',
+                SupportActionKind.requestDeletion,
+                disabledWhy: exporting ? 'Hay una exportación en proceso: espera a que llegue.' : null,
+                danger: true,
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 class _TenantCases extends ConsumerWidget {

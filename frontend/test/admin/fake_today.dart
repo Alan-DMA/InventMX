@@ -1,4 +1,5 @@
 import 'package:nexus_app/admin/core/admin_http.dart';
+import 'package:nexus_app/admin/tenants/data/support_actions_repository.dart';
 import 'package:nexus_app/admin/tenants/data/tenants_repository.dart';
 import 'package:nexus_app/admin/tenants/domain/tenant_models.dart';
 import 'package:nexus_app/admin/today/data/today_repository.dart';
@@ -46,6 +47,8 @@ class FakeTenants implements TenantsRepository {
     String? lockReason,
     String? suspensionReason,
     String ownerEmail = 'sol@tiendita.mx',
+    String subscriptionSource = 'TRIAL',
+    SupportState support = const SupportState(),
   }) {
     tenants[id] = TenantDetail(
       summary: TenantSummary(
@@ -62,7 +65,7 @@ class FakeTenants implements TenantsRepository {
         usersLimit: 5,
         paidUntil: DateTime(2026, 10, 27),
         entitlement: 'VIGENTE',
-        subscriptionSource: 'TRIAL',
+        subscriptionSource: subscriptionSource,
       ),
       catalogEnabled: true,
       warehouses: const [DiagnosticWarehouse(name: 'Almacén Principal', isActive: true, isDefault: true)],
@@ -75,7 +78,7 @@ class FakeTenants implements TenantsRepository {
           lastLoginAt: DateTime(2026, 9, 30, 18),
         ),
       ],
-      support: const SupportState(),
+      support: support,
       activity: [
         AuditLine(
           occurredAt: DateTime(2026, 9, 30, 14, 5),
@@ -105,5 +108,136 @@ class FakeTenants implements TenantsRepository {
     final t = tenants[id];
     if (t == null) throw const AdminApiException('Comercio no encontrado.', statusCode: 404);
     return t;
+  }
+}
+
+/// Acciones de soporte en memoria: cambian las tiendas de [FakeTenants] como
+/// lo haría el servidor y anotan cada llamada.
+class FakeActions implements SupportActionsRepository {
+  FakeActions(this.tenants, this.now);
+
+  final FakeTenants tenants;
+  final DateTime Function() now;
+  final List<String> calls = [];
+  AdminApiException? failNext;
+  bool failPreview = false;
+  int previewCalls = 0;
+
+  void _maybeFail() {
+    final f = failNext;
+    if (f != null) {
+      failNext = null;
+      throw f;
+    }
+  }
+
+  TenantDetail _update(String id,
+      {String? status, String? lockReason, DateTime? paidUntil, String? suspension, bool clearLock = false}) {
+    final d = tenants.tenants[id]!;
+    final t = d.summary;
+    final updated = TenantDetail(
+      summary: TenantSummary(
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        plan: t.plan,
+        status: status ?? t.status,
+        lockReason: clearLock ? null : lockReason ?? t.lockReason,
+        createdAt: t.createdAt,
+        ownerName: t.ownerName,
+        ownerEmail: t.ownerEmail,
+        usersCount: t.usersCount,
+        usersLimit: t.usersLimit,
+        paidUntil: paidUntil ?? t.paidUntil,
+        entitlement: t.entitlement,
+        subscriptionSource: t.subscriptionSource,
+      ),
+      catalogEnabled: d.catalogEnabled,
+      warehouses: d.warehouses,
+      users: d.users,
+      support: d.support,
+      activity: d.activity,
+      suspensionReason: clearLock ? null : suspension ?? d.suspensionReason,
+    );
+    tenants.tenants[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<OwnerPreview> preview(String tenantId, PreviewAction action, {String? reason, int? days}) async {
+    previewCalls++;
+    if (failPreview) throw const AdminApiException('Sin conexión con el servidor.');
+    final summary = switch (action) {
+      PreviewAction.giftDays => 'Soporte Nexus te regaló $days ${days == 1 ? 'día' : 'días'}.',
+      PreviewAction.suspend => 'Soporte Nexus suspendió tu tienda.',
+      PreviewAction.lift => 'Soporte Nexus levantó la suspensión de tu tienda.',
+      PreviewAction.export => 'Soporte Nexus preparó una copia de tus datos; te llegará por correo.',
+      PreviewAction.assistedRecovery => 'Soporte Nexus te envió un código para entrar.',
+      PreviewAction.deletion => 'Soporte Nexus pidió eliminar tu tienda.',
+    };
+    return OwnerPreview(summary: summary, reason: reason, by: 'Soporte Nexus · Eduardo');
+  }
+
+  @override
+  Future<RecoverySent> assistedRecovery(String tenantId,
+      {required String reason, required Map<String, bool> checks, String? googleOrderId}) async {
+    _maybeFail();
+    calls.add('recovery:${checks.values.every((v) => v)}:${googleOrderId ?? ''}');
+    return RecoverySent(sentTo: 's•••@tiendita.mx', expiresAt: now().add(const Duration(hours: 24)));
+  }
+
+  @override
+  Future<TenantDetail> giftDays(String tenantId, {required int days, required String reason}) async {
+    _maybeFail();
+    calls.add('gift:$days');
+    final t = tenants.tenants[tenantId]!.summary;
+    return _update(tenantId, paidUntil: (t.paidUntil ?? now()).add(Duration(days: days)));
+  }
+
+  @override
+  Future<TenantDetail> suspend(String tenantId, {required String reason}) async {
+    _maybeFail();
+    calls.add('suspend');
+    return _update(tenantId, status: 'HARD_LOCK', lockReason: 'ABUSE', suspension: reason);
+  }
+
+  @override
+  Future<TenantDetail> lift(String tenantId, {required String reason}) async {
+    _maybeFail();
+    calls.add('lift');
+    return _update(tenantId, status: 'ACTIVE', clearLock: true);
+  }
+
+  @override
+  Future<String> export(String tenantId, {required String reason}) async {
+    _maybeFail();
+    calls.add('export');
+    return 'PENDING';
+  }
+
+  @override
+  Future<DeletionRequestRead> requestDeletion(String tenantId,
+      {required String reason, required String confirmSlug}) async {
+    _maybeFail();
+    calls.add('delete:$confirmSlug');
+    return DeletionRequestRead(
+      id: 'req-1',
+      requestedById: 'op-me',
+      requestedBy: 'Eduardo',
+      reason: reason,
+      expiresAt: now().add(const Duration(hours: 72)),
+    );
+  }
+
+  @override
+  Future<void> approveDeletion(String requestId, {required String reason}) async {
+    _maybeFail();
+    calls.add('approve:$requestId');
+  }
+
+  @override
+  Future<void> cancelDeletion(String requestId, {required String reason}) async {
+    _maybeFail();
+    calls.add('cancel:$requestId');
   }
 }

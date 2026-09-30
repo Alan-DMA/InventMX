@@ -7,6 +7,7 @@ import 'package:nexus_app/admin/access/data/access_repository.dart';
 import 'package:nexus_app/admin/access/domain/access_models.dart';
 import 'package:nexus_app/admin/admin_app.dart';
 import 'package:nexus_app/admin/cases/data/cases_repository.dart';
+import 'package:nexus_app/admin/tenants/data/support_actions_repository.dart';
 import 'package:nexus_app/admin/tenants/data/tenants_repository.dart';
 import 'package:nexus_app/admin/today/data/today_repository.dart';
 import 'package:nexus_app/admin/core/admin_http.dart';
@@ -105,6 +106,7 @@ Future<AdminTestApp> pumpAdmin(
   CasesRepository? cases,
   TodayRepository? today,
   TenantsRepository? tenants,
+  SupportActionsRepository? actions,
   List<Override> overrides = const [],
 }) async {
   tester.view.physicalSize = size;
@@ -123,6 +125,9 @@ Future<AdminTestApp> pumpAdmin(
       casesRepositoryProvider.overrideWithValue(cases ?? FakeCases(testClock)),
       todayRepositoryProvider.overrideWithValue(today ?? FakeToday()),
       tenantsRepositoryProvider.overrideWithValue(tenants ?? FakeTenants()),
+      supportActionsRepositoryProvider.overrideWithValue(
+        actions ?? FakeActions(tenants is FakeTenants ? tenants : FakeTenants(), () => testClock.now),
+      ),
       ...overrides,
     ],
   );
@@ -155,6 +160,7 @@ MemorySessionStore signedInStore(TestClock clock, {Duration left = const Duratio
       operatorName: 'Eduardo Cristancho',
       operatorEmail: 'eduardo@nexus.mx',
       recoveryCodesRemaining: 10,
+      operatorId: 'op-me',
     ).toJson()),
   );
   return store;

@@ -38,9 +38,13 @@ class SessionGrant {
     required this.operatorEmail,
     required this.recoveryCodesRemaining,
     this.recoveryCodes,
+    this.operatorId,
   });
 
   final String token;
+
+  /// Para saber quién pidió una eliminación (la aprueba el otro fundador).
+  final String? operatorId;
   final Duration expiresIn;
   final String operatorName;
   final String operatorEmail;
@@ -54,6 +58,7 @@ class SessionGrant {
       expiresIn: Duration(seconds: (json['expires_in'] as num).toInt()),
       operatorName: (operator['full_name'] ?? '').toString(),
       operatorEmail: (operator['email'] ?? '').toString(),
+      operatorId: operator['id']?.toString(),
       recoveryCodesRemaining: (json['recovery_codes_remaining'] as num?)?.toInt() ?? 0,
       recoveryCodes: (json['recovery_codes'] as List?)?.map((e) => e.toString()).toList(),
     );

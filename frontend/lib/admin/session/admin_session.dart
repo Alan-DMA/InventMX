@@ -18,7 +18,11 @@ class AdminSession extends Equatable {
     required this.operatorEmail,
     required this.recoveryCodesRemaining,
     this.enteredWithRecoveryCode = false,
+    this.operatorId,
   });
+
+  /// Nulo en sesiones guardadas antes de la etapa 3d: el servidor decide.
+  final String? operatorId;
 
   final String token;
   final DateTime expiresAt;
@@ -44,6 +48,7 @@ class AdminSession extends Equatable {
         operatorName: operatorName,
         operatorEmail: operatorEmail,
         recoveryCodesRemaining: recoveryCodesRemaining,
+        operatorId: operatorId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -53,6 +58,7 @@ class AdminSession extends Equatable {
         'email': operatorEmail,
         'recovery_remaining': recoveryCodesRemaining,
         'via_recovery': enteredWithRecoveryCode,
+        'operator_id': operatorId,
       };
 
   factory AdminSession.fromJson(Map<String, dynamic> json) => AdminSession(
@@ -62,6 +68,7 @@ class AdminSession extends Equatable {
         operatorEmail: (json['email'] ?? '').toString(),
         recoveryCodesRemaining: (json['recovery_remaining'] as num?)?.toInt() ?? 0,
         enteredWithRecoveryCode: json['via_recovery'] == true,
+        operatorId: json['operator_id'] as String?,
       );
 
   @override
@@ -110,6 +117,7 @@ class AdminSessionNotifier extends Notifier<AdminSessionState> {
       operatorEmail: grant.operatorEmail,
       recoveryCodesRemaining: grant.recoveryCodesRemaining,
       enteredWithRecoveryCode: viaRecoveryCode,
+      operatorId: grant.operatorId,
     );
     _store.write(storageKey, jsonEncode(session.toJson()));
     state = AdminSessionState(session: session);

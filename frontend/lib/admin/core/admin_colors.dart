@@ -22,5 +22,9 @@ abstract final class AdminColors {
 
   static const Color amber = AppColors.warning;
 
+  /// Botón destructivo: rojo más oscuro que `AppColors.error` para que el
+  /// texto blanco pase AA (4.8:1).
+  static const Color danger = Color(0xFFDC2626);
+
   AdminColors._();
 }
