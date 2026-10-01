@@ -28,6 +28,7 @@ from app.modules.platform_admin.domain.support import (
 from app.modules.platform_admin.schemas.platform_schemas import AttentionItem, Feed, FeedEvent
 from app.modules.platform_admin.services.audit_text import operator_summary  # noqa: F401 (compatibilidad)
 from app.modules.platform_admin.services.platform_admin_service import PlatformAdminService
+from app.modules.platform_admin.services.support_session import open_sessions
 from app.modules.platform_admin.services.support_service import EXPORT_STALE_AFTER
 from app.modules.support_cases.services.cases import CaseDeskService
 
@@ -124,6 +125,23 @@ class FeedService(PlatformAdminService):
                 until=grant.expires_at,
                 summary="El dueño concedió acceso de soporte (sólo lectura)",
                 ref_id=str(grant.id),
+            ))
+        sessions = await open_sessions(self.db)
+        session_names = await self.reader.tenant_names(list({uuid.UUID(x.tenant_id) for x in sessions}))
+        for session in sessions:
+            waiting = session.state == "WAITING_OPEN"
+            items.append(AttentionItem(
+                kind="SUPPORT_SESSION_OPEN",
+                tenant_id=uuid.UUID(session.tenant_id),
+                tenant_name=session_names.get(uuid.UUID(session.tenant_id), "Tienda"),
+                since=session.opened_at or session.created_at,
+                until=session.link_expires_at if waiting else session.expires_at,
+                summary=(
+                    f"{session.operator_name} tiene un enlace de soporte sin abrir"
+                    if waiting else f"{session.operator_name} está viendo la tienda (sólo lectura)"
+                ),
+                ref_id=session.id,
+                awaiting_you=False,
             ))
         for code in codes:
             items.append(AttentionItem(

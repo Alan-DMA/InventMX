@@ -13,6 +13,8 @@ _ACTIONS = {
     AuditAction.TENANT_DELETION_CANCELLED: "{op} canceló la eliminación de {store}",
     AuditAction.TENANT_DELETED: "{op} aprobó la eliminación: {store} ya no existe",
     AuditAction.SUPPORT_ACCESS_REVOKED: "El dueño de {store} retiró el acceso de soporte",
+    AuditAction.SUPPORT_SESSION_STARTED: "{op} abrió una sesión de soporte en {store} (sólo lectura)",
+    AuditAction.SUPPORT_SESSION_EXTENDED: "{op} siguió 30 min más en {store}",
     AuditAction.SUBSCRIPTION_SUSPENDED: "{store} quedó suspendida al terminar su gracia sin renovar",
     AuditAction.LOGIN_FAILED: "Acceso fallido al panel",
     AuditAction.TOTP_FAILED: "Código de autenticador incorrecto en el acceso de {op}",
@@ -35,6 +37,16 @@ _ACTIONS = {
 }
 
 
+_SESSION_END = {
+    "OPERATOR": "la terminó",
+    "SIGNED_OUT": "terminó al salir del panel",
+    "EXPIRED": "se acabó el tiempo",
+    "GRANT_ENDED": "el dueño retiró el permiso",
+    "NOT_OPENED": "el enlace venció sin abrirse",
+    "OPERATOR_INACTIVE": "terminó por seguridad",
+}
+
+
 def operator_summary(entry: PlatformAuditLog, operator: Optional[str], store: Optional[str]) -> str:
     d = entry.details or {}
     op = operator or "Nexus"
@@ -42,6 +54,9 @@ def operator_summary(entry: PlatformAuditLog, operator: Optional[str], store: Op
     if entry.action == AuditAction.DAYS_GIFTED:
         days = d.get("dias")
         return f"{op} regaló {days} {'día' if days == 1 else 'días'} a {store}"
+    if entry.action == AuditAction.SUPPORT_SESSION_ENDED:
+        how = _SESSION_END.get(d.get("fin"), "terminó")
+        return f"Sesión de soporte de {op} en {store}: {how}"
     if entry.action == AuditAction.DATA_EXPORT_FAILED:
         return f"Falló la exportación de {store}: {d.get('error', 'sin detalle')}"
     if entry.action == AuditAction.SUPPORT_ACCESS_GRANTED:

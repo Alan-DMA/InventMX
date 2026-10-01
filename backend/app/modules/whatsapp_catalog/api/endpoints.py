@@ -290,6 +290,9 @@ async def store_orders_socket(websocket: WebSocket, token: str = Query(...)) -> 
         payload = decode_token(token)
         if payload.get("type") != "access":
             raise ValueError("no es un token de acceso")
+        if payload.get("support_session"):
+            # Modo soporte (etapa 4): sin canal en vivo; la sesión se confirma por petición
+            raise ValueError("sesión de soporte")
         user_id = uuid.UUID(str(payload.get("sub")))
     except Exception:
         await websocket.close(code=4401)

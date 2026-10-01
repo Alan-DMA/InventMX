@@ -43,6 +43,38 @@ def create_access_token(
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def create_support_access_token(
+    subject: Union[str, uuid.UUID],
+    tenant_id: Union[str, uuid.UUID],
+    role: str,
+    tenant_status: str,
+    session_id: Union[str, uuid.UUID],
+    operator_id: Union[str, uuid.UUID],
+    expires_at: datetime,
+) -> str:
+    """
+    Token de una sesión de soporte de sólo lectura (Centro de soporte, etapa 4).
+
+    Es un token de acceso del comercio (lo entiende `get_current_user`) que actúa
+    como el dueño que concedió el acceso y lleva dentro al operador (`act`) y la
+    sesión (`support_session`). La sesión en la base manda: cada petición la
+    confirma, así que retirarla corta aunque el token siga vigente. Sin refresh.
+    """
+    now = datetime.now(timezone.utc)
+    to_encode: Dict[str, Any] = {
+        "sub": str(subject),
+        "tenant_id": str(tenant_id),
+        "role": role,
+        "tenant_status": tenant_status,
+        "support_session": str(session_id),
+        "act": {"sub": str(operator_id), "kind": "platform_operator"},
+        "iat": now,
+        "exp": expires_at,
+        "type": "access",
+    }
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
 def create_refresh_token(
     subject: Union[str, uuid.UUID],
     tenant_id: Union[str, uuid.UUID],

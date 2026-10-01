@@ -91,6 +91,13 @@ def describe(entry: PlatformAuditLog) -> str:
         return "Se pidió eliminar tu tienda. Falta la aprobación de un segundo miembro de soporte."
     if entry.action == AuditAction.TENANT_DELETION_CANCELLED:
         return "Se canceló la eliminación de tu tienda: todo sigue igual."
+    if entry.action == AuditAction.SUPPORT_SESSION_STARTED:
+        return (
+            "Entramos a ver tu tienda con el permiso que nos diste, sólo para consultar: "
+            "no podemos cambiar nada. En Acceso de soporte ves qué revisamos."
+        )
+    if entry.action == AuditAction.SUPPORT_SESSION_EXTENDED:
+        return "Seguimos revisando tu tienda 30 minutos más, sólo para consultar."
     return "Soporte hizo un cambio en tu cuenta."
 
 

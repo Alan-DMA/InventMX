@@ -52,6 +52,12 @@ from app.modules.platform_admin.services.platform_admin_service import PlatformA
 from app.modules.platform_admin.services.platform_auth_service import PlatformAuthService
 from app.modules.platform_admin.services.subscription_cycle import run_subscription_cycle
 from app.modules.platform_admin.services.support_service import SupportService, run_export_job
+from app.modules.platform_admin.services.support_session import (
+    PanelSupportSessions,
+    SessionLink,
+    StartSessionRequest,
+    SupportSessionRead,
+)
 from app.modules.support_cases.schemas import (
     DeskCaseDetail,
     DeskCasePage,
@@ -123,6 +129,20 @@ async def recover(
 @router.get("/auth/me", response_model=OperatorRead, summary="Operador en sesión")
 async def me(operator: PlatformOperator = Depends(get_current_operator)):
     return operator
+
+
+def _sessions(
+    operator: PlatformOperator = Depends(get_current_operator),
+    meta: RequestMeta = Depends(request_meta),
+    db: AsyncSession = Depends(get_db),
+) -> PanelSupportSessions:
+    return PanelSupportSessions(db, operator, meta)
+
+
+@router.post("/auth/logout", status_code=http_status.HTTP_204_NO_CONTENT, summary="Salir del panel")
+async def logout(sessions: PanelSupportSessions = Depends(_sessions)):
+    """El token vence solo (2 h, sin refresh); salir termina las sesiones de soporte abiertas del operador."""
+    await sessions.end_all_mine()
 
 
 # ── Feed del día y métricas ────────────────────────────────────────────────
@@ -251,6 +271,34 @@ async def request_deletion(
 ):
     """Se confirma escribiendo el slug. La aprueba otro fundador antes de 72 h, o vence."""
     return await service.request_deletion(tenant_id, data)
+
+
+# ── Sesión de soporte de sólo lectura (etapa 4, P37–P39) ─────────────────
+
+@router.post(
+    "/tenants/{tenant_id}/support-sessions",
+    response_model=SessionLink,
+    status_code=http_status.HTTP_201_CREATED,
+    summary="Ver la tienda (sólo lectura) con el permiso del dueño",
+)
+async def start_support_session(
+    data: StartSessionRequest,
+    tenant_id: uuid.UUID = Path(...),
+    sessions: PanelSupportSessions = Depends(_sessions),
+):
+    """Exige la concesión vigente del dueño y motivo. Devuelve el enlace de un uso (10 min) una sola vez."""
+    return await sessions.start(tenant_id, data)
+
+
+@router.post("/support-sessions/{session_id}/link", response_model=SessionLink, summary="Abrir de nuevo (otro enlace)")
+async def new_support_link(session_id: uuid.UUID = Path(...), sessions: PanelSupportSessions = Depends(_sessions)):
+    """Sólo quien abrió la sesión; no pide motivo ni reinicia el reloj."""
+    return await sessions.new_link(session_id)
+
+
+@router.post("/support-sessions/{session_id}/end", response_model=SupportSessionRead, summary="Terminar la sesión de soporte")
+async def end_support_session(session_id: uuid.UUID = Path(...), sessions: PanelSupportSessions = Depends(_sessions)):
+    return await sessions.end(session_id)
 
 
 @router.post("/approvals/{request_id}/approve", response_model=ApprovalRead, summary="Aprobar (2 de 2)")

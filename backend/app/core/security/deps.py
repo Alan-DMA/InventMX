@@ -94,6 +94,13 @@ async def get_current_user(
     # 8. Reconfirmación de contexto RLS con el tenant_id del usuario verificado
     await set_tenant_context(db, user.tenant_id)
 
+    # 8b. Sesión de soporte de sólo lectura (etapa 4): la sesión en la base manda
+    # sobre el token — retirar el permiso, vencer o terminar corta aquí.
+    if payload.get("support_session"):
+        from app.modules.platform_admin.services.support_session import check_request
+
+        await check_request(db, payload, user, request.url.path)
+
     # 9. Entró con un código de un solo uso: primero la contraseña nueva (P16)
     if user.must_change_password and request.url.path.rstrip("/") not in PASSWORD_CHANGE_ALLOWED_PATHS:
         raise AppException(

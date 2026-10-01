@@ -14,6 +14,7 @@ from app.core.config.settings import settings
 from app.core.database.session import get_db
 from app.core.exceptions.handlers import register_exception_handlers
 from app.core.middleware.subscription import SubscriptionLockMiddleware
+from app.core.middleware.support_read_only import SupportReadOnlyMiddleware
 from app.core.tasks import release_expired_reservations_loop
 from app.modules.analytics_reports.api.endpoints import router as analytics_router
 from app.modules.auth_tenancy.api.endpoints import router as auth_router
@@ -24,6 +25,7 @@ from app.modules.customers_credit.api.endpoints import router as customers_route
 from app.modules.inventory.api.endpoints import router as inventory_router
 from app.modules.platform_admin.api.endpoints import router as platform_router
 from app.modules.platform_admin.api.owner_endpoints import router as support_access_router
+from app.modules.platform_admin.api.support_session_endpoints import router as support_session_router
 from app.modules.platform_admin.services.subscription_cycle import subscription_cycle_loop
 from app.modules.purchasing_suppliers.api.endpoints import router as purchasing_router
 from app.modules.saas_billing.api.endpoints import router as saas_billing_router
@@ -67,6 +69,8 @@ register_exception_handlers(app)
 
 # 2. Registrar middleware de suscripciones SaaS (bloqueo por morosidad)
 app.add_middleware(SubscriptionLockMiddleware)
+# 2b. Sesiones de soporte: sólo lectura en el servidor (Centro de soporte, etapa 4)
+app.add_middleware(SupportReadOnlyMiddleware)
 
 # 3. CORS con orígenes controlados y soporte PNA
 _dev_origins = [
@@ -106,6 +110,7 @@ app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(platform_router, prefix=settings.API_V1_STR)
 app.include_router(support_access_router, prefix=settings.API_V1_STR)
+app.include_router(support_session_router, prefix=settings.API_V1_STR)
 app.include_router(support_cases_router, prefix=settings.API_V1_STR)
 
 

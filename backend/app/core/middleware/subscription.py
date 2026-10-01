@@ -56,6 +56,8 @@ EXEMPT_PATHS = [
     "/api/v1/subscription",
     # Soporte (P23): una tienda suspendida tiene que poder escribir
     "/api/v1/support/",
+    # La pestaña de soporte termina o extiende su sesión aunque la tienda esté bloqueada
+    "/api/v1/support-session",
     "/api/v1/webhooks",
     "/api/v1/saas-billing/webhooks",
     "/api/v1/saas-billing/plans",

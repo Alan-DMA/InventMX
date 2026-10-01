@@ -4,21 +4,23 @@ Acceso de soporte concedido por el dueño (P2/P18), del lado de su app.
 Sin concesión vigente, soporte no puede asomarse al contenido de la tienda. El
 dueño elige por cuánto tiempo (1 h, 24 h o 3 días), puede retirarla cuando
 quiera y ve el historial. La suplantación de sólo lectura que usa la concesión
-es la etapa 4; aquí sólo vive el permiso. Cada concesión y retiro va a la
+es la etapa 4 (`support_session.py`); aquí vive el permiso y el dueño ve
+quién entró con él. Cada concesión y retiro va a la
 bitácora de plataforma (el feed lo muestra); los hace el dueño, no un operador.
 """
 from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.session import set_tenant_context
 from app.modules.auth_tenancy.domain.user import User
 from app.modules.platform_admin.domain.audit_log import AuditAction
-from app.modules.platform_admin.domain.support import SupportAccessGrant
+from app.modules.platform_admin.domain.support import SupportAccessGrant, SupportSession
 from app.modules.platform_admin.repositories.audit_repository import AuditRepository, RequestMeta
+from app.modules.platform_admin.services.support_session import OwnerSessionRead, sessions_for_owner
 
 GrantHours = Literal[1, 24, 72]
 
@@ -38,6 +40,8 @@ class GrantRead(BaseModel):
 class SupportAccessStatus(BaseModel):
     active: Optional[GrantRead] = None
     history: List[GrantRead]
+    # Quién de soporte entró a ver la tienda con el permiso (etapa 4, P38)
+    sessions: List[OwnerSessionRead] = []
 
 
 def _read(grant: SupportAccessGrant, now: datetime) -> GrantRead:
@@ -70,12 +74,18 @@ class SupportAccessService:
         return SupportAccessStatus(
             active=_read(active, now) if active else None,
             history=[_read(g, now) for g in grants],
+            sessions=await sessions_for_owner(self.db, self.owner.tenant_id),
         )
 
     async def grant(self, hours: int) -> SupportAccessStatus:
-        """Una concesión nueva reemplaza a la vigente (no se acumulan)."""
+        """
+        Una concesión nueva reemplaza a la vigente (no se acumulan). Si soporte
+        está dentro con la anterior, su sesión pasa a la nueva y no se corta
+        (decisión de Eduardo, Sep 30); si la nueva es más corta, la sesión
+        termina con ella.
+        """
         now = datetime.now(timezone.utc)
-        await self._revoke_active(now)
+        replaced = await self._revoke_active(now)
         grant = SupportAccessGrant(
             tenant_id=self.owner.tenant_id,
             granted_by_user_id=self.owner.id,
@@ -83,12 +93,26 @@ class SupportAccessService:
         )
         self.db.add(grant)
         await self.db.flush()
+        moved = 0
+        if replaced:
+            result = await self.db.execute(
+                update(SupportSession)
+                .where(
+                    SupportSession.grant_id.in_([g.id for g in replaced]),
+                    SupportSession.ended_at.is_(None),
+                )
+                .values(
+                    grant_id=grant.id,
+                    expires_at=func.least(SupportSession.expires_at, grant.expires_at),
+                )
+            )
+            moved = result.rowcount or 0
         await AuditRepository(self.db).append(
             AuditAction.SUPPORT_ACCESS_GRANTED,
             target_tenant_id=self.owner.tenant_id,
             target_type="grant",
             target_id=str(grant.id),
-            details={"horas": hours, "vence": grant.expires_at.isoformat()},
+            details={"horas": hours, "vence": grant.expires_at.isoformat(), "sesiones_que_siguen": moved},
             meta=self.meta,
         )
         await self._commit()

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config.settings import settings
 from app.modules.auth_tenancy.domain.tenant import Tenant, TenantPlan, TenantStatus
 from app.modules.auth_tenancy.services.user_service import PLAN_USER_LIMITS
+from app.modules.platform_admin.services.support_session import open_sessions
 from app.modules.platform_admin.services.audit_text import operator_summary
 from app.modules.platform_admin.domain.audit_log import AuditAction, PlatformAuditLog
 from app.modules.platform_admin.domain.operator import PlatformOperator
@@ -206,6 +207,8 @@ class PlatformAdminService:
             assisted_code_until=codes[0].expires_at if codes else None,
             pending_deletion=approval_read(deletion, names, now) if deletion else None,
             last_export=export_read(export, names) if export else None,
+            support_sessions=await open_sessions(self.db, tenant_id),
+            support_access_since=grants[0].created_at if grants else None,
         )
 
     # ── Métricas ───────────────────────────────────────────────────────────

@@ -179,12 +179,38 @@ class ApprovalRead(BaseModel):
     expired: bool = False
 
 
+SessionState = Literal["WAITING_OPEN", "OPEN", "ENDED"]
+
+
+class SupportSessionRead(BaseModel):
+    """Sesión de soporte de sólo lectura (etapa 4): lo que el panel ve en la ficha y en Requiere atención."""
+    id: str
+    tenant_id: str
+    operator_id: str
+    operator_name: str
+    reason: str
+    case_id: Optional[str] = None
+    state: SessionState
+    created_at: datetime
+    opened_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    link_expires_at: Optional[datetime] = None
+    extensions: int = 0
+    sections: List[str] = []
+    ended_at: Optional[datetime] = None
+    end_reason: Optional[str] = None
+
+
 class SupportState(BaseModel):
     """Lo que está en curso con este comercio (la ficha lo muestra arriba de las acciones)."""
     access_granted_until: Optional[datetime] = Field(None, description="El dueño concedió acceso de soporte hasta…")
     assisted_code_until: Optional[datetime] = Field(None, description="Código de recuperación asistida enviado y sin usar")
     pending_deletion: Optional[ApprovalRead] = None
     last_export: Optional[ExportJobRead] = None
+    support_sessions: List[SupportSessionRead] = Field(
+        default_factory=list, description="Sesiones de soporte vigentes en la tienda (de cualquier operador)",
+    )
+    support_access_since: Optional[datetime] = Field(None, description="Desde cuándo vale la concesión vigente")
 
 
 class TenantDetail(TenantSummary):
@@ -246,7 +272,7 @@ class OwnerPreviewRequest(BaseModel):
     """"Así lo verá la tienda": el mismo texto que le llegará al dueño, sin cambiar nada."""
     action: Literal[
         "ASSISTED_RECOVERY_SENT", "DAYS_GIFTED", "ABUSE_SUSPENDED", "ABUSE_LIFTED",
-        "DATA_EXPORT_REQUESTED", "TENANT_DELETION_REQUESTED",
+        "DATA_EXPORT_REQUESTED", "TENANT_DELETION_REQUESTED", "SUPPORT_SESSION_STARTED",
     ]
     days: Optional[int] = Field(None, ge=1, le=90)
     reason: Optional[str] = Field(None, max_length=500)
@@ -262,7 +288,7 @@ class OwnerPreview(BaseModel):
 
 AttentionKind = Literal[
     "DELETION_PENDING", "EXPORT_IN_PROGRESS", "EXPORT_FAILED",
-    "SUPPORT_ACCESS_ACTIVE", "ASSISTED_CODE_UNUSED", "ABUSE_SUSPENSION", "CASE_WAITING",
+    "SUPPORT_ACCESS_ACTIVE", "SUPPORT_SESSION_OPEN", "ASSISTED_CODE_UNUSED", "ABUSE_SUSPENSION", "CASE_WAITING",
 ]
 
 
