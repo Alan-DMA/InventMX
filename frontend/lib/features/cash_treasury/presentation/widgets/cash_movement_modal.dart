@@ -132,6 +132,14 @@ class _CashMovementModalState extends ConsumerState<CashMovementModal> {
             _amountField(),
             const SizedBox(height: 16),
             _descriptionField(),
+            if (_type == CashMovementType.withdrawal) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'El cambio de las ventas ya se descuenta solo: no lo registres aquí.',
+                key: Key('cashMovementChangeHint'),
+                style: TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted, height: 1.4),
+              ),
+            ],
             if (_error != null) ...[const SizedBox(height: 12), _errorBanner()],
             const SizedBox(height: 20),
             _submitButton(),

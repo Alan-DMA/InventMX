@@ -21,12 +21,21 @@ double? _toDouble(dynamic value) {
 /// Excepción especializada para capturar y presentar errores del módulo de caja
 class CashException implements Exception {
   /// Constructor con mensaje explicativo
-  const CashException(this.message);
+  const CashException(this.message, {this.code});
   /// Mensaje de error para el usuario o log
   final String message;
 
+  /// Código del servidor, si lo trae (p. ej. `INSUFFICIENT_CASH_FOR_WITHDRAWAL`).
+  final String? code;
+
   @override
   String toString() => message;
+}
+
+/// Ya hay un turno abierto en el servidor (otro teléfono, la app se cerró):
+/// quien llama lo retoma en vez de mostrar un error (Integración de Caja, A1).
+class CashSessionAlreadyOpen extends CashException {
+  const CashSessionAlreadyOpen(super.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -139,20 +148,17 @@ class CashRepositoryImpl implements CashRepository {
       }
 
       // Extracción del resultado del arqueo y balance
-      final statusStr = data['status']?.toString().toLowerCase() ?? 'closed';
-      final balanceStr = data['balance_result']?.toString().toLowerCase() ?? 'exact';
-      final closedAtStr = data['closed_at']?.toString();
-
-      // Retorno de la sesión actualizada con datos calculados del backend
-      return session.copyWith(
-        status: statusStr == 'open' ? CashSessionStatus.open : CashSessionStatus.closed,
-        expectedCashMxn: _toDouble(data['expected_cash_mxn']) ?? session.expectedCashMxn,
-        physicalCashMxn: _toDouble(data['physical_cash_mxn']) ?? physicalDenominations.totalMxn,
-        differenceMxn: _toDouble(data['difference_mxn']) ?? 0.0,
-        balanceResult: balanceStr == 'short'
-            ? CashBalanceResult.short
-            : (balanceStr == 'over' ? CashBalanceResult.over : CashBalanceResult.exact),
-        closedAt: closedAtStr != null ? DateTime.tryParse(closedAtStr) ?? DateTime.now() : DateTime.now(),
+      // `{session, balance_summary}` (antes se leía en la raíz y siempre salía "exacto, $0")
+      final closed = data['session'] is Map ? data['session'] as Map : data;
+      final balance = data['balance_summary'] is Map ? data['balance_summary'] as Map : closed;
+      final mapped = _mapSession(closed, fallbackCashierName: session.cashierName);
+      return mapped.copyWith(
+        status: CashSessionStatus.closed,
+        expectedCashMxn: _toDouble(balance['expected_cash_mxn']) ?? mapped.expectedCashMxn,
+        physicalCashMxn: _toDouble(balance['physical_cash_mxn']) ?? physicalDenominations.totalMxn,
+        differenceMxn: _toDouble(balance['difference_mxn']) ?? mapped.differenceMxn ?? 0.0,
+        balanceResult: _balance(balance['balance_result']) ?? mapped.balanceResult,
+        closedAt: mapped.closedAt ?? DateTime.now(),
       );
     } on DioException catch (e) {
       // Mapeo de errores de red
@@ -252,11 +258,8 @@ class CashRepositoryImpl implements CashRepository {
 
   /// Transforma un mapa JSON proveniente de FastAPI a la entidad CashSession
   CashSession _mapSession(Map<dynamic, dynamic> data, {String? fallbackCashierName}) {
-    // Normalización de estado en minúsculas
     final statusStr = data['status']?.toString().toLowerCase() ?? 'open';
-    final balanceStr = data['balance_result']?.toString().toLowerCase();
-
-    // Mapeo campo por campo
+    final summary = data['summary'];
     return CashSession(
       id: data['id']?.toString() ?? 'cash-unknown',
       cashierName: data['cashier_name']?.toString() ?? fallbackCashierName ?? 'Cajero',
@@ -265,27 +268,54 @@ class CashRepositoryImpl implements CashRepository {
       expectedCashMxn: _toDouble(data['expected_cash_mxn']) ?? 0.0,
       physicalCashMxn: _toDouble(data['physical_cash_mxn']),
       differenceMxn: _toDouble(data['difference_mxn']),
-      balanceResult: balanceStr == null
-          ? null
-          : (balanceStr == 'short'
-              ? CashBalanceResult.short
-              : (balanceStr == 'over' ? CashBalanceResult.over : CashBalanceResult.exact)),
+      balanceResult: _balance(data['balance_result']),
       openedAt: data['opened_at'] != null
-          ? DateTime.tryParse(data['opened_at'].toString()) ?? DateTime.now()
+          ? DateTime.tryParse(data['opened_at'].toString())?.toLocal() ?? DateTime.now()
           : DateTime.now(),
       closedAt: data['closed_at'] != null
-          ? DateTime.tryParse(data['closed_at'].toString())
+          ? DateTime.tryParse(data['closed_at'].toString())?.toLocal()
           : null,
+      summary: summary is Map ? _mapSummary(summary) : null,
     );
   }
 
-  /// Traduce los errores de Dio a mensajes de dominio legibles para el cajero
+  static CashShiftSummary _mapSummary(Map<dynamic, dynamic> json) {
+    final digital = json['digital_totals_mxn'];
+    return CashShiftSummary(
+      cashSalesMxn: _toDouble(json['cash_sales_mxn']) ?? 0,
+      cashReceivedMxn: _toDouble(json['cash_received_mxn']) ?? 0,
+      changeGivenMxn: _toDouble(json['change_given_mxn']) ?? 0,
+      depositsMxn: _toDouble(json['deposits_mxn']) ?? 0,
+      withdrawalsMxn: _toDouble(json['withdrawals_mxn']) ?? 0,
+      digitalTotalsMxn: digital is Map
+          ? {for (final e in digital.entries) e.key.toString(): _toDouble(e.value) ?? 0}
+          : const {},
+      salesCount: (json['sales_count'] as num?)?.toInt() ?? 0,
+      salesTotalMxn: _toDouble(json['sales_total_mxn']) ?? 0,
+      movementsCount: (json['movements_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  static CashBalanceResult? _balance(dynamic value) => switch (value?.toString().toLowerCase()) {
+        'exact' => CashBalanceResult.exact,
+        'short' => CashBalanceResult.short,
+        'over' => CashBalanceResult.over,
+        _ => null,
+      };
+
   Exception _mapDioError(DioException e) {
     if (e.response != null) {
       final data = e.response?.data;
       if (data is Map) {
         if (data['detail'] is Map && data['detail']['message'] != null) {
-          return CashException(data['detail']['message'].toString());
+          return CashException(
+            data['detail']['message'].toString(),
+            code: data['detail']['code']?.toString(),
+          );
+        }
+        final detail = data['detail'];
+        if (detail is String && detail.contains('sesión de caja activa')) {
+          return CashSessionAlreadyOpen(detail);
         }
         if (data['error'] is Map && data['error']['message'] != null) {
           return CashException(data['error']['message'].toString());
@@ -328,24 +358,32 @@ class CashRepositoryImpl implements CashRepository {
 // Mock — activo para pruebas offline o tests unitarios de UI
 // ---------------------------------------------------------------------------
 
+/// Caja en memoria que se comporta como el servidor (Integración de Caja,
+/// Oct 2026): un turno abierto por cajero que se retoma, el esperado lo
+/// lleva el "servidor" (fondo + entradas − retiros) y un retiro mayor al
+/// efectivo se rechaza. Las ventas no entran: el mock no tiene ventas reales.
 class CashRepositoryMock implements CashRepository {
-  static const _fakeDelay = Duration(milliseconds: 100);
+  CashRepositoryMock({CashSession? activeSession, this.fakeDelay = const Duration(milliseconds: 100)})
+      : _active = activeSession;
 
-  /// Fondo inicial fijo de la sesión simulada — no existe todavía una UI de
-  /// apertura real (fuera de alcance de la Tarea 9.2, ver plan aprobado).
-  /// Mismo valor usado en el ejemplo de `docs/api/cash.yaml`.
+  final Duration fakeDelay;
+
+  /// Fondo de ejemplo de `docs/api/cash.yaml` (tests y demos).
   static const defaultOpeningAmountMxn = 500.0;
 
   static int _sessionCounter = 0;
   static int _movementCounter = 0;
 
   /// Movimientos de caja menor por sesión — vive en memoria para pruebas offline.
-  /// Clave: `CashSession.id`.
   static final Map<String, List<CashMovement>> _movementsBySession = {};
 
-  /// Acceso síncrono usado por `_computeExpectedCashMxn` y `CashMovementsNotifier.build()`.
   static List<CashMovement> movementsFor(String sessionId) =>
       List.unmodifiable(_movementsBySession[sessionId] ?? const []);
+
+  CashSession? _active;
+
+  /// El turno que el "servidor" tiene abierto (para inspeccionar en tests).
+  CashSession? get active => _active;
 
   @override
   Future<CashSession> openSession({
@@ -353,15 +391,18 @@ class CashRepositoryMock implements CashRepository {
     required double openingAmountMxn,
     BanxicoCount? openingDenominations,
   }) async {
-    await Future.delayed(_fakeDelay);
-
-    return CashSession(
+    await Future.delayed(fakeDelay);
+    if (_active != null && _active!.status == CashSessionStatus.open) {
+      throw const CashSessionAlreadyOpen('Ya tienes una sesión de caja activa. Ciérrala antes de abrir una nueva.');
+    }
+    return _active = CashSession(
       id: 'cash-${++_sessionCounter}',
       cashierName: cashierName,
       status: CashSessionStatus.open,
       openingAmountMxn: openingAmountMxn,
       expectedCashMxn: openingAmountMxn,
       openedAt: DateTime.now(),
+      summary: const CashShiftSummary(),
     );
   }
 
@@ -370,33 +411,33 @@ class CashRepositoryMock implements CashRepository {
     required CashSession session,
     required BanxicoCount physicalDenominations,
   }) async {
-    await Future.delayed(_fakeDelay);
-
+    await Future.delayed(fakeDelay);
+    final current = _active ?? session;
     final physicalCashMxn = physicalDenominations.totalMxn;
-    final differenceMxn = physicalCashMxn - session.expectedCashMxn;
-
+    final differenceMxn = physicalCashMxn - current.expectedCashMxn;
     final balanceResult = differenceMxn.abs() < 0.005
         ? CashBalanceResult.exact
         : (differenceMxn < 0 ? CashBalanceResult.short : CashBalanceResult.over);
-
-    return session.copyWith(
+    final closed = current.copyWith(
       status: CashSessionStatus.closed,
       physicalCashMxn: physicalCashMxn,
       differenceMxn: differenceMxn,
       balanceResult: balanceResult,
       closedAt: DateTime.now(),
     );
+    _active = null;
+    return closed;
   }
 
   @override
   Future<CashSession?> getActiveSession() async {
-    await Future.delayed(_fakeDelay);
-    return null;
+    await Future.delayed(fakeDelay);
+    return _active;
   }
 
   @override
   Future<List<CashMovement>> listMovements(String sessionId) async {
-    await Future.delayed(_fakeDelay);
+    await Future.delayed(fakeDelay);
     return movementsFor(sessionId);
   }
 
@@ -407,7 +448,15 @@ class CashRepositoryMock implements CashRepository {
     required double amountMxn,
     required String description,
   }) async {
-    await Future.delayed(_fakeDelay);
+    await Future.delayed(fakeDelay);
+    final current = _active;
+    if (current != null && type == CashMovementType.withdrawal && amountMxn > current.expectedCashMxn) {
+      throw CashException(
+        'El retiro de \$${amountMxn.toStringAsFixed(2)} es mayor al efectivo en caja '
+        '(\$${current.expectedCashMxn.toStringAsFixed(2)}).',
+        code: 'INSUFFICIENT_CASH_FOR_WITHDRAWAL',
+      );
+    }
 
     final movement = CashMovement(
       id: 'mov-${++_movementCounter}',
@@ -417,10 +466,26 @@ class CashRepositoryMock implements CashRepository {
       description: description,
       createdAt: DateTime.now(),
     );
+    _movementsBySession.putIfAbsent(sessionId, () => []).insert(0, movement);
 
-    final list = _movementsBySession.putIfAbsent(sessionId, () => []);
-    list.insert(0, movement);
-
+    if (current != null && current.id == sessionId) {
+      final deposit = type == CashMovementType.deposit;
+      final summary = current.summary ?? const CashShiftSummary();
+      _active = current.copyWith(
+        expectedCashMxn: current.expectedCashMxn + (deposit ? amountMxn : -amountMxn),
+        summary: CashShiftSummary(
+          cashSalesMxn: summary.cashSalesMxn,
+          cashReceivedMxn: summary.cashReceivedMxn,
+          changeGivenMxn: summary.changeGivenMxn,
+          depositsMxn: summary.depositsMxn + (deposit ? amountMxn : 0),
+          withdrawalsMxn: summary.withdrawalsMxn + (deposit ? 0 : amountMxn),
+          digitalTotalsMxn: summary.digitalTotalsMxn,
+          salesCount: summary.salesCount,
+          salesTotalMxn: summary.salesTotalMxn,
+          movementsCount: summary.movementsCount + 1,
+        ),
+      );
+    }
     return movement;
   }
 }

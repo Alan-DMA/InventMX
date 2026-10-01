@@ -208,6 +208,7 @@ class CartNotifier extends Notifier<CartState> {
   /// Lanza excepción si el API devuelve error (capturada por la pantalla).
   Future<CheckoutResult> checkout({
     required List<PaymentEntry> payments,
+    bool customerKeptNoChange = false,
   }) async {
     if (state.isEmpty) throw Exception('El carrito está vacío.');
     final conflicts = state.stockConflicts;
@@ -238,6 +239,7 @@ class CartNotifier extends Notifier<CartState> {
         payments: payments,
         cashierName: cashierName,
         warehouseId: warehouse.id,
+        customerKeptNoChange: customerKeptNoChange,
       );
 
       // Checkout exitoso: guarda el resultado y vacía el carrito.

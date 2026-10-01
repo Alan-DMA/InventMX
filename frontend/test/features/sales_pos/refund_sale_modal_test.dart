@@ -39,6 +39,7 @@ class _RecordingRepo implements SalesRepository {
     required List<PaymentEntry> payments,
     required String cashierName,
     required String warehouseId,
+    bool customerKeptNoChange = false,
   }) =>
       throw UnimplementedError();
 

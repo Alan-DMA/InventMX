@@ -167,4 +167,70 @@ void main() {
       expect(denoms['bills_1000'], equals(0));
     });
   });
+
+  // Integración de Caja (Oct 2026): respuestas reales del servidor
+  group('CashRepositoryImpl — respuestas reales', () {
+    void answer(String path, dynamic data, {bool post = true, int status = 200}) {
+      final response = Response(data: data, statusCode: status, requestOptions: RequestOptions(path: path));
+      if (post) {
+        when(() => mockClient.post<dynamic>(path, data: any(named: 'data'), options: any(named: 'options')))
+            .thenAnswer((_) async => response);
+      } else {
+        when(() => mockClient.get<dynamic>(path, queryParameters: any(named: 'queryParameters'), options: any(named: 'options')))
+            .thenAnswer((_) async => response);
+      }
+    }
+
+    test('el cierre viene anidado {session, balance_summary}: se lee el faltante real (A2)', () async {
+      answer('/api/v1/cash/close-session', {
+        'session': {
+          'id': 'shift-1', 'cashier_name': 'Rosa', 'status': 'CLOSED', 'opening_amount_mxn': '600.00',
+          'expected_cash_mxn': '536.00', 'physical_cash_mxn': '530.00', 'difference_mxn': '-6.00',
+          'balance_result': 'SHORT', 'opened_at': '2026-10-01T08:00:00Z', 'closed_at': '2026-10-01T18:00:00Z',
+          'summary': {'cash_sales_mxn': '36.00', 'deposits_mxn': '0.00', 'withdrawals_mxn': '100.00',
+                      'digital_totals_mxn': {'CARD_TPV': '18.00'}, 'sales_count': 2, 'sales_total_mxn': '54.00', 'movements_count': 1},
+        },
+        'balance_summary': {'expected_cash_mxn': '536.00', 'physical_cash_mxn': '530.00', 'difference_mxn': '-6.00',
+                            'balance_result': 'SHORT', 'sales_count': 2},
+      });
+      final closed = await repository.closeSession(
+        session: CashSession(id: 'shift-1', cashierName: 'Rosa', status: CashSessionStatus.open,
+            openingAmountMxn: 600, expectedCashMxn: 600, openedAt: DateTime(2026, 10, 1, 8)),
+        physicalDenominations: const BanxicoCount({'bills_500': 1, 'bills_20': 1, 'coins_10': 1}),
+      );
+      expect(closed.status, CashSessionStatus.closed);
+      expect(closed.expectedCashMxn, 536.0);
+      expect(closed.differenceMxn, -6.0);
+      expect(closed.balanceResult, CashBalanceResult.short);
+      expect(closed.summary!.digitalTotalsMxn, {'CARD_TPV': 18.0});
+    });
+
+    test('el turno activo trae el resumen del servidor', () async {
+      answer('/api/v1/cash/active-session', {
+        'id': 'shift-2', 'cashier_name': 'Rosa', 'status': 'OPEN', 'opening_amount_mxn': '600.00',
+        'expected_cash_mxn': '586.00', 'opened_at': '2026-10-01T08:00:00Z',
+        'summary': {'cash_sales_mxn': '36.00', 'deposits_mxn': '50.00', 'withdrawals_mxn': '100.00',
+                    'digital_totals_mxn': {'SPEI': '18.00'}, 'sales_count': 2, 'sales_total_mxn': '54.00', 'movements_count': 2},
+      }, post: false);
+      final session = (await repository.getActiveSession())!;
+      expect(session.expectedCashMxn, 586.0);
+      expect(session.summary!.cashSalesMxn, 36.0);
+      expect(session.summary!.salesCount, 2);
+    });
+
+    test('"Ya tienes una sesión de caja activa" se distingue para retomarla (A1)', () async {
+      final options = RequestOptions(path: '/api/v1/cash/open-session');
+      when(() => mockClient.post<dynamic>('/api/v1/cash/open-session', data: any(named: 'data'), options: any(named: 'options')))
+          .thenThrow(DioException(
+        requestOptions: options,
+        response: Response(requestOptions: options, statusCode: 422,
+            data: {'detail': 'Ya tienes una sesión de caja activa. Ciérrala antes de abrir una nueva.'}),
+        type: DioExceptionType.badResponse,
+      ));
+      await expectLater(
+        repository.openSession(cashierName: 'Rosa', openingAmountMxn: 100),
+        throwsA(isA<CashSessionAlreadyOpen>()),
+      );
+    });
+  });
 }

@@ -495,6 +495,8 @@ class SalesService:
         payment_method_type = "CASH_MXN"
         total_paid_mxn = Decimal("0.00")
         total_change_mxn = Decimal("0.00")
+        # Cambio que el cliente dejó en la caja (V7)
+        change_left_mxn = Decimal("0.00")
 
         if not request.payments:
             if request.allow_partial_payment:
@@ -564,6 +566,11 @@ class SalesService:
             else:
                 payment_method_type = "MULTIPLE"
 
+            # V7: el cliente no quiso el cambio → no se entrega; queda en la caja y se anota
+            if request.customer_kept_no_change and total_change_mxn > Decimal("0.00"):
+                change_left_mxn = total_change_mxn
+                total_change_mxn = Decimal("0.00")
+
             # Crear entidades de pago asignando el cambio al pago en efectivo
             remaining_change_to_assign = total_change_mxn
             for p_req in request.payments:
@@ -601,7 +608,11 @@ class SalesService:
             payment_method_type=payment_method_type,
             amount_paid_mxn=total_paid_mxn,
             change_returned_mxn=total_change_mxn,
-            notes=request.notes,
+            notes=(
+                f"{request.notes or ''} [El cliente no quiso el cambio: ${change_left_mxn:.2f}]".strip()
+                if change_left_mxn > 0
+                else request.notes
+            ),
             items=sale_items_to_create,
             payments=sale_payments_to_create,
         )
@@ -1140,6 +1151,31 @@ class SalesService:
         sale.refunded_amount_mxn = (sale.refunded_amount_mxn + total_refund_amount).quantize(Decimal("0.01"))
         sale.status = SaleStatus.REFUNDED
         sale.notes = f"{sale.notes or ''} [REEMBOLSO: {request.reason}]".strip()
+
+        # Integración de Caja (V6): lo que se devuelve en efectivo sale del cajón de
+        # quien reembolsa, como un retiro automático de su turno abierto. Hasta lo
+        # cobrado en efectivo (neto de cambio); lo demás es un registro administrativo
+        # (SPEI/tarjeta no mueven el cajón). Sin turno abierto no hay dónde anotarlo.
+        cash_paid = sum(
+            ((p.amount_paid_mxn - (p.change_returned_mxn or Decimal("0.00"))) for p in sale.payments
+             if p.payment_method == PaymentMethod.CASH_MXN),
+            Decimal("0.00"),
+        )
+        cash_refund = min(total_refund_amount, cash_paid).quantize(Decimal("0.01"))
+        if cash_refund > Decimal("0.00"):
+            shift = await self.cash_shift_repo.get_active_shift_by_cashier(
+                cashier_id=current_user.id, tenant_id=current_user.tenant_id
+            )
+            if shift is not None:
+                await self.cash_movement_repo.create(CashMovement(
+                    tenant_id=current_user.tenant_id,
+                    shift_id=shift.id,
+                    movement_type=CashMovementType.CASH_OUT,
+                    amount_mxn=cash_refund,
+                    reason=f"Reembolso de {sale.folio}",
+                    authorized_by_user_id=current_user.id,
+                    created_by_user_id=current_user.id,
+                ))
 
         await self.session.commit()
         return self._build_sale_response(sale)

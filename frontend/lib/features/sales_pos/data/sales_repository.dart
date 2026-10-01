@@ -177,6 +177,7 @@ abstract class SalesRepository {
     required List<PaymentEntry> payments,
     required String cashierName,
     required String warehouseId,
+    bool customerKeptNoChange = false,
   });
 
   /// GET /sales — listado paginado, más reciente primero.
@@ -230,6 +231,7 @@ class SalesRepositoryImpl implements SalesRepository {
     required List<PaymentEntry> payments,
     required String cashierName,
     required String warehouseId,
+    bool customerKeptNoChange = false,
   }) async {
     try {
       final payload = <String, dynamic>{
@@ -259,6 +261,8 @@ class SalesRepositoryImpl implements SalesRepository {
           }
           return map;
         }).toList(),
+        // V7: el cliente dejó el cambio → no se entrega, queda en la caja
+        if (customerKeptNoChange) 'customer_kept_no_change': true,
       };
 
       final response = await client.post(
@@ -676,6 +680,7 @@ class SalesRepositoryMock implements SalesRepository {
     required String cashierName,
     // El mock no necesita almacén — no hay stock real que descontar.
     String warehouseId = 'wh-mock',
+    bool customerKeptNoChange = false,
   }) async {
     await Future.delayed(_fakeDelay);
 
@@ -683,7 +688,8 @@ class SalesRepositoryMock implements SalesRepository {
     final total = items.fold(0.0, (sum, item) => sum + item.subtotalMxn);
 
     final paid = payments.fold(0.0, (sum, p) => sum + p.amountMxn);
-    final change = (paid - total).clamp(0.0, double.infinity);
+    // V7: si el cliente dejó el cambio, no se entrega
+    final change = customerKeptNoChange ? 0.0 : (paid - total).clamp(0.0, double.infinity);
 
     _folioCounter++;
     final folio = 'NV-2026-${_folioCounter.toString().padLeft(6, '0')}';

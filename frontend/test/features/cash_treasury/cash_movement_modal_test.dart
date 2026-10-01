@@ -4,15 +4,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
+import 'package:nexus_app/features/cash_treasury/domain/cash_session.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_screen.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
+
+/// El "servidor" ya tiene el turno abierto: Caja lo retoma (Integración de Caja, A1).
+CashSession _openShift() => CashSession(
+      id: 'cash-seed',
+      cashierName: 'Ana García',
+      status: CashSessionStatus.open,
+      openingAmountMxn: 500,
+      expectedCashMxn: 500,
+      openedAt: DateTime(2026, 10, 1, 8),
+      summary: const CashShiftSummary(),
+    );
 
 Widget _buildApp() {
   return ProviderScope(
     overrides: [
       currentUserNameProvider.overrideWith((ref) => 'Ana García'),
-      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock(activeSession: _openShift())),
       salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
     ],
     child: MaterialApp(

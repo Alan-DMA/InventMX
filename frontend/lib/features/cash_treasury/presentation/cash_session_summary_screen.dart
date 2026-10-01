@@ -124,7 +124,8 @@ class _CashSessionSummaryScreenState extends ConsumerState<CashSessionSummaryScr
 
   Future<void> _startNewSession() async {
     setState(() => _isStartingNewSession = true);
-    await ref.read(cashSessionProvider.notifier).startNewSession();
+    // Sin turno: Caja ofrece abrir uno nuevo con su fondo (ya no se abre solo)
+    ref.read(cashSessionProvider.notifier).startNewSession();
     if (mounted) Navigator.of(context).pop();
   }
 

@@ -25,18 +25,43 @@ extension PaymentMethodIconX on PaymentMethodMxn {
 // Función de conveniencia para abrir el modal
 // ---------------------------------------------------------------------------
 
+/// Si el cajero tiene turno de caja abierto al cobrar (Integración de Caja, V3).
+enum CashShiftAtCheckout { open, none, unknown }
+
+/// Lo que confirma el modal de cobro.
+class PaymentModalResult {
+  const PaymentModalResult({
+    this.payments = const [],
+    this.customerKeptNoChange = false,
+    this.openShift = false,
+  });
+
+  final List<PaymentEntry> payments;
+
+  /// V7: el cliente no quiso el cambio; queda en la caja.
+  final bool customerKeptNoChange;
+
+  /// V3: el cajero eligió abrir su turno antes de cobrar (no hay pagos).
+  final bool openShift;
+}
+
 /// Abre el modal de cobro con métodos de pago mixtos.
-/// Retorna la lista de pagos confirmada, o null si el usuario cancela.
-Future<List<PaymentEntry>?> showPaymentModal(
+/// Retorna lo confirmado, o null si el usuario cancela.
+///
+/// [drawerCashMxn] es el efectivo en caja antes de esta venta (V2: avisar si
+/// no alcanza el cambio); `null` si no se sabe.
+Future<PaymentModalResult?> showPaymentModal(
   BuildContext context, {
   required double totalMxn,
+  double? drawerCashMxn,
+  CashShiftAtCheckout shift = CashShiftAtCheckout.unknown,
 }) {
-  return showModalBottomSheet<List<PaymentEntry>>(
+  return showModalBottomSheet<PaymentModalResult>(
     context: context,
     isScrollControlled: true,
     useRootNavigator: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => PaymentModal(totalMxn: totalMxn),
+    builder: (_) => PaymentModal(totalMxn: totalMxn, drawerCashMxn: drawerCashMxn, shift: shift),
   );
 }
 
@@ -52,9 +77,16 @@ Future<List<PaymentEntry>?> showPaymentModal(
 ///
 /// Trazabilidad: Constitución Art. VII (7.2) · Doc. Maestro RF-14, SR-04 · HU-13 / CU-14
 class PaymentModal extends StatefulWidget {
-  const PaymentModal({super.key, required this.totalMxn});
+  const PaymentModal({
+    super.key,
+    required this.totalMxn,
+    this.drawerCashMxn,
+    this.shift = CashShiftAtCheckout.unknown,
+  });
 
   final double totalMxn;
+  final double? drawerCashMxn;
+  final CashShiftAtCheckout shift;
 
   @override
   State<PaymentModal> createState() => _PaymentModalState();
@@ -67,6 +99,11 @@ class _PaymentModalState extends State<PaymentModal> {
   PaymentMethodMxn _selectedMethod = PaymentMethodMxn.cashMxn;
   final List<PaymentEntry> _payments = [];
   int _idCounter = 0;
+
+  /// V7: el cliente no quiso el cambio.
+  bool _keptChange = false;
+
+  bool get _hasCash => _payments.any((p) => p.method == PaymentMethodMxn.cashMxn);
 
   // ── Cálculos derivados ───────────────────────────────────────────────────
 
@@ -120,7 +157,11 @@ class _PaymentModalState extends State<PaymentModal> {
 
   void _confirm() {
     if (!_isCovered) return;
-    Navigator.of(context).pop(List<PaymentEntry>.of(_payments));
+    final change = _differenceMxn > 0.004 && _hasCash;
+    Navigator.of(context).pop(PaymentModalResult(
+      payments: List<PaymentEntry>.of(_payments),
+      customerKeptNoChange: change && _keptChange,
+    ));
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -505,10 +546,87 @@ class _PaymentModalState extends State<PaymentModal> {
               ),
             ],
           ),
+          ..._cashNotes(),
           const SizedBox(height: 6),
         ],
       ),
     );
+  }
+
+  /// Lo que el cajero debe saber del efectivo de este cobro (Integración de
+  /// Caja): el cambio sale solo de la caja (V1), si no alcanza (V2), si el
+  /// cliente lo deja (V7) y si no hay turno abierto (V3).
+  List<Widget> _cashNotes() {
+    const muted = TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted, height: 1.35);
+    final notes = <Widget>[];
+    final change = _differenceMxn;
+    if (_isCovered && _hasCash && change > 0.004) {
+      final drawer = widget.drawerCashMxn;
+      notes.addAll([
+        const SizedBox(height: 4),
+        Text(
+          _keptChange
+              ? 'El cambio se queda en la caja.'
+              : 'Sale de la caja; no lo registres aparte.',
+          key: const Key('paymentChangeHint'),
+          style: muted,
+        ),
+        if (!_keptChange && drawer != null && change > drawer + 0.004)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              'En caja hay \$${drawer.toStringAsFixed(2)}; el cambio es \$${change.toStringAsFixed(2)}.',
+              key: const Key('paymentChangeShort'),
+              style: muted.copyWith(color: AppColors.warning, fontWeight: FontWeight.w600),
+            ),
+          ),
+        SizedBox(
+          height: 36,
+          child: Row(
+            children: [
+              SizedBox(
+                width: 32,
+                child: Checkbox(
+                  key: const Key('paymentKeptChange'),
+                  value: _keptChange,
+                  onChanged: (v) => setState(() => _keptChange = v ?? false),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _keptChange = !_keptChange),
+                  child: const Text('El cliente no quiso el cambio',
+                      style: TextStyle(fontSize: 13.5, color: AppColors.onSurface)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ]);
+    }
+    if (_hasCash && widget.shift == CashShiftAtCheckout.none) {
+      notes.add(Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'No tienes turno de caja abierto: este efectivo no entrará en ningún cuadre.',
+                key: Key('paymentNoShift'),
+                style: TextStyle(fontSize: 12.5, color: AppColors.warning, height: 1.35),
+              ),
+            ),
+            TextButton(
+              key: const Key('paymentOpenShift'),
+              onPressed: () => Navigator.of(context).pop(const PaymentModalResult(openShift: true)),
+              child: const Text('Abrir turno'),
+            ),
+          ],
+        ),
+      ));
+    }
+    return notes;
   }
 
   Widget _summaryRow(String label, double amountMxn) {

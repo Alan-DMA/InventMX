@@ -108,6 +108,19 @@ class CashMovementResponse(BaseModel):
     created_at: datetime
 
 
+class CashSessionSummary(BaseModel):
+    """Lo que pasó en el turno según el servidor (fuente de verdad del esperado)."""
+    cash_sales_mxn: Decimal = Field(..., description="Ventas en efectivo, netas de cambio")
+    cash_received_mxn: Decimal = Field(Decimal("0.00"), description="Efectivo recibido de los clientes")
+    change_given_mxn: Decimal = Field(Decimal("0.00"), description="Cambio entregado (ya descontado)")
+    deposits_mxn: Decimal = Field(..., description="Entradas de caja menor")
+    withdrawals_mxn: Decimal = Field(..., description="Retiros de caja menor")
+    digital_totals_mxn: Dict[str, Decimal] = Field(default_factory=dict, description="SPEI, CARD_TPV, CODI, OTHER")
+    sales_count: int = Field(..., description="Ventas completadas del turno (todos los métodos)")
+    sales_total_mxn: Decimal = Field(..., description="Total vendido en el turno")
+    movements_count: int = 0
+
+
 class CashSessionResponse(BaseModel):
     """Modelo de datos de una sesión de caja coincidente con CashSession en Flutter y OpenAPI."""
     model_config = ConfigDict(from_attributes=True)
@@ -124,6 +137,9 @@ class CashSessionResponse(BaseModel):
     opened_at: datetime
     closed_at: Optional[datetime] = None
     notes: Optional[str] = None
+    warehouse_id: Optional[uuid.UUID] = None
+    # Sólo en el turno activo y en el cierre (Integración de Caja, Oct 2026)
+    summary: Optional[CashSessionSummary] = None
 
 
 class CashBalanceSummary(BaseModel):

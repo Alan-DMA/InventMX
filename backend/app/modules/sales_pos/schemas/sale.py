@@ -131,6 +131,12 @@ class SaleCheckoutRequest(BaseModel):
         description="Notas u observaciones de la nota de venta",
     )
 
+    # El cliente no quiso el cambio (Integración de Caja, V7): se queda en la caja
+    customer_kept_no_change: bool = Field(
+        default=False,
+        description="El cliente dejó el cambio: no se entrega y queda en el cajón (la venta lo anota)",
+    )
+
 
 class SaleItemResponse(BaseModel):
     """

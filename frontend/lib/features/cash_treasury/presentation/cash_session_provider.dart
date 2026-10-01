@@ -1,9 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/presentation/login_provider.dart';
-import '../../sales_pos/data/sales_repository.dart';
 import '../../sales_pos/domain/payment_entry.dart';
-import '../../sales_pos/domain/sale_summary.dart';
 import '../data/cash_repository.dart';
 import '../domain/banxico_denomination.dart';
 import '../domain/cash_movement.dart';
@@ -15,8 +13,30 @@ final cashRepositoryProvider = Provider<CashRepository>(
   ),
 );
 
+/// En qué está la pantalla de Caja (Integración de Caja, Oct 2026). Antes
+/// sólo existía el turno y un `null` significaba "cargando" para siempre si
+/// abrir fallaba — ahora un error se dice y se reintenta (CA-C1).
+class CashLoad {
+  const CashLoad._(this.loading, this.error);
+  const CashLoad.loading() : this._(true, null);
+  const CashLoad.ready() : this._(false, null);
+  const CashLoad.failed(String message) : this._(false, message);
+
+  final bool loading;
+  final String? error;
+}
+
+final cashLoadProvider = StateProvider<CashLoad>((_) => const CashLoad.loading());
+
+/// El turno abierto según el servidor, leído al momento de cobrar (V2/V3: si
+/// alcanza el cambio, si hay turno). Fresco cada vez; un error se trata como
+/// "no se sabe" y el cobro sigue sin avisos.
+final cashShiftForCheckoutProvider = FutureProvider.autoDispose<CashSession?>(
+  (ref) => ref.watch(cashRepositoryProvider).getActiveSession(),
+);
+
 // ---------------------------------------------------------------------------
-// Notifier — sesión de caja activa (null si aún no se ha abierto ninguna)
+// Notifier — sesión de caja activa (null = sin turno abierto)
 // ---------------------------------------------------------------------------
 
 class CashSessionNotifier extends Notifier<CashSession?> {
@@ -25,28 +45,48 @@ class CashSessionNotifier extends Notifier<CashSession?> {
 
   CashRepository get _repo => ref.read(cashRepositoryProvider);
 
-  /// Abre una sesión Mock si no hay ninguna activa. No existe todavía una UI
-  /// de apertura real (fuera de alcance de la Tarea 9.2) — se usa un fondo
-  /// inicial fijo mientras Alan no entregue `POST /cash/open-session`.
-  Future<void> ensureOpenSession() async {
-    if (state != null && state!.status == CashSessionStatus.open) return;
+  void _setLoad(CashLoad load) => ref.read(cashLoadProvider.notifier).state = load;
 
-    final cashierName = ref.read(currentUserNameProvider) ?? 'Cajero';
-    state = await _repo.openSession(
-      cashierName: cashierName,
-      openingAmountMxn: CashRepositoryMock.defaultOpeningAmountMxn,
-    );
+  /// Pregunta al servidor si hay un turno abierto y lo retoma (A1). Sin turno,
+  /// la pantalla ofrece abrirlo; un error se dice con "Reintentar".
+  Future<void> load() async {
+    _setLoad(const CashLoad.loading());
+    try {
+      state = await _repo.getActiveSession();
+      _setLoad(const CashLoad.ready());
+    } on CashException catch (e) {
+      _setLoad(CashLoad.failed(e.message));
+    } catch (_) {
+      _setLoad(const CashLoad.failed('No pudimos consultar tu turno de caja.'));
+    }
   }
 
-  /// Cierra el turno con el conteo físico capturado en el wizard.
+  /// Vuelve a leer el turno sin mostrar carga (tras un movimiento, al volver a
+  /// Caja, al deslizar hacia abajo). Si falla, se queda lo que había.
+  Future<void> refresh() async {
+    try {
+      final fresh = await _repo.getActiveSession();
+      if (fresh == null || state == null || fresh.id == state!.id) state = fresh;
+    } catch (_) {}
+  }
+
+  /// Abre el turno con el fondo que declara el cajero (C1). Si el servidor dice
+  /// que ya hay uno abierto, se retoma en vez de mostrar el error.
+  Future<void> openSession(double openingAmountMxn) async {
+    final cashierName = ref.read(currentUserNameProvider) ?? 'Cajero';
+    try {
+      state = await _repo.openSession(cashierName: cashierName, openingAmountMxn: openingAmountMxn);
+      _setLoad(const CashLoad.ready());
+    } on CashSessionAlreadyOpen {
+      await load();
+    }
+  }
+
+  /// Cierra el turno con el conteo físico capturado en el wizard. El esperado
+  /// y el resultado los calcula el servidor (A2–A4).
   ///
-  /// [movements] lo trae quien llama (`ref.read(cashMovementsProvider)` en
-  /// `CloseSessionWizard`) en vez de leerlo aquí adentro: `cashMovementsProvider`
-  /// depende de `cashSessionProvider`, y este método vive en el notifier
-  /// *dueño* de `cashSessionProvider` — Riverpod marca eso como dependencia
-  /// circular aunque sea un `ref.read`, no un `ref.watch`. Mismo motivo por
-  /// el que las ventas se piden frescas y directas (`_fetchShiftSalesRaw`)
-  /// en vez de vía `_shiftSalesProvider`.
+  /// [movements] se conserva en la firma por compatibilidad con
+  /// `CloseSessionWizard`; el servidor ya los conoce.
   Future<CashSession> closeSession(
     BanxicoCount physicalDenominations, {
     required List<CashMovement> movements,
@@ -55,24 +95,18 @@ class CashSessionNotifier extends Notifier<CashSession?> {
     if (current == null) {
       throw Exception('No hay una sesión de caja activa que cerrar.');
     }
-
-    final sales = await _fetchShiftSalesRaw(ref.read(salesRepositoryProvider), current);
-    final updated = current.copyWith(
-      expectedCashMxn: _sumExpectedCashMxn(current, sales, movements),
-    );
     final closed = await _repo.closeSession(
-      session: updated,
+      session: current,
       physicalDenominations: physicalDenominations,
     );
     state = closed;
     return closed;
   }
 
-  /// Abre un turno nuevo — permite seguir probando el flujo tras un cierre
-  /// (la sesión Mock vive solo en memoria, ver `SalesRepositoryMock`).
-  Future<void> startNewSession() async {
+  /// Tras un cierre: sin turno; la pantalla ofrece abrir uno nuevo con su fondo.
+  void startNewSession() {
     state = null;
-    await ensureOpenSession();
+    _setLoad(const CashLoad.ready());
   }
 }
 
@@ -134,12 +168,9 @@ class CashMovementsNotifier extends Notifier<List<CashMovement>> {
     }
 
     if (type == CashMovementType.withdrawal) {
-      // `state` (no `ref.read(cashMovementsProvider)`): son el mismo valor
-      // dentro de este notifier, pero usar `state` deja claro que es el
-      // disponible *antes* de este movimiento, sin depender de un `ref.read`
-      // sobre el propio provider que este método está mutando.
-      final sales = await ref.read(_shiftSalesProvider.future);
-      final available = _sumExpectedCashMxn(session, sales, state);
+      // El disponible es el esperado del servidor (ventas netas de cambio + movimientos);
+      // el servidor vuelve a validarlo (422 INSUFFICIENT_CASH_FOR_WITHDRAWAL)
+      final available = session.expectedCashMxn;
       if (amountMxn > available) {
         throw Exception(
           'Retiro de \$${amountMxn.toStringAsFixed(2)} MXN excede el '
@@ -158,6 +189,8 @@ class CashMovementsNotifier extends Notifier<List<CashMovement>> {
     // El movimiento tocado aparece primero — misma convención UX que
     // `CloseSessionWizard._addEntry` (Tarea 9.2).
     state = [movement, ...state];
+    // El esperado cambia: se relee del servidor (no recalcula nada aquí)
+    await ref.read(cashSessionProvider.notifier).refresh();
   }
 }
 
@@ -167,103 +200,29 @@ final cashMovementsProvider =
 );
 
 // ---------------------------------------------------------------------------
-// Providers derivados — recalculados a partir de las ventas reales del turno
+// Providers derivados — del resumen del servidor (Integración de Caja, Oct 2026)
 // ---------------------------------------------------------------------------
+//
+// Antes se recalculaban con `GET /sales` del día filtrado por *nombre* de
+// cajero y sumando lo entregado sin restar el cambio (A3, A4). Ahora el
+// servidor manda: `GET /cash/active-session` trae el esperado y el desglose.
 
-/// Trae todas las ventas del comercio desde la apertura del turno, paginando
-/// hasta agotar `total` — un turno normal cabe en una o dos páginas.
-///
-/// Filtra por cajero **en cliente** (no vía `SalesQuery.cashierName`):
-/// ese filtro del repositorio resuelve el nombre contra `GET /users`, que
-/// exige `settings.manage_users` — un Cajero cerrando su propio turno no
-/// necesariamente lo tiene, y este cálculo debe funcionarle siempre.
-Future<List<SaleSummary>> _fetchShiftSalesRaw(
-  SalesRepository salesRepo,
-  CashSession session,
-) async {
-  final sales = <SaleSummary>[];
-  var page = 1;
-  const pageSize = 100;
-  while (true) {
-    final result = await salesRepo.getSales(
-      query: SalesQuery(dateFrom: session.openedAt),
-      page: page,
-      pageSize: pageSize,
-    );
-    sales.addAll(result.items);
-    if (sales.length >= result.total || result.items.isEmpty) break;
-    page++;
-  }
-  return sales.where((s) => s.cashierName == session.cashierName).toList();
-}
-
-/// Cacheado por sesión (Sep 2026): sólo depende de `cashSessionProvider`, no
-/// de `cashMovementsProvider` — un retiro/entrada de caja menor no cambia
-/// qué se vendió, así que registrar un movimiento no debe volver a pedir
-/// `GET /sales` completo.
-///
-/// `CashSessionNotifier.closeSession()` no puede leer este provider (llama a
-/// `_fetchShiftSalesRaw` directo): siendo el notifier dueño de
-/// `cashSessionProvider`, del que este depende, Riverpod lo marca como
-/// dependencia circular incluso vía `ref.read`.
-final _shiftSalesProvider = FutureProvider<List<SaleSummary>>((ref) async {
-  final session = ref.watch(cashSessionProvider);
-  if (session == null) return const [];
-  return _fetchShiftSalesRaw(ref.read(salesRepositoryProvider), session);
-});
-
-/// Fórmula de conciliación (Doc. Maestro, Subtarea 10.1.1):
-/// Fondo Inicial + Ventas Efectivo − Retiros + Entradas.
-///
-/// Función pura y síncrona a propósito — `sales` y `movements` ya resueltos
-/// (Sep 2026: antes esta función volvía a pedir `GET /sales` y
-/// `GET /cash/sessions/{id}/movements` en cada llamada, incluso cuando
-/// `movements` ya vivía en memoria vía `cashMovementsProvider`).
-double _sumExpectedCashMxn(
-  CashSession session,
-  List<SaleSummary> sales,
-  List<CashMovement> movements,
-) {
-  final cashFromSales = sales
-      .expand((sale) => sale.payments)
-      .where((payment) => payment.method == PaymentMethodMxn.cashMxn)
-      .fold(0.0, (sum, payment) => sum + payment.amountMxn);
-
-  final movementsNet = movements.fold<double>(
-    0.0,
-    (sum, m) =>
-        sum + (m.type == CashMovementType.deposit ? m.amountMxn : -m.amountMxn),
-  );
-
-  return session.openingAmountMxn + cashFromSales + movementsNet;
-}
-
-/// Efectivo esperado en vivo (Sep 2026 — antes leía
-/// `SalesRepositoryMock.todaysSales`/`CashRepositoryMock.movementsFor`
-/// estático, ajeno a los repositorios inyectados).
+/// Efectivo esperado en vivo: fondo + ventas en efectivo netas de cambio +
+/// entradas − retiros, según el servidor.
 final expectedCashMxnProvider = FutureProvider<double>((ref) async {
   final session = ref.watch(cashSessionProvider);
-  if (session == null) return 0;
-  final sales = await ref.watch(_shiftSalesProvider.future);
-  final movements = ref.watch(cashMovementsProvider);
-  return _sumExpectedCashMxn(session, sales, movements);
+  return session?.expectedCashMxn ?? 0;
 });
 
 /// Totales de pagos digitales del turno (SPEI/TPV/CoDi/Otro), informativos
 /// para el Paso 2 del wizard — Subtarea 9.2.3.
 final digitalPaymentTotalsProvider =
     FutureProvider<Map<PaymentMethodMxn, double>>((ref) async {
-  final session = ref.watch(cashSessionProvider);
-  if (session == null) return {};
-
-  final sales = await ref.watch(_shiftSalesProvider.future);
-
-  final totals = <PaymentMethodMxn, double>{};
-  for (final sale in sales) {
-    for (final payment in sale.payments) {
-      if (payment.method == PaymentMethodMxn.cashMxn) continue;
-      totals[payment.method] = (totals[payment.method] ?? 0) + payment.amountMxn;
-    }
-  }
-  return totals;
+  final summary = ref.watch(cashSessionProvider)?.summary;
+  if (summary == null) return {};
+  return {
+    for (final method in PaymentMethodMxn.values)
+      if ((summary.digitalTotalsMxn[method.apiValue] ?? 0) > 0)
+        method: summary.digitalTotalsMxn[method.apiValue]!,
+  };
 });

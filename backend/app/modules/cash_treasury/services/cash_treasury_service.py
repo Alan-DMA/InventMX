@@ -26,6 +26,7 @@ from app.modules.cash_treasury.schemas.cash_schemas import (
     CashSessionOpenRequest,
     CashSessionReportResponse,
     CashSessionResponse,
+    CashSessionSummary,
 )
 from app.modules.sales_pos.domain.cash_movement import CashMovement, CashMovementType
 from app.modules.sales_pos.domain.cash_shift import CashShift, ShiftStatus
@@ -40,6 +41,53 @@ class CashTreasuryService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.repo = CashTreasuryRepository(session)
+
+    async def _summary(
+        self, tenant_id: uuid.UUID, shift: CashShift, until: Optional[datetime] = None
+    ) -> Tuple[CashSessionSummary, Decimal]:
+        """
+        El turno según el servidor y su efectivo esperado: fondo + ventas en
+        efectivo netas de cambio + entradas − retiros. Lo usan el turno activo,
+        el cierre, el Corte Z y el límite de retiros (un solo cálculo).
+        """
+        totals, count, total = await self.repo.get_shift_payment_totals(
+            tenant_id=tenant_id,
+            cashier_id=shift.cashier_id,
+            opened_at=shift.opened_at,
+            closed_at=until or shift.closed_at,
+        )
+        deposits, withdrawals, movements_count = await self.repo.get_shift_movement_totals(shift.id)
+        received, change = await self.repo.get_shift_cash_received(
+            tenant_id=tenant_id,
+            cashier_id=shift.cashier_id,
+            opened_at=shift.opened_at,
+            closed_at=until or shift.closed_at,
+        )
+        cash_sales = totals.pop("CASH_MXN", Decimal("0.00"))
+        expected = shift.opening_balance_mxn + cash_sales + deposits - withdrawals
+        summary = CashSessionSummary(
+            cash_sales_mxn=cash_sales,
+            cash_received_mxn=received,
+            change_given_mxn=change,
+            deposits_mxn=deposits,
+            withdrawals_mxn=withdrawals,
+            digital_totals_mxn={k: v for k, v in totals.items() if v != 0},
+            sales_count=count,
+            sales_total_mxn=total,
+            movements_count=movements_count,
+        )
+        return summary, expected
+
+    @staticmethod
+    def _balance(diff: Optional[Decimal]) -> Optional[CashBalanceResult]:
+        if diff is None:
+            return None
+        if abs(diff) < Decimal("0.01"):
+            return CashBalanceResult.EXACT
+        return CashBalanceResult.SHORT if diff < 0 else CashBalanceResult.OVER
+
+    async def _names(self, shifts: List[CashShift]) -> Dict[uuid.UUID, str]:
+        return await self.repo.get_user_names([x.cashier_id for x in shifts])
 
     async def open_session(
         self,
@@ -116,6 +164,7 @@ class CashTreasuryService:
             expected_cash_mxn=shift.expected_cash_mxn,
             opened_at=shift.opened_at,
             notes=shift.notes,
+            warehouse_id=shift.warehouse_id,
         )
 
     async def close_session(
@@ -141,19 +190,9 @@ class CashTreasuryService:
         # 1. Total físico de billetes y monedas contados
         physical_cash = request.physical_denominations.to_total_mxn()
 
-        # 2. Ventas cobradas en efectivo durante el turno
-        cash_sales, sales_count = await self.repo.get_shift_sales_cash_total(
-            tenant_id=tenant_id,
-            cashier_id=cashier_id,
-            opened_at=shift.opened_at,
-            closed_at=now,
-        )
-
-        # 3. Neto de movimientos menores (entradas - salidas)
-        movements_net = await self.repo.get_shift_movements_net_mxn(shift.id)
-
-        # 4. Saldo teórico esperado de efectivo en el cajón de dinero
-        expected_cash = shift.opening_balance_mxn + cash_sales + movements_net
+        # 2–4. Lo que pasó en el turno y el saldo teórico (mismo cálculo que el turno activo)
+        summary, expected_cash = await self._summary(tenant_id, shift, until=now)
+        sales_count = summary.sales_count
 
         # 5. Diferencia del arqueo (Físico - Teórico)
         diff = physical_cash - expected_cash
@@ -214,6 +253,8 @@ class CashTreasuryService:
             opened_at=shift.opened_at,
             closed_at=now,
             notes=shift.notes,
+            warehouse_id=shift.warehouse_id,
+            summary=summary,
         )
 
         balance_summary = CashBalanceSummary(
@@ -240,15 +281,19 @@ class CashTreasuryService:
         if not shift:
             return None
 
+        # El esperado incluye las ventas del turno (antes sólo fondo y movimientos)
+        summary, expected = await self._summary(tenant_id, shift)
         return CashSessionResponse(
             id=shift.id,
             cashier_id=cashier_id,
             cashier_name=cashier_name,
             status=shift.status,
             opening_amount_mxn=shift.opening_balance_mxn,
-            expected_cash_mxn=shift.expected_cash_mxn or shift.opening_balance_mxn,
+            expected_cash_mxn=expected,
             opened_at=shift.opened_at,
             notes=shift.notes,
+            warehouse_id=shift.warehouse_id,
+            summary=summary,
         )
 
     async def list_sessions(
@@ -275,21 +320,24 @@ class CashTreasuryService:
             warehouse_id=warehouse_id,
         )
 
+        names = await self._names(shifts)
         items = []
         for s in shifts:
             items.append(
                 CashSessionResponse(
                     id=s.id,
                     cashier_id=s.cashier_id,
-                    cashier_name="Cajero",
+                    cashier_name=names.get(s.cashier_id, "Cajero"),
                     status=s.status,
                     opening_amount_mxn=s.opening_balance_mxn,
                     expected_cash_mxn=s.expected_cash_mxn or s.opening_balance_mxn,
                     physical_cash_mxn=s.counted_cash_mxn,
                     difference_mxn=s.difference_mxn,
+                    balance_result=self._balance(s.difference_mxn) if s.status == ShiftStatus.CLOSED else None,
                     opened_at=s.opened_at,
                     closed_at=s.closed_at,
                     notes=s.notes,
+                    warehouse_id=s.warehouse_id,
                 )
             )
 
@@ -306,18 +354,21 @@ class CashTreasuryService:
         if not shift or (warehouse_id and shift.warehouse_id != warehouse_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sesión no encontrada.")
 
+        names = await self._names([shift])
         return CashSessionResponse(
             id=shift.id,
             cashier_id=shift.cashier_id,
-            cashier_name="Cajero",
+            cashier_name=names.get(shift.cashier_id, "Cajero"),
             status=shift.status,
             opening_amount_mxn=shift.opening_balance_mxn,
             expected_cash_mxn=shift.expected_cash_mxn or shift.opening_balance_mxn,
             physical_cash_mxn=shift.counted_cash_mxn,
             difference_mxn=shift.difference_mxn,
+            balance_result=self._balance(shift.difference_mxn) if shift.status == ShiftStatus.CLOSED else None,
             opened_at=shift.opened_at,
             closed_at=shift.closed_at,
             notes=shift.notes,
+            warehouse_id=shift.warehouse_id,
         )
 
     async def register_movement(
@@ -341,6 +392,23 @@ class CashTreasuryService:
             )
 
         m_type = CashMovementType.CASH_OUT if request.type == CashMovementTypeParam.WITHDRAWAL else CashMovementType.CASH_IN
+
+        # Un retiro no puede sacar más efectivo del que hay (docs/api/cash.yaml): lo
+        # valida también el servidor, no sólo la app
+        if m_type == CashMovementType.CASH_OUT:
+            _, available = await self._summary(tenant_id, shift)
+            if request.amount_mxn > available:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail={
+                        "code": "INSUFFICIENT_CASH_FOR_WITHDRAWAL",
+                        "message": (
+                            f"El retiro de ${request.amount_mxn:,.2f} es mayor al efectivo en caja "
+                            f"(${available:,.2f})."
+                        ),
+                        "available_mxn": str(available),
+                    },
+                )
 
         movement = CashMovement(
             tenant_id=tenant_id,
@@ -425,33 +493,43 @@ class CashTreasuryService:
         now = shift.closed_at or datetime.now(timezone.utc)
         duration_hours = max(0.0, (now - shift.opened_at).total_seconds() / 3600.0)
 
-        diff = shift.difference_mxn or Decimal("0.00")
-        bal_res = CashBalanceResult.EXACT if abs(diff) < Decimal("0.01") else (CashBalanceResult.SHORT if diff < 0 else CashBalanceResult.OVER)
+        summary, expected = await self._summary(tenant_id, shift)
+        closed = shift.status == ShiftStatus.CLOSED and shift.expected_cash_mxn is not None
+        expected_closing = shift.expected_cash_mxn if closed else expected
+        diff = shift.difference_mxn
+        names = await self._names([shift])
+        digital = sum(summary.digital_totals_mxn.values(), Decimal("0.00"))
+        average = (
+            (summary.sales_total_mxn / summary.sales_count).quantize(Decimal("0.01"))
+            if summary.sales_count else Decimal("0.00")
+        )
 
         return CashSessionReportResponse(
             session_id=shift.id,
-            cashier_name="Cajero",
+            cashier_name=names.get(shift.cashier_id, "Cajero"),
             opened_at=shift.opened_at,
             closed_at=shift.closed_at,
             duration_hours=round(duration_hours, 2),
             sales_summary={
-                "total_sales_count": 0,
-                "cash_sales_mxn": shift.expected_cash_mxn or Decimal("0.00"),
-                "digital_sales_mxn": Decimal("0.00"),
-                "average_ticket_mxn": Decimal("0.00"),
+                "total_sales_count": summary.sales_count,
+                "sales_total_mxn": summary.sales_total_mxn,
+                "cash_sales_mxn": summary.cash_sales_mxn,
+                "digital_sales_mxn": digital,
+                "digital_by_method_mxn": summary.digital_totals_mxn,
+                "average_ticket_mxn": average,
             },
             cash_balance={
                 "opening_amount_mxn": shift.opening_balance_mxn,
-                "expected_closing_mxn": shift.expected_cash_mxn or shift.opening_balance_mxn,
-                "physical_closing_mxn": shift.counted_cash_mxn or Decimal("0.00"),
+                "expected_closing_mxn": expected_closing,
+                "physical_closing_mxn": shift.counted_cash_mxn,
                 "difference_mxn": diff,
-                "balance_result": bal_res,
+                "balance_result": self._balance(diff),
             },
             denominations_breakdown=denoms_dict,
             movements_summary={
-                "total_withdrawals_mxn": Decimal("0.00"),
-                "total_deposits_mxn": Decimal("0.00"),
-                "movements_count": 0,
+                "total_withdrawals_mxn": summary.withdrawals_mxn,
+                "total_deposits_mxn": summary.deposits_mxn,
+                "movements_count": summary.movements_count,
             },
             pdf_url=None,
         )

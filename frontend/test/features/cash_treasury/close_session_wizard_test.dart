@@ -4,15 +4,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/core/theme/app_theme.dart';
 import 'package:nexus_app/features/auth/presentation/login_provider.dart';
 import 'package:nexus_app/features/cash_treasury/data/cash_repository.dart';
+import 'package:nexus_app/features/cash_treasury/domain/cash_session.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_provider.dart';
 import 'package:nexus_app/features/cash_treasury/presentation/cash_session_screen.dart';
 import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
+
+/// El "servidor" ya tiene el turno abierto: Caja lo retoma (Integración de Caja, A1).
+CashSession _openShift() => CashSession(
+      id: 'cash-seed',
+      cashierName: 'Ana García',
+      status: CashSessionStatus.open,
+      openingAmountMxn: 500,
+      expectedCashMxn: 500,
+      openedAt: DateTime(2026, 10, 1, 8),
+      summary: const CashShiftSummary(),
+    );
 
 Widget _buildApp() {
   return ProviderScope(
     overrides: [
       currentUserNameProvider.overrideWith((ref) => 'Ana García'),
-      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock()),
+      cashRepositoryProvider.overrideWith((ref) => CashRepositoryMock(activeSession: _openShift())),
       salesRepositoryProvider.overrideWith((ref) => SalesRepositoryMock()),
     ],
     child: MaterialApp(
@@ -130,7 +142,7 @@ void main() {
     expect(find.text('TOTAL CONTADO'), findsOneWidget);
   });
 
-  testWidgets('confirmar el cierre regresa a Caja con un turno nuevo abierto',
+  testWidgets('confirmar el cierre regresa a Caja para abrir otro turno con su fondo',
       (tester) async {
     _setPhoneViewport(tester);
     await tester.pumpWidget(_buildApp());
@@ -145,9 +157,16 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar Cierre'));
     await tester.pumpAndSettle();
 
-    // Vuelve a la pantalla de Caja con un turno nuevo (mock) ya abierto.
+    // Vuelve a Caja sin turno: el siguiente se abre con el fondo que declare el cajero
     expect(find.text('Arqueo de Caja'), findsNothing);
-    expect(find.text('TURNO ABIERTO'), findsOneWidget);
     expect(find.textContaining('Turno cerrado'), findsOneWidget); // SnackBar
+    expect(find.byKey(const Key('cashOpenShiftForm')), findsOneWidget);
+    expect(find.text('TURNO ABIERTO'), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('cashOpeningAmount')), '350.50');
+    await tester.tap(find.byKey(const Key('cashOpenShift')));
+    await _settle(tester);
+    expect(find.text('TURNO ABIERTO'), findsOneWidget);
+    expect(find.text('\$350.50'), findsWidgets); // fondo y esperado
   });
 }

@@ -15,6 +15,8 @@ import 'widgets/cart_item_tile.dart';
 import 'widgets/cart_totals_bar.dart';
 import 'widgets/on_the_fly_modal.dart';
 import 'widgets/payment_modal.dart';
+import '../../cash_treasury/domain/cash_session.dart';
+import '../../cash_treasury/presentation/cash_session_provider.dart';
 import 'widgets/product_search_results.dart';
 import '../../account/presentation/widgets/warehouse_scope_badge.dart';
 
@@ -111,14 +113,38 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     if (!await requireWriteAccess(context, ref)) return;
     if (!mounted) return;
 
-    // Tarea 7.2 — Modal de cobro con métodos de pago mixtos.
-    final payments = await showPaymentModal(context, totalMxn: cart.totalMxn);
-    if (payments == null) return; // Cancelado — el carrito no se modifica.
+    // Integración de Caja (V2/V3): el turno al momento de cobrar. Si no se
+    // puede saber (sin red), el cobro sigue sin avisos.
+    CashSession? shift;
+    var shiftState = CashShiftAtCheckout.unknown;
+    try {
+      shift = await ref.refresh(cashShiftForCheckoutProvider.future).timeout(const Duration(seconds: 3));
+      shiftState = shift == null ? CashShiftAtCheckout.none : CashShiftAtCheckout.open;
+    } catch (_) {}
     if (!mounted) return;
 
+    // Tarea 7.2 — Modal de cobro con métodos de pago mixtos.
+    final outcome = await showPaymentModal(
+      context,
+      totalMxn: cart.totalMxn,
+      drawerCashMxn: shift?.expectedCashMxn,
+      shift: shiftState,
+    );
+    if (outcome == null) return; // Cancelado — el carrito no se modifica.
+    if (!mounted) return;
+    if (outcome.openShift) {
+      // V3: abrir el turno primero; el carrito se conserva
+      context.go(AppRoutes.cash);
+      return;
+    }
+
     try {
-      final result =
-          await ref.read(cartProvider.notifier).checkout(payments: payments);
+      final result = await ref.read(cartProvider.notifier).checkout(
+            payments: outcome.payments,
+            customerKeptNoChange: outcome.customerKeptNoChange,
+          );
+      // Caja se entera del cobro (su esperado viene del servidor)
+      ref.read(cashSessionProvider.notifier).refresh();
       if (!mounted) return;
 
       setState(() => _sessionFolio = _generateFolio());
@@ -213,9 +239,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             // ── Resultados desplegables scrolleables ─────────────────────
             if (_showResults)
               Flexible(
-                child: ProductSearchResults(
-                  query: _searchController.text,
-                  onProductAdded: _clearSearch,
+                // La lista cuenta como parte del buscador: con mouse (web,
+                // escritorio) el campo se desenfoca al *presionar* fuera de él,
+                // cerraba la lista antes de soltar y el producto nunca se
+                // agregaba (QA de Eduardo en web, Oct 1).
+                child: TextFieldTapRegion(
+                  child: ProductSearchResults(
+                    query: _searchController.text,
+                    onProductAdded: _clearSearch,
+                  ),
                 ),
               ),
 

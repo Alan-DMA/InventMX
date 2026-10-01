@@ -20,6 +20,10 @@ from app.modules.sales_pos.domain.cash_shift import CashShift, ShiftStatus
 from app.modules.sales_pos.domain.payment import PaymentMethod, SalePayment
 from app.modules.sales_pos.domain.sale import Sale, SaleStatus
 
+# Ventas cuyo cobro entró a la caja: las reembolsadas también (el reembolso
+# en efectivo sale aparte, como retiro del turno — Integración de Caja, V6)
+COUNTED_STATUSES = (SaleStatus.COMPLETED, SaleStatus.REFUNDED)
+
 
 class CashTreasuryRepository:
     """
@@ -171,7 +175,7 @@ class CashTreasuryRepository:
             .where(
                 Sale.tenant_id == tenant_id,
                 Sale.cashier_id == cashier_id,
-                Sale.status == SaleStatus.COMPLETED,
+                Sale.status.in_(COUNTED_STATUSES),
                 Sale.created_at >= opened_at,
                 Sale.created_at <= end_time,
                 SalePayment.payment_method == PaymentMethod.CASH_MXN,
@@ -180,6 +184,100 @@ class CashTreasuryRepository:
         result = await self.session.execute(stmt)
         row = result.one()
         return Decimal(str(row[0])), int(row[1])
+
+    async def get_shift_payment_totals(
+        self,
+        tenant_id: uuid.UUID,
+        cashier_id: uuid.UUID,
+        opened_at: datetime,
+        closed_at: Optional[datetime] = None,
+    ) -> Tuple[Dict[str, Decimal], int, Decimal]:
+        """
+        Lo cobrado en el turno por método, neto de cambio (lo que de verdad entró),
+        más el número de ventas y su total. Las ventas reembolsadas cuentan lo que
+        se cobró (el reembolso en efectivo sale como un retiro de caja, V6).
+        """
+        end_time = closed_at or datetime.now(timezone.utc)
+        by_method = (await self.session.execute(
+            select(
+                SalePayment.payment_method,
+                func.coalesce(func.sum(SalePayment.amount_paid_mxn - SalePayment.change_returned_mxn), Decimal("0.00")),
+            )
+            .join(Sale, SalePayment.sale_id == Sale.id)
+            .where(
+                Sale.tenant_id == tenant_id,
+                Sale.cashier_id == cashier_id,
+                Sale.status.in_(COUNTED_STATUSES),
+                Sale.created_at >= opened_at,
+                Sale.created_at <= end_time,
+            )
+            .group_by(SalePayment.payment_method)
+        )).all()
+        totals = {
+            (row[0].value if hasattr(row[0], "value") else str(row[0])): Decimal(str(row[1])) for row in by_method
+        }
+        count, total = (await self.session.execute(
+            select(func.count(Sale.id), func.coalesce(func.sum(Sale.total_mxn), Decimal("0.00"))).where(
+                Sale.tenant_id == tenant_id,
+                Sale.cashier_id == cashier_id,
+                Sale.status.in_(COUNTED_STATUSES),
+                Sale.created_at >= opened_at,
+                Sale.created_at <= end_time,
+            )
+        )).one()
+        return totals, int(count), Decimal(str(total))
+
+    async def get_shift_cash_received(
+        self,
+        tenant_id: uuid.UUID,
+        cashier_id: uuid.UUID,
+        opened_at: datetime,
+        closed_at: Optional[datetime] = None,
+    ) -> Tuple[Decimal, Decimal]:
+        """(efectivo recibido, cambio entregado) del turno: para decir "recibido $50 · cambio $14" (V1)."""
+        end_time = closed_at or datetime.now(timezone.utc)
+        received, change = (await self.session.execute(
+            select(
+                func.coalesce(func.sum(SalePayment.amount_paid_mxn), Decimal("0.00")),
+                func.coalesce(func.sum(SalePayment.change_returned_mxn), Decimal("0.00")),
+            )
+            .join(Sale, SalePayment.sale_id == Sale.id)
+            .where(
+                Sale.tenant_id == tenant_id,
+                Sale.cashier_id == cashier_id,
+                Sale.status.in_(COUNTED_STATUSES),
+                Sale.created_at >= opened_at,
+                Sale.created_at <= end_time,
+                SalePayment.payment_method == PaymentMethod.CASH_MXN,
+            )
+        )).one()
+        return Decimal(str(received)), Decimal(str(change))
+
+    async def get_shift_movement_totals(self, shift_id: uuid.UUID) -> Tuple[Decimal, Decimal, int]:
+        """(entradas, retiros, número de movimientos) del turno."""
+        rows = (await self.session.execute(
+            select(CashMovement.movement_type, func.coalesce(func.sum(CashMovement.amount_mxn), Decimal("0.00")), func.count())
+            .where(CashMovement.shift_id == shift_id)
+            .group_by(CashMovement.movement_type)
+        )).all()
+        deposits = withdrawals = Decimal("0.00")
+        count = 0
+        for kind, amount, n in rows:
+            count += int(n)
+            if kind == CashMovementType.CASH_IN:
+                deposits = Decimal(str(amount))
+            elif kind == CashMovementType.CASH_OUT:
+                withdrawals = Decimal(str(amount))
+        return deposits, withdrawals, count
+
+    async def get_user_names(self, user_ids: List[uuid.UUID]) -> Dict[uuid.UUID, str]:
+        """Nombre de cada cajero (con el contexto RLS del comercio ya fijado)."""
+        if not user_ids:
+            return {}
+        rows = (await self.session.execute(
+            select(User.id, User.full_name).where(User.id.in_(list(set(user_ids))))
+        )).all()
+        return {row[0]: row[1] for row in rows}
 
     async def get_shift_movements_net_mxn(
         self,

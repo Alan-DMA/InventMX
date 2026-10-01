@@ -22,6 +22,41 @@ enum CashBalanceResult {
 ///
 /// Trazabilidad: Constitución Art. VII (7.2) · Doc. Maestro RF-18, RF-19
 ///              Sección 6 (SR-07) · HU-15 / CU-17, CU-18
+/// Lo que pasó en el turno según el servidor (Integración de Caja, Oct 2026):
+/// la app ya no recalcula el esperado con `GET /sales` y nombres de cajero.
+class CashShiftSummary extends Equatable {
+  const CashShiftSummary({
+    this.cashSalesMxn = 0,
+    this.cashReceivedMxn = 0,
+    this.changeGivenMxn = 0,
+    this.depositsMxn = 0,
+    this.withdrawalsMxn = 0,
+    this.digitalTotalsMxn = const {},
+    this.salesCount = 0,
+    this.salesTotalMxn = 0,
+    this.movementsCount = 0,
+  });
+
+  /// Ventas en efectivo, netas de cambio (lo que de verdad entró al cajón).
+  final double cashSalesMxn;
+
+  /// Efectivo que entregaron los clientes y cambio que se les dio (ya descontado).
+  final double cashReceivedMxn;
+  final double changeGivenMxn;
+  final double depositsMxn;
+  final double withdrawalsMxn;
+
+  /// Por método del API: `SPEI`, `CARD_TPV`, `CODI`, `OTHER`.
+  final Map<String, double> digitalTotalsMxn;
+  final int salesCount;
+  final double salesTotalMxn;
+  final int movementsCount;
+
+  @override
+  List<Object?> get props =>
+      [cashSalesMxn, cashReceivedMxn, changeGivenMxn, depositsMxn, withdrawalsMxn, digitalTotalsMxn, salesCount, salesTotalMxn, movementsCount];
+}
+
 class CashSession extends Equatable {
   const CashSession({
     required this.id,
@@ -34,6 +69,7 @@ class CashSession extends Equatable {
     this.differenceMxn,
     this.balanceResult,
     this.closedAt,
+    this.summary,
   });
 
   final String id;
@@ -50,6 +86,9 @@ class CashSession extends Equatable {
   final DateTime openedAt;
   final DateTime? closedAt;
 
+  /// Del servidor; `null` si la respuesta no lo trae (mock, versiones viejas).
+  final CashShiftSummary? summary;
+
   CashSession copyWith({
     CashSessionStatus? status,
     double? expectedCashMxn,
@@ -57,6 +96,7 @@ class CashSession extends Equatable {
     double? differenceMxn,
     CashBalanceResult? balanceResult,
     DateTime? closedAt,
+    CashShiftSummary? summary,
   }) {
     return CashSession(
       id: id,
@@ -69,6 +109,7 @@ class CashSession extends Equatable {
       differenceMxn: differenceMxn ?? this.differenceMxn,
       balanceResult: balanceResult ?? this.balanceResult,
       closedAt: closedAt ?? this.closedAt,
+      summary: summary ?? this.summary,
     );
   }
 
@@ -84,5 +125,6 @@ class CashSession extends Equatable {
         balanceResult,
         openedAt,
         closedAt,
+        summary,
       ];
 }

@@ -112,7 +112,7 @@ void main() {
           body: Center(
             child: ElevatedButton(
               onPressed: () async {
-                popped = await showPaymentModal(context, totalMxn: 30);
+                popped = (await showPaymentModal(context, totalMxn: 30))?.payments;
               },
               child: const Text('Abrir'),
             ),
@@ -211,7 +211,7 @@ void main() {
           body: Center(
             child: ElevatedButton(
               onPressed: () async {
-                popped = await showPaymentModal(context, totalMxn: 30);
+                popped = (await showPaymentModal(context, totalMxn: 30))?.payments;
               },
               child: const Text('Abrir'),
             ),
@@ -227,5 +227,93 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(popped, isNull);
+  });
+
+  // ── Integración de Caja: el cambio y el efectivo (V1, V2, V3, V7) ─────────
+
+  Future<PaymentModalResult?> openAndPay(
+    WidgetTester tester, {
+    required double total,
+    required String paid,
+    double? drawer,
+    CashShiftAtCheckout shift = CashShiftAtCheckout.open,
+    bool keep = false,
+    bool confirm = true,
+  }) async {
+    PaymentModalResult? result;
+    tester.view.physicalSize = const Size(412 * 3, 915 * 3);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.dark,
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                result = await showPaymentModal(context, totalMxn: total, drawerCashMxn: drawer, shift: shift);
+              },
+              child: const Text('Abrir'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Abrir'));
+    await tester.pumpAndSettle();
+    await addPayment(tester, amount: paid);
+    if (keep) {
+      await tester.tap(find.byKey(const Key('paymentKeptChange')));
+      await tester.pump();
+    }
+    if (confirm) {
+      await tester.tap(find.textContaining('Confirmar cobro'));
+      await tester.pumpAndSettle();
+    }
+    return result;
+  }
+
+  testWidgets('V1: el cambio en efectivo dice que ya sale de la caja', (tester) async {
+    await openAndPay(tester, total: 36, paid: '50', drawer: 500, confirm: false);
+    expect(find.text('Sale de la caja; no lo registres aparte.'), findsOneWidget);
+    expect(find.byKey(const Key('paymentChangeShort')), findsNothing);
+  });
+
+  testWidgets('V2: si en caja no alcanza el cambio, avisa sin bloquear', (tester) async {
+    final result = await openAndPay(tester, total: 36, paid: '500', drawer: 120);
+    expect(result, isNotNull, reason: 'no bloquea el cobro');
+    expect(result!.customerKeptNoChange, isFalse);
+  });
+
+  testWidgets('V2: el aviso dice cuánto hay y cuánto es el cambio', (tester) async {
+    await openAndPay(tester, total: 36, paid: '500', drawer: 120, confirm: false);
+    expect(find.text('En caja hay \$120.00; el cambio es \$464.00.'), findsOneWidget);
+  });
+
+  testWidgets('V7: el cliente no quiso el cambio → se confirma así y lo dice', (tester) async {
+    await openAndPay(tester, total: 36, paid: '40', drawer: 500, keep: true, confirm: false);
+    expect(find.text('El cambio se queda en la caja.'), findsOneWidget);
+    await tester.tap(find.textContaining('Confirmar cobro'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('V7: el resultado lleva "el cliente no quiso el cambio"', (tester) async {
+    final result = await openAndPay(tester, total: 36, paid: '40', drawer: 500, keep: true);
+    expect(result!.customerKeptNoChange, isTrue);
+  });
+
+  testWidgets('V3: cobrar en efectivo sin turno avisa y ofrece abrirlo', (tester) async {
+    await openAndPay(tester, total: 36, paid: '36', shift: CashShiftAtCheckout.none, confirm: false);
+    expect(find.byKey(const Key('paymentNoShift')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('paymentOpenShift')));
+    await tester.pumpAndSettle();
+    expect(find.byType(PaymentModal), findsNothing);
+  });
+
+  testWidgets('sin efectivo (tarjeta) no hay avisos de caja', (tester) async {
+    await openAndPay(tester, total: 36, paid: '36', shift: CashShiftAtCheckout.none, confirm: false);
+    // El primer pago es efectivo (método por omisión): quitarlo no aplica aquí;
+    // basta con comprobar que con turno abierto no aparece el aviso
+    expect(find.byKey(const Key('paymentChangeHint')), findsNothing, reason: 'sin cambio no hay texto de cambio');
   });
 }

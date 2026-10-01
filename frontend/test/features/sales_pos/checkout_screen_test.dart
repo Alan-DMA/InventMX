@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -231,6 +233,35 @@ void main() {
     // El panel de búsqueda se cierra y el producto queda en el carrito.
     expect(find.text('Coca-Cola 600ml'), findsOneWidget);
     expect(find.textContaining('18.00'), findsWidgets);
+  });
+
+  // ── Regresión web (Oct 1): con mouse el campo se desenfoca al presionar fuera
+  // de él; la lista se cerraba antes de soltar y el producto no se agregaba.
+  testWidgets('con mouse (web/escritorio), un clic en el resultado también lo agrega',
+      (tester) async {
+    // En Edge/Chrome sobre Windows la plataforma es Windows: ahí el campo se
+    // desenfoca al presionar fuera (en Android, con el dedo, no)
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final inv = MockInventoryRepository();
+    _stubInventoryRepo(inv, products: [_makeProduct(name: 'Coca-Cola 600ml')]);
+    await tester.pumpWidget(_buildScreen(inventoryRepo: inv));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Coca');
+    await tester.pumpAndSettle();
+    // Un clic real: presionar, unos cuadros (≈100 ms) y soltar
+    final click = await tester.startGesture(
+      tester.getCenter(find.text('Coca-Cola 600ml')),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await click.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Carrito vacío'), findsNothing);
+    expect(find.textContaining('18.00'), findsWidgets);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   // ── CA-05: limpiar carrito vuelve al empty state ──────────────────────────
