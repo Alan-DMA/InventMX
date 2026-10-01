@@ -400,15 +400,16 @@ void main() {
               .map((n) => n.id)
               .toList();
 
-      expect(visible(Permissions.all).length, 5);
+      expect(visible(Permissions.all).length, 6);
       // Cajero: stock y pedidos web; ni cuentas por pagar ni hitos.
       // La respuesta de soporte no pide permiso: Soporte es de todos (P25).
+      // La entrada de soporte tampoco: sólo le llega al dueño (la fuente filtra).
       expect(visible({Permissions.inventoryView, Permissions.salesView}),
-          ['lowStock', 'whatsappOrder', 'supportReply']);
+          ['lowStock', 'whatsappOrder', 'supportReply', 'supportVisit']);
       // Almacenista: stock y cuentas por pagar; nada de pedidos.
       expect(visible({Permissions.inventoryView, Permissions.purchasesView}),
-          ['lowStock', 'payableDue', 'supportReply']);
-      expect(visible(const {}), ['supportReply']);
+          ['lowStock', 'payableDue', 'supportReply', 'supportVisit']);
+      expect(visible(const {}), ['supportReply', 'supportVisit']);
     });
 
     test('la campana del Almacenista no cuenta pedidos web', () async {

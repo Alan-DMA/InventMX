@@ -180,6 +180,9 @@ void main() {
     expect(find.textContaining('Doña Sol · Dueño · sol@tiendita.mx'), findsOneWidget); // rol en palabras
     await tester.scrollUntilVisible(find.byKey(const Key('tenantCase_c1')), 300,
         scrollable: find.descendant(of: find.byKey(const Key('tenantSheetBody')), matching: find.byType(Scrollable)));
+    // La actividad va al final (la ficha creció con la sesión de soporte, etapa 4)
+    await tester.scrollUntilVisible(find.text('Eduardo regaló 7 días a Abarrotes Luz'), 300,
+        scrollable: find.descendant(of: find.byKey(const Key('tenantSheetBody')), matching: find.byType(Scrollable)));
     expect(find.text('Eduardo regaló 7 días a Abarrotes Luz'), findsOneWidget);
     expect(find.textContaining('"Compensación por la falla del cierre de turno"'), findsOneWidget);
   });

@@ -360,7 +360,7 @@ class _SupportActionDialogState extends ConsumerState<SupportActionDialog> {
                       ],
                       if (_kind.preview != null) ...[
                         const SizedBox(height: 16),
-                        _PreviewCard(preview: _preview, loading: _previewLoading, failed: _previewFailed),
+                        ActionPreviewCard(preview: _preview, loading: _previewLoading, failed: _previewFailed),
                       ] else if (_kind == SupportActionKind.approveDeletion) ...[
                         const SizedBox(height: 12),
                         const Text(
@@ -488,8 +488,8 @@ class _SupportActionDialogState extends ConsumerState<SupportActionDialog> {
 /// "Así lo verá la tienda": el texto del servidor con el estilo de la
 /// Actividad de soporte de la app del tendero (la única cita de su mundo en
 /// el panel).
-class _PreviewCard extends StatelessWidget {
-  const _PreviewCard({required this.preview, required this.loading, required this.failed});
+class ActionPreviewCard extends StatelessWidget {
+  const ActionPreviewCard({super.key, required this.preview, required this.loading, required this.failed});
   final OwnerPreview? preview;
   final bool loading;
   final bool failed;

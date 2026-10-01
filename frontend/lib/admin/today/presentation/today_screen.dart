@@ -229,6 +229,8 @@ class _AttentionRow extends StatelessWidget {
         'EXPORT_FAILED' => (Icons.error_outline_rounded, AppColors.error),
         'EXPORT_IN_PROGRESS' => (Icons.download_rounded, AppColors.skyBlue),
         'SUPPORT_ACCESS_ACTIVE' => (Icons.visibility_outlined, AppColors.skyBlue),
+        // Una sesión de soporte abierta: alguien está dentro (sólo lectura)
+        'SUPPORT_SESSION_OPEN' => (Icons.screen_share_outlined, AppColors.skyBlue),
         'ASSISTED_CODE_UNUSED' => (Icons.key_outlined, AppColors.skyBlue),
         'ABUSE_SUSPENSION' => (Icons.block_rounded, AppColors.error),
         _ => (Icons.info_outline_rounded, AppColors.onSurfaceMuted),

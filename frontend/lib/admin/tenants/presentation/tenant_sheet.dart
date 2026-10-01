@@ -12,8 +12,10 @@ import '../../core/store_status.dart';
 import '../../router/admin_routes.dart';
 import '../../session/admin_session.dart';
 import '../../today/presentation/today_providers.dart';
+import '../data/support_actions_repository.dart';
 import '../domain/tenant_models.dart';
 import 'support_action_dialog.dart';
+import 'support_session_dialog.dart';
 import 'tenant_providers.dart';
 
 /// Ficha de la tienda en panel deslizante (≈480 px; pantalla completa en
@@ -463,6 +465,10 @@ class _Actions extends ConsumerWidget {
               ),
             ),
           ),
+        _SupportSessionBlock(detail: detail),
+        const SizedBox(height: 8),
+        const Divider(height: 1),
+        const SizedBox(height: 10),
         Wrap(
           spacing: 8,
           children: [
@@ -529,6 +535,171 @@ class _Actions extends ConsumerWidget {
         ),
       ],
     );
+  }
+}
+
+/// Sesión de soporte de sólo lectura (etapa 4, P37–P42): ver la tienda como
+/// la ve el dueño, con su permiso. Sin permiso, el botón dice por qué.
+class _SupportSessionBlock extends ConsumerStatefulWidget {
+  const _SupportSessionBlock({required this.detail});
+  final TenantDetail detail;
+
+  @override
+  ConsumerState<_SupportSessionBlock> createState() => _SupportSessionBlockState();
+}
+
+class _SupportSessionBlockState extends ConsumerState<_SupportSessionBlock> {
+  bool _busy = false;
+  String? _error;
+
+  String get _tenantId => widget.detail.summary.id;
+
+  void _patch(List<SupportSessionInfo> Function(List<SupportSessionInfo>) change) => ref
+      .read(tenantDetailProvider(_tenantId).notifier)
+      .patchSupport((s) => s.copyWith(sessions: change(s.sessions)));
+
+  void _refreshToday() {
+    if (ref.exists(feedProvider)) ref.read(feedProvider.notifier).refreshSilently();
+  }
+
+  Future<void> _start() async {
+    setState(() => _error = null);
+    final link = await showSupportSessionDialog(context, widget.detail);
+    if (link == null || !mounted) return;
+    _patch((list) => [...list.where((x) => x.id != link.session.id), link.session]);
+    _refreshToday();
+  }
+
+  Future<void> _reopen(SupportSessionInfo session) async {
+    // La pestaña se abre en blanco dentro del clic y se lleva a su enlace al llegar
+    final tab = ref.read(openPendingTabProvider)();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final link = await ref.read(supportActionsRepositoryProvider).newSupportLink(session.id);
+      tab.navigate(supportTabUrl(link.code));
+      _patch((list) => [for (final x in list) x.id == session.id ? link.session : x]);
+    } catch (e) {
+      tab.close();
+      final error = toAdminError(e, 'No pudimos generar otro enlace.');
+      // La sesión ya había terminado: se quita de la ficha
+      if (error.statusCode == 401) _patch((list) => list.where((x) => x.id != session.id).toList());
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _end(SupportSessionInfo session) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(supportActionsRepositoryProvider).endSupportSession(session.id);
+      _patch((list) => list.where((x) => x.id != session.id).toList());
+      _refreshToday();
+    } catch (e) {
+      if (mounted) setState(() => _error = toAdminError(e, 'No pudimos terminar la sesión.').message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.detail.support;
+    final me = ref.watch(adminSessionProvider.select((x) => x.session?.operatorId));
+    final now = ref.read(adminClockProvider)();
+    // Lo que ya venció según el reloj se deja de mostrar (el servidor ya no la acepta)
+    final live = s.sessions.where((x) => x.until == null || x.until!.isAfter(now)).toList();
+    final mine = live.where((x) => x.operatorId == me).firstOrNull;
+    final others = live.where((x) => x.operatorId != me).toList();
+    final granted = s.accessGrantedUntil != null && s.accessGrantedUntil!.isAfter(now);
+
+    return Column(
+      key: const Key('tenantSessionBlock'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (mine != null) ...[
+          Text.rich(
+            TextSpan(children: [
+              const TextSpan(text: 'Tu sesión de soporte · ', style: TextStyle(fontWeight: FontWeight.w600)),
+              TextSpan(
+                text: mine.waiting
+                    ? 'enlace listo, sin abrir (vale hasta las ${_hhmm(mine.linkExpiresAt!)})'
+                    : 'abierta, quedan ${adminSpan(mine.expiresAt!.difference(now))}',
+              ),
+            ]),
+            key: const Key('tenantSessionMine'),
+            style: const TextStyle(fontSize: 13.5, color: AppColors.onSurface, height: 1.4),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              FilledButton.icon(
+                key: const Key('tenantSessionReopen'),
+                onPressed: _busy ? null : () => _reopen(mine),
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                // Mientras nunca se haya abierto, es la primera vez: "Abrir de nuevo" mentiría (P39)
+                label: Text(mine.waiting ? 'Abrir la tienda' : 'Abrir de nuevo'),
+              ),
+              OutlinedButton(
+                key: const Key('tenantSessionEnd'),
+                onPressed: _busy ? null : () => _end(mine),
+                child: const Text('Terminar'),
+              ),
+            ],
+          ),
+        ] else ...[
+          OutlinedButton.icon(
+            key: const Key('tenantActionViewStore'),
+            onPressed: granted && !_busy ? _start : null,
+            icon: const Icon(Icons.visibility_outlined, size: 18),
+            label: const Text('Ver la tienda (sólo lectura)'),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 2, left: 4),
+            child: Text(
+              granted
+                  ? 'Con el permiso del dueño, vigente hasta ${adminMoment(s.accessGrantedUntil!)}.'
+                  : 'El dueño no ha dado acceso. Pídeselo desde su caso.',
+              key: const Key('tenantViewStoreWhy'),
+              style: const TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted),
+            ),
+          ),
+        ],
+        for (final o in others)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              o.waiting
+                  ? '${o.operatorName} tiene un enlace de soporte sin abrir.'
+                  : '${o.operatorName} está viendo la tienda (sólo lectura) · quedan ${adminSpan(o.expiresAt!.difference(now))}.',
+              style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted, height: 1.4),
+            ),
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(_error!,
+                  key: const Key('tenantSessionError'),
+                  style: const TextStyle(fontSize: 13, color: AppColors.error, height: 1.4)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static String _hhmm(DateTime d) {
+    final l = d.toLocal();
+    return '${l.hour.toString().padLeft(2, '0')}:${l.minute.toString().padLeft(2, '0')}';
   }
 }
 

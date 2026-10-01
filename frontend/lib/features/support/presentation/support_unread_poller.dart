@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/presentation/login_provider.dart';
+import '../../management/presentation/management_provider.dart';
+import '../../support_access/presentation/support_visits_provider.dart';
 import 'support_provider.dart';
 
 /// Cada cuánto se pregunta (sustituible en tests).
@@ -72,6 +74,8 @@ class _SupportUnreadPollerState extends ConsumerState<SupportUnreadPoller> with 
         ref.invalidate(supportUnreadProvider);
         ref.invalidate(supportCasesProvider);
       }
+      // Entradas de soporte a la tienda (etapa 4): sólo el dueño las recibe
+      if (ref.read(isOwnerProvider)) ref.invalidate(supportVisitsProvider);
     } catch (_) {
       // Sin red: las insignias se quedan con el último número conocido
     } finally {

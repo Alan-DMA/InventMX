@@ -96,6 +96,47 @@ class AuditLine {
 }
 
 /// Lo que está en curso con la tienda.
+/// Sesión de soporte de sólo lectura vigente en la tienda (etapa 4, P37–P42).
+/// `waiting` = el enlace está listo y nadie lo ha abierto aún.
+class SupportSessionInfo {
+  const SupportSessionInfo({
+    required this.id,
+    required this.operatorId,
+    required this.operatorName,
+    required this.reason,
+    required this.waiting,
+    this.openedAt,
+    this.expiresAt,
+    this.linkExpiresAt,
+    this.sections = const [],
+  });
+
+  final String id;
+  final String operatorId;
+  final String operatorName;
+  final String reason;
+  final bool waiting;
+  final DateTime? openedAt;
+  final DateTime? expiresAt;
+  final DateTime? linkExpiresAt;
+  final List<String> sections;
+
+  /// Hasta cuándo vale: la sesión abierta, o el enlace si aún no se abre.
+  DateTime? get until => waiting ? linkExpiresAt : expiresAt;
+
+  factory SupportSessionInfo.fromJson(Map<dynamic, dynamic> json) => SupportSessionInfo(
+        id: '${json['id']}',
+        operatorId: '${json['operator_id']}',
+        operatorName: '${json['operator_name'] ?? 'Soporte'}',
+        reason: '${json['reason'] ?? ''}',
+        waiting: json['state'] == 'WAITING_OPEN',
+        openedAt: TenantSummary._date(json['opened_at']),
+        expiresAt: TenantSummary._date(json['expires_at']),
+        linkExpiresAt: TenantSummary._date(json['link_expires_at']),
+        sections: [for (final s in (json['sections'] as List? ?? const [])) '$s'],
+      );
+}
+
 class SupportState {
   const SupportState({
     this.accessGrantedUntil,
@@ -108,9 +149,13 @@ class SupportState {
     this.deletionExpired = false,
     this.lastExportStatus,
     this.lastExportAt,
+    this.sessions = const [],
   });
 
   final DateTime? accessGrantedUntil;
+
+  /// Sesiones de soporte vigentes (de cualquier operador).
+  final List<SupportSessionInfo> sessions;
   final DateTime? assistedCodeUntil;
 
   /// Eliminación esperando la segunda aprobación (P4).
@@ -128,7 +173,11 @@ class SupportState {
   final DateTime? lastExportAt;
 
   bool get isEmpty =>
-      accessGrantedUntil == null && assistedCodeUntil == null && deletionExpiresAt == null && lastExportStatus == null;
+      accessGrantedUntil == null &&
+      assistedCodeUntil == null &&
+      deletionExpiresAt == null &&
+      lastExportStatus == null &&
+      sessions.isEmpty;
 
   bool get hasPendingDeletion => deletionRequestId != null && !deletionExpired;
 
@@ -142,6 +191,7 @@ class SupportState {
     DateTime? lastExportAt,
     ({String id, String? byId, String? by, String reason, DateTime expiresAt})? deletion,
     bool clearDeletion = false,
+    List<SupportSessionInfo>? sessions,
   }) =>
       SupportState(
         accessGrantedUntil: accessGrantedUntil,
@@ -154,6 +204,7 @@ class SupportState {
         deletionExpired: clearDeletion || deletion != null ? false : deletionExpired,
         lastExportStatus: lastExportStatus ?? this.lastExportStatus,
         lastExportAt: lastExportAt ?? this.lastExportAt,
+        sessions: sessions ?? this.sessions,
       );
 }
 
@@ -226,6 +277,10 @@ class TenantDetail {
         deletionExpired: deletion?['expired'] == true,
         lastExportStatus: export?['status'] as String?,
         lastExportAt: TenantSummary._date(export?['created_at']),
+        sessions: [
+          for (final x in (support['support_sessions'] as List? ?? const []))
+            if (x is Map) SupportSessionInfo.fromJson(x),
+        ],
       ),
       activity: [
         for (final a in (json['activity'] as List? ?? const [])) AuditLine.fromJson(a as Map<String, dynamic>)

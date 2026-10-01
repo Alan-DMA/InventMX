@@ -26,6 +26,8 @@ import 'package:nexus_app/features/sales_pos/data/sales_repository.dart';
 import 'package:nexus_app/features/support/data/support_repository.dart';
 import 'package:nexus_app/features/support/presentation/support_provider.dart';
 import 'package:nexus_app/features/support/presentation/support_unread_poller.dart';
+import 'package:nexus_app/features/support_access/data/support_access_repository.dart';
+import 'package:nexus_app/features/support_access/presentation/support_access_screen.dart';
 import 'package:nexus_app/features/whatsapp_catalog/domain/store_order.dart';
 import 'package:nexus_app/features/whatsapp_catalog/data/store_orders_repository.dart';
 import 'package:nexus_app/features/whatsapp_catalog/presentation/store_orders_provider.dart';
@@ -38,6 +40,9 @@ class SupportApp {
   ProviderContainer? container;
   late SupportRepositoryMock support;
   late MemoryStorage storage;
+
+  /// Acceso de soporte del dueño (etapa 4: sus entradas llegan como aviso).
+  late SupportAccessRepositoryMock access;
 }
 
 /// Almacén seguro en memoria (Hive no está inicializado en tests).
@@ -71,6 +76,13 @@ class MemoryStorage extends SecureStorage {
 
   @override
   Future<bool> hasSession() async => values.containsKey('access');
+
+  // Preferencias por dueño (p. ej. qué entradas de soporte ya vio, etapa 4)
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+
+  @override
+  Future<String?> read(String key) async => values[key];
 }
 
 Future<SupportApp> pumpSupportApp(
@@ -81,6 +93,7 @@ Future<SupportApp> pumpSupportApp(
   String? abuseReason,
   String email = 'sol@tiendita.mx',
   SupportRepositoryMock? support,
+  SupportAccessRepositoryMock? access,
   DateTime? now,
   // La consulta de respuestas: en 1 h por omisión para no cruzarse con los
   // demás tests; el que la prueba pide 60 s
@@ -94,7 +107,8 @@ Future<SupportApp> pumpSupportApp(
 
   final app = SupportApp()
     ..support = support ?? SupportRepositoryMock(latency: Duration.zero, now: () => today)
-    ..storage = MemoryStorage();
+    ..storage = MemoryStorage()
+    ..access = access ?? SupportAccessRepositoryMock(latency: Duration.zero, now: () => today);
   final saas = SaasRepositoryMock(
     currentEmail: email,
     latency: Duration.zero,
@@ -121,6 +135,7 @@ Future<SupportApp> pumpSupportApp(
         secureStorageProvider.overrideWithValue(app.storage),
         authRepositoryProvider.overrideWith((ref) => AuthRepositoryMock(storage: app.storage)),
         supportRepositoryProvider.overrideWithValue(app.support),
+        supportAccessRepositoryProvider.overrideWithValue(app.access),
         supportPollIntervalProvider.overrideWithValue(pollEvery),
         warehousesProvider.overrideWith((ref) async => const [
               WarehouseOption(id: 'wh-001', name: 'Almacén Principal', isDefault: true),

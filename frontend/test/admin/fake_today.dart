@@ -175,8 +175,52 @@ class FakeActions implements SupportActionsRepository {
       PreviewAction.export => 'Soporte Nexus preparó una copia de tus datos; te llegará por correo.',
       PreviewAction.assistedRecovery => 'Soporte Nexus te envió un código para entrar.',
       PreviewAction.deletion => 'Soporte Nexus pidió eliminar tu tienda.',
+      PreviewAction.supportSession => 'Entramos a ver tu tienda con el permiso que nos diste, sólo para consultar.',
     };
     return OwnerPreview(summary: summary, reason: reason, by: 'Soporte Nexus · Eduardo');
+  }
+
+  /// Sesiones de soporte creadas (etapa 4), por id.
+  final Map<String, SupportSessionInfo> sessions = {};
+  int _links = 0;
+
+  SupportSessionLink _link(SupportSessionInfo session) {
+    _links++;
+    return SupportSessionLink(
+      session: session,
+      code: 'codigo-$_links',
+      expiresAt: now().add(const Duration(minutes: 10)),
+    );
+  }
+
+  @override
+  Future<SupportSessionLink> startSupportSession(String tenantId, {required String reason, String? caseId}) async {
+    _maybeFail();
+    calls.add('session:start:${caseId ?? ''}');
+    final session = SupportSessionInfo(
+      id: 's${sessions.length + 1}',
+      operatorId: 'op-me',
+      operatorName: 'Eduardo',
+      reason: reason,
+      waiting: true,
+      linkExpiresAt: now().add(const Duration(minutes: 10)),
+    );
+    sessions[session.id] = session;
+    return _link(session);
+  }
+
+  @override
+  Future<SupportSessionLink> newSupportLink(String sessionId) async {
+    _maybeFail();
+    calls.add('session:link:$sessionId');
+    return _link(sessions[sessionId]!);
+  }
+
+  @override
+  Future<void> endSupportSession(String sessionId) async {
+    _maybeFail();
+    calls.add('session:end:$sessionId');
+    sessions.remove(sessionId);
   }
 
   @override

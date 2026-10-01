@@ -11,6 +11,8 @@ import '../../sales_pos/domain/sale_summary.dart';
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
 import '../../support/domain/support_models.dart';
 import '../../support/presentation/support_provider.dart';
+import '../../support_access/data/support_access_repository.dart' show SupportVisit;
+import '../../support_access/presentation/support_visits_provider.dart';
 import '../../whatsapp_catalog/domain/store_order.dart';
 import '../../whatsapp_catalog/domain/whatsapp_order.dart';
 import '../../whatsapp_catalog/presentation/store_orders_provider.dart';
@@ -90,6 +92,7 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
 
   static const orderIdPrefix = 'order-';
   static const supportIdPrefix = 'support-';
+  static const visitIdPrefix = 'visit-';
 
   /// Permiso que hace visible cada tipo de aviso. Coincide con el destino al
   /// tocarlo: nadie recibe un aviso cuyo destino el router le rebotaría.
@@ -100,6 +103,8 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
         NotificationKind.whatsappOrder => Permissions.salesView,
         NotificationKind.salesMilestone => Permissions.reportsViewBasic,
         NotificationKind.supportReply => null,
+        // Sólo le llegan al dueño (la fuente ya filtra)
+        NotificationKind.supportVisit => null,
       };
 
   static List<StoreNotification> filterByPermissions(
@@ -142,6 +147,31 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
+  /// Un aviso por entrada de soporte a la tienda (etapa 4). Igual que las
+  /// respuestas: se combina al mostrar y al contar.
+  static List<StoreNotification> mergeVisitNotifications(
+    List<StoreNotification> base,
+    List<SupportVisit> visits,
+    List<SupportVisit> unseen,
+  ) {
+    if (visits.isEmpty) return base;
+    final unseenIds = {for (final v in unseen) v.id};
+    return [
+      for (final v in visits)
+        if (v.openedAt != null) visitNotification(v, read: !unseenIds.contains(v.id)),
+      ...base.where((n) => n.kind != NotificationKind.supportVisit),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  static StoreNotification visitNotification(SupportVisit v, {required bool read}) => StoreNotification(
+        id: '$visitIdPrefix${v.id}',
+        kind: NotificationKind.supportVisit,
+        title: v.active ? 'Soporte está viendo tu tienda' : 'Soporte entró a ver tu tienda',
+        body: '${v.by} · sólo lectura · Motivo: ${v.reason}',
+        createdAt: v.openedAt!,
+        isRead: read,
+      );
+
   static StoreNotification supportNotification(SupportCase c) =>
       StoreNotification(
         id: '$supportIdPrefix${c.id}',
@@ -173,7 +203,7 @@ class NotificationsNotifier extends AsyncNotifier<List<StoreNotification>> {
 
   Future<void> markRead(String id) async {
     // Los avisos de pedido y de soporte se leen al abrir el pedido o el caso.
-    if (id.startsWith(orderIdPrefix) || id.startsWith(supportIdPrefix)) return;
+    if (id.startsWith(orderIdPrefix) || id.startsWith(supportIdPrefix) || id.startsWith(visitIdPrefix)) return;
     await _repo.markRead(id);
     await _reload();
   }
@@ -209,7 +239,9 @@ final unreadNotificationsProvider = Provider<int>((ref) {
   if (items == null) return 0;
   // + respuestas de soporte sin abrir (todas cuentan: sólo se listan ésas)
   final replies = ref.watch(supportRepliesProvider).valueOrNull?.length ?? 0;
-  return items.where((n) => !n.isRead).length + replies;
+  // + entradas de soporte que el dueño aún no ve
+  final visits = ref.watch(unseenSupportVisitsProvider).length;
+  return items.where((n) => !n.isRead).length + replies + visits;
 });
 
 // ---------------------------------------------------------------------------

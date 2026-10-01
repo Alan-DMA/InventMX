@@ -2,19 +2,19 @@
 version: 1
 slug: "frontend-lib-main-admin-dart"
 primary_target: "frontend/lib/main_admin.dart"
-related_targets: ["frontend/lib/admin/shell/admin_shell.dart","frontend/lib/admin/access/presentation/access_screen.dart","frontend/lib/admin/cases/presentation/cases_screen.dart","frontend/lib/admin/today/presentation/today_screen.dart","frontend/lib/admin/audit/presentation/audit_screen.dart","frontend/lib/admin/help_topics/presentation/help_topics_screen.dart"]
+related_targets: ["frontend/lib/admin/shell/admin_shell.dart","frontend/lib/admin/access/presentation/access_screen.dart","frontend/lib/admin/cases/presentation/cases_screen.dart","frontend/lib/admin/today/presentation/today_screen.dart","frontend/lib/admin/audit/presentation/audit_screen.dart","frontend/lib/admin/help_topics/presentation/help_topics_screen.dart","frontend/lib/admin/tenants/presentation/tenant_sheet.dart"]
 ---
 
 # Surface brief — Panel de plataforma (Centro de soporte, etapa 3)
 
 ## Scope
-Modo: Operate. App web aparte (Flutter Web, `lib/main_admin.dart` + `lib/admin/`), laptop primero; en pantalla chica se apila. Superficies: acceso (3a), Casos (3b), Hoy + ficha deslizante (3c), diálogos de acción (3d), Bitácora y Temas de ayuda (3e). Mundo visual heredado de la app del tendero (pinned por Eduardo, P1/P15, brief del Sep 28) + acento de plataforma índigo. Build code-led (sin generación de imágenes en la sesión del Sep 30).
+Modo: Operate. App web aparte (Flutter Web, `lib/main_admin.dart` + `lib/admin/`), laptop primero; en pantalla chica se apila. Superficies: acceso (3a), Casos (3b), Hoy + ficha deslizante (3c), diálogos de acción (3d), Bitácora y Temas de ayuda (3e), y la sesión de soporte de sólo lectura en la ficha (4c). Mundo visual heredado de la app del tendero (pinned por Eduardo, P1/P15, brief del Sep 28) + acento de plataforma índigo. Build code-led (sin generación de imágenes en la sesión del Sep 30).
 
 ## Audiencia y tarea
 Alan y Eduardo: desarrolladores que atienden soporte por ratos, en laptop, a menudo de noche, saliendo de un editor oscuro; interrumpidos. Tarea: vaciar la cola de casos sin olvidar ninguno y actuar sobre una tienda con motivo y sin ver su contenido. Lo que escriben lo lee el tendero tal cual en un Android barato. Rangos: 0–30 casos esperando, cientos en total, mensajes de 1–2000 caracteres; decenas a ~200 tiendas; 5–30 eventos/día.
 
 ## Restricciones (de /intent, P28–P34)
-Nunca contenido de la tienda: sólo metadatos (P2). Toda acción con motivo ≥ 10 y "Así lo verá la tienda". Enviar principal, Enviar y resolver secundario, cambiar estado en ⋯ (Destructive Defaults). Contadores sólo de lo que espera (Attention Bait). Novedades cada 60 s en silencio; "Hay un mensaje nuevo · Actualizar", nunca recarga bajo los dedos. Borrador guardado en la pestaña; sesión vencida → acceso → misma ruta con el borrador. "Ya los guardé" sin marcar. Bloqueo con hora real; no inventar intentos restantes. Teclado primero: Tab lógico, foco visible índigo, Esc, Ctrl K, J/K, R, Ctrl+Enter. Estados escritos, nunca sólo color.
+Nunca contenido de la tienda: sólo metadatos (P2). Toda acción con motivo ≥ 10 y "Así lo verá la tienda". Sesión de soporte (4c, P37–P42): "Ver la tienda (sólo lectura)" en Acciones, deshabilitada con la razón escrita si el dueño no dio permiso; diálogo con motivo, caso opcional y vista previa; al crearla, el diálogo pasa a "Lista" con "Abrir la tienda ↗" (clic explícito, nunca ventana emergente automática); bloque "Sesión de soporte abierta" con tiempo restante, Abrir de nuevo y Terminar; Salir del panel termina las sesiones. Enviar principal, Enviar y resolver secundario, cambiar estado en ⋯ (Destructive Defaults). Contadores sólo de lo que espera (Attention Bait). Novedades cada 60 s en silencio; "Hay un mensaje nuevo · Actualizar", nunca recarga bajo los dedos. Borrador guardado en la pestaña; sesión vencida → acceso → misma ruta con el borrador. "Ya los guardé" sin marcar. Bloqueo con hora real; no inventar intentos restantes. Teclado primero: Tab lógico, foco visible índigo, Esc, Ctrl K, J/K, R, Ctrl+Enter. Estados escritos, nunca sólo color.
 
 ## Direction contract
 
@@ -31,4 +31,4 @@ FORM: Panel = "Feed del día", opción 6 de 7 del concept-seed 09cb4dce (P15, pi
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
 
 ## Pendientes
-Plantillas de respuesta / macros fuera. Editor de acciones y campos de los temas (PD-07) fuera. Suplantación de sólo lectura: etapa 4. Operadores no están en PRODUCT.md (sólo en este brief) salvo que Eduardo pida sumarlos.
+Plantillas de respuesta / macros fuera. Editor de acciones y campos de los temas (PD-07) fuera. La pestaña de soporte tiene su propio brief (`frontend/lib/main_support.dart`). Operadores no están en PRODUCT.md (sólo en este brief) salvo que Eduardo pida sumarlos.

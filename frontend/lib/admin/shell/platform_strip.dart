@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../core/admin_colors.dart';
 import '../session/admin_session.dart';
+import '../session/sign_out.dart';
 
 /// Franja fija "Panel de plataforma": dice dónde estás (nunca dentro de una
 /// tienda), quién está en sesión y cuánto le queda. A 10 min del vencimiento
@@ -114,7 +115,7 @@ class _PlatformStripState extends ConsumerState<PlatformStrip> {
               const SizedBox(width: 8),
               TextButton(
                 key: const Key('platformStripSignOut'),
-                onPressed: () => ref.read(adminSessionProvider.notifier).signOut(),
+                onPressed: () => signOutOfPanel(ref),
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.onSurface,
                   minimumSize: const Size(0, 32),

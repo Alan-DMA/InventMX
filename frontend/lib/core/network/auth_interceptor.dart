@@ -27,6 +27,13 @@ class AuthInterceptor extends Interceptor {
   /// Señales que la app escucha en [onServerSignal].
   static const passwordChangeRequired = 'PASSWORD_CHANGE_REQUIRED';
   static const tenantHardLock = 'TENANT_HARD_LOCK';
+  // Sesión de soporte de sólo lectura (etapa 4): la pestaña de soporte las atiende
+  static const supportAccessEnded = 'SUPPORT_ACCESS_ENDED';
+  static const supportReadOnly = 'SUPPORT_READ_ONLY';
+  static const supportNotAllowed = 'SUPPORT_NOT_ALLOWED';
+  static const _signals = {
+    passwordChangeRequired, tenantHardLock, supportAccessEnded, supportReadOnly, supportNotAllowed,
+  };
 
   final SecureStorage storage;
 
@@ -122,13 +129,21 @@ class AuthInterceptor extends Interceptor {
 
   // ---------- Helpers ----------
 
+  /// Código de la señal, o null. `SUPPORT_ACCESS_ENDED` lleva el motivo:
+  /// `SUPPORT_ACCESS_ENDED:GRANT_ENDED`.
   static String? _signalOf(Response<dynamic>? response) {
     final status = response?.statusCode;
-    if (status != 402 && status != 403) return null;
+    if (status != 401 && status != 402 && status != 403) return null;
     final dynamic data = response?.data;
     final dynamic error = data is Map ? data['error'] : null;
     final code = error is Map ? error['code']?.toString() : null;
-    return code == passwordChangeRequired || code == tenantHardLock ? code : null;
+    if (code == null || !_signals.contains(code)) return null;
+    if (code == supportAccessEnded) {
+      final dynamic details = error is Map ? error['details'] : null;
+      final reason = details is Map ? details['end_reason']?.toString() : null;
+      return reason == null ? code : '$code:$reason';
+    }
+    return code;
   }
 
   Future<void> _handleLogout(

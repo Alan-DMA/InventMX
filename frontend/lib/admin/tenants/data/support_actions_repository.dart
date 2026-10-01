@@ -13,7 +13,8 @@ enum PreviewAction {
   suspend('ABUSE_SUSPENDED'),
   lift('ABUSE_LIFTED'),
   export('DATA_EXPORT_REQUESTED'),
-  deletion('TENANT_DELETION_REQUESTED');
+  deletion('TENANT_DELETION_REQUESTED'),
+  supportSession('SUPPORT_SESSION_STARTED');
 
   const PreviewAction(this.api);
   final String api;
@@ -53,6 +54,21 @@ class DeletionRequestRead {
       );
 }
 
+/// Enlace de un uso de una sesión de soporte (etapa 4): el código viaja una
+/// sola vez; el panel arma con él la URL de la pestaña de soporte.
+class SupportSessionLink {
+  const SupportSessionLink({required this.session, required this.code, required this.expiresAt});
+  final SupportSessionInfo session;
+  final String code;
+  final DateTime expiresAt;
+
+  factory SupportSessionLink.fromJson(Map<String, dynamic> json) => SupportSessionLink(
+        session: SupportSessionInfo.fromJson(json['session'] as Map),
+        code: '${json['link_code']}',
+        expiresAt: DateTime.parse(json['link_expires_at'] as String).toLocal(),
+      );
+}
+
 abstract class SupportActionsRepository {
   Future<OwnerPreview> preview(String tenantId, PreviewAction action, {String? reason, int? days});
 
@@ -77,6 +93,14 @@ abstract class SupportActionsRepository {
   Future<void> approveDeletion(String requestId, {required String reason});
 
   Future<void> cancelDeletion(String requestId, {required String reason});
+
+  /// Sesión de soporte de sólo lectura (P37): exige el permiso vigente del dueño.
+  Future<SupportSessionLink> startSupportSession(String tenantId, {required String reason, String? caseId});
+
+  /// "Abrir de nuevo": otro enlace, sin motivo ni reiniciar el reloj.
+  Future<SupportSessionLink> newSupportLink(String sessionId);
+
+  Future<void> endSupportSession(String sessionId);
 }
 
 class SupportActionsRepositoryImpl implements SupportActionsRepository {
@@ -156,6 +180,21 @@ class SupportActionsRepositoryImpl implements SupportActionsRepository {
   @override
   Future<void> approveDeletion(String requestId, {required String reason}) async =>
       _post('/approvals/$requestId/approve', {'reason': reason.trim()}, 'No se aprobó la eliminación.');
+
+  @override
+  Future<SupportSessionLink> startSupportSession(String tenantId, {required String reason, String? caseId}) async =>
+      SupportSessionLink.fromJson(await _post(
+          '/tenants/$tenantId/support-sessions',
+          {'reason': reason.trim(), if (caseId != null) 'case_id': caseId},
+          'No pudimos abrir la sesión de soporte.'));
+
+  @override
+  Future<SupportSessionLink> newSupportLink(String sessionId) async => SupportSessionLink.fromJson(
+      await _post('/support-sessions/$sessionId/link', const {}, 'No pudimos generar otro enlace.'));
+
+  @override
+  Future<void> endSupportSession(String sessionId) async =>
+      _post('/support-sessions/$sessionId/end', const {}, 'No pudimos terminar la sesión.');
 
   @override
   Future<void> cancelDeletion(String requestId, {required String reason}) async =>

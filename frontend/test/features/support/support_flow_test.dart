@@ -77,8 +77,8 @@ void main() {
     // Número sobre el nombre "Soporte"
     expect(find.byKey(const Key('drawerSupportCount')), findsOneWidget);
     expect(find.descendant(of: find.byKey(const Key('drawerSupportCount')), matching: find.text('1')), findsOneWidget);
-    // P26: el acceso de soporte todavía no se ofrece
-    expect(find.byKey(const Key('drawerSupportAccess')), findsNothing);
+    // Etapa 4: el acceso de soporte ya se ofrece al dueño, en Administración
+    expect(find.byKey(const Key('drawerSupportAccess')), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('drawerSupport')));
     await tester.pumpAndSettle();
@@ -433,8 +433,8 @@ void main() {
       expect(find.textContaining('quedan 3 días'), findsOneWidget);
     });
 
-    test('la entrada del menú sigue oculta hasta la etapa 4', () {
-      expect(kSupportAccessVisible, isFalse);
+    test('etapa 4: la entrada del menú ya se ofrece', () {
+      expect(kSupportAccessVisible, isTrue);
     });
   });
 }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/router/app_router.dart';
+import '../../../../core/support_mode/support_mode.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../account/presentation/account_provider.dart';
 import '../../../auth/presentation/login_provider.dart';
@@ -11,6 +12,7 @@ import '../../../management/presentation/management_provider.dart';
 import '../../../saas_admin/presentation/saas_provider.dart';
 import '../../../support/presentation/support_provider.dart';
 import '../../../support_access/presentation/support_access_screen.dart' show kSupportAccessVisible;
+import '../../../support_access/presentation/support_visits_provider.dart';
 
 /// Menú ☰ del Centro de Mando, con puertas por rol (Permisos por rol, Fase A).
 ///
@@ -44,6 +46,7 @@ class AppDrawer extends ConsumerWidget {
     final canSubscription = ref.watch(canSeeSubscriptionProvider);
     final isCorporativo = ref.watch(isCorporativoPlanProvider);
     final supportUnread = ref.watch(supportUnreadProvider).valueOrNull ?? 0;
+    final visitsUnseen = ref.watch(unseenSupportVisitsProvider).length;
 
     void goTo(String route, {bool replaceTab = false}) {
       Navigator.of(context).pop();
@@ -83,13 +86,15 @@ class AppDrawer extends ConsumerWidget {
           title: 'Mi suscripción',
           onTap: () => goTo(AppRoutes.subscription),
         ),
-      // P26: se construye ya pero se ofrece hasta la etapa 4 (suplantación de
-      // sólo lectura); hoy conceder no tendría efecto.
+      // P26 → etapa 4: con la sesión de sólo lectura, conceder ya tiene efecto.
+      // Número: entradas de soporte que el dueño aún no ve.
       if (isOwner && kSupportAccessVisible)
         _DrawerItem(
           key: const Key('drawerSupportAccess'),
           icon: Icons.admin_panel_settings_outlined,
           title: 'Acceso de soporte',
+          badge: visitsUnseen,
+          badgeLabel: visitsUnseen == 1 ? 'soporte entró 1 vez' : 'soporte entró $visitsUnseen veces',
           onTap: () => goTo(AppRoutes.supportAccess),
         ),
       // RF-31: Dueño con Plan Corporativo. No se ofrece para luego negar.
@@ -252,6 +257,8 @@ class AppDrawer extends ConsumerWidget {
               ),
             ),
 
+            // En la pestaña de soporte no se cierra la sesión del dueño: se termina desde la franja
+            if (!ref.watch(supportModeProvider))
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: const BoxDecoration(

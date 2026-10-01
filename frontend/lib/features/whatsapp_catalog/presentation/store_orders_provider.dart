@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/support_mode/support_mode.dart';
 import '../../auth/data/auth_repository.dart';
 import '../data/order_events_channel.dart';
 import '../data/store_orders_repository.dart';
@@ -20,6 +21,8 @@ final storeOrdersRepositoryProvider = Provider<StoreOrdersRepository>(
 /// Eventos en vivo del backend. Los tests lo sustituyen por
 /// `StoreOrdersRepositoryMock.events`.
 final orderEventsProvider = Provider<Stream<OrderEvent>>((ref) {
+  // Modo soporte: el servidor no abre el canal a una sesión de soporte
+  if (ref.watch(supportModeProvider)) return const Stream<OrderEvent>.empty();
   final storage = ref.watch(secureStorageProvider);
   return OrderEventsChannel(
     apiBaseUrl: getEffectiveApiBaseUrl(),

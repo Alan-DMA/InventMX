@@ -2,16 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../saas_admin/domain/subscription.dart' show longDate;
 import '../../support/domain/support_models.dart' show caseMoment, clockTime;
 import '../data/support_access_repository.dart';
+import 'support_visits_provider.dart';
 
-/// La entrada del menú aparece hasta la etapa 4 (suplantación de sólo
-/// lectura): hoy conceder no tendría efecto y sería una promesa rota (P26).
-const bool kSupportAccessVisible = bool.fromEnvironment('SUPPORT_ACCESS', defaultValue: false);
+/// La entrada del menú: oculta hasta la etapa 4 (P26); con la sesión de
+/// sólo lectura de soporte, conceder ya tiene efecto y se ofrece.
+const bool kSupportAccessVisible = bool.fromEnvironment('SUPPORT_ACCESS', defaultValue: true);
 
 final supportAccessRepositoryProvider = Provider<SupportAccessRepository>(
   (ref) => SupportAccessRepositoryImpl(client: ref.watch(dioClientProvider)),
@@ -51,6 +53,8 @@ class _SupportAccessScreenState extends ConsumerState<SupportAccessScreen> {
     _ticker = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
+    // Abrir esta pantalla da por vistas las entradas de soporte (aviso y número del ☰)
+    Future.microtask(() => ref.read(supportVisitsSeenProvider.notifier).markSeen(ref.read(supportAccessClockProvider)()));
   }
 
   @override
@@ -67,6 +71,8 @@ class _SupportAccessScreenState extends ConsumerState<SupportAccessScreen> {
     try {
       final status = await action(ref.read(supportAccessRepositoryProvider));
       if (mounted) setState(() => _latest = status);
+      // El aviso y el número del ☰ siguen a lo que acaba de pasar (p. ej. quitar el acceso)
+      ref.invalidate(supportVisitsProvider);
     } on SupportAccessException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -117,6 +123,11 @@ class _SupportAccessScreenState extends ConsumerState<SupportAccessScreen> {
                 const _Rule(icon: Icons.block_rounded, text: 'No puede vender, cambiar precios ni borrar nada, y nunca ve contraseñas.'),
                 const _Rule(icon: Icons.history_rounded, text: 'Cada vez que entra queda registrado y lo ves aquí.'),
                 const SizedBox(height: 20),
+                // Si soporte está dentro, se dice junto al botón que lo saca
+                for (final visit in status.visitsNow) ...[
+                  _VisitNow(visit: visit),
+                  const SizedBox(height: 14),
+                ],
                 if (status.active == null) ...[
                   const Text('¿Por cuánto tiempo?',
                       style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
@@ -148,6 +159,8 @@ class _SupportAccessScreenState extends ConsumerState<SupportAccessScreen> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.onSurface,
                         side: const BorderSide(color: AppColors.border),
+                        // El corte de un toque va en la misma letra que la pantalla que lo rodea
+                        textStyle: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
                       ),
                       onPressed: _busy ? null : () => _run((r) => r.revoke()),
                       child: const Text('Quitar acceso ahora'),
@@ -158,9 +171,23 @@ class _SupportAccessScreenState extends ConsumerState<SupportAccessScreen> {
                     padding: const EdgeInsets.only(top: 10),
                     child: Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13.5)),
                   ),
+                // Las que ya terminaron (la que sigue abierta va en su tarjeta, arriba)
+                if (status.visits.any((v) => !v.active)) ...[
+                  const SizedBox(height: 28),
+                  Semantics(
+                    header: true,
+                    child: const Text('Quién entró',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.onSurface)),
+                  ),
+                  const SizedBox(height: 4),
+                  for (final (i, v) in status.visits.where((v) => !v.active).indexed) ...[
+                    if (i > 0) const Divider(color: AppColors.border, height: 1),
+                    _VisitRow(visit: v),
+                  ],
+                ],
                 if (status.history.isNotEmpty) ...[
                   const SizedBox(height: 28),
-                  const Text('Historial',
+                  const Text('Permisos que diste',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.onSurface)),
                   const SizedBox(height: 8),
                   for (final g in status.history)
@@ -201,4 +228,89 @@ class _Rule extends StatelessWidget {
           ],
         ),
       );
+}
+
+
+/// Soporte está dentro ahora mismo: quién, desde cuándo y por qué. Quitar el
+/// acceso (el botón de abajo) lo saca en su siguiente movimiento.
+class _VisitNow extends StatelessWidget {
+  const _VisitNow({required this.visit});
+  final SupportVisit visit;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        key: Key('supportVisitNow_${visit.id}'),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.skyBlue.withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.visibility_outlined, size: 20, color: AppColors.skyBlue),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text('Soporte está viendo tu tienda ahora',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.onSurface)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${visit.by} · sólo lectura${visit.openedAt != null ? ' · entró a las ${clockTime(visit.openedAt!)}' : ''}',
+              style: const TextStyle(fontSize: 13.5, color: AppColors.onSurfaceMuted, height: 1.4),
+            ),
+            const SizedBox(height: 6),
+            Text('Motivo: ${visit.reason}',
+                style: const TextStyle(fontSize: 14.5, color: AppColors.onSurface, height: 1.4)),
+            if (visit.sections.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('Ha revisado: ${visit.sections.join(', ')}',
+                  style: const TextStyle(fontSize: 13.5, color: AppColors.onSurfaceMuted, height: 1.4)),
+            ],
+          ],
+        ),
+      );
+}
+
+/// Una entrada de soporte en "Quién entró".
+class _VisitRow extends StatelessWidget {
+  const _VisitRow({required this.visit});
+  final SupportVisit visit;
+
+  @override
+  Widget build(BuildContext context) {
+    final when = visit.openedAt != null ? caseMoment(visit.openedAt!) : '';
+    final minutes = visit.minutes;
+    final duration = minutes == null ? '' : ' · ${visit.active ? 'lleva' : 'estuvo'} $minutes\u00A0min';
+    return Padding(
+      key: Key('supportVisit_${visit.id}'),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(visit.by, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+          const SizedBox(height: 2),
+          Text('$when$duration${visit.active ? ' · ahora' : ''}',
+              style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted,
+                  fontFeatures: [FontFeature.tabularFigures()])),
+          const SizedBox(height: 6),
+          Text('Motivo: ${visit.reason}', style: const TextStyle(fontSize: 14, color: AppColors.onSurface, height: 1.4)),
+          if (visit.sections.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Revisó: ${visit.sections.join(', ')}',
+                style: const TextStyle(fontSize: 13.5, color: AppColors.onSurfaceMuted, height: 1.4)),
+          ],
+          if (!visit.active && visit.endText != null) ...[
+            const SizedBox(height: 4),
+            Text(visit.endText!, style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted)),
+          ],
+        ],
+      ),
+    );
+  }
 }

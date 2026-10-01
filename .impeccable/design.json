@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-30T00:00:00Z",
+  "generatedAt": "2026-09-30T12:00:00Z",
   "title": "Design System: Nexus (InvenMX)",
   "extensions": {
     "colorMeta": {
@@ -276,7 +276,7 @@
       },
       "strip-label": {
         "displayName": "Strip label",
-        "purpose": "Sólo PANEL DE PLATAFORMA / PLATAFORMA en la franja fija."
+        "purpose": "Sólo el título de las franjas fijas: PANEL DE PLATAFORMA / PLATAFORMA y MODO SOPORTE · SÓLO LECTURA / SOPORTE (compacta con 0.6px de tracking)."
       },
       "button": {
         "displayName": "Button",
@@ -309,6 +309,26 @@
         "name": "quiet-refresh",
         "value": "60s",
         "purpose": "Novedades en silencio; se avisa 'Hay un mensaje nuevo · Actualizar', nunca se recarga bajo los dedos."
+      },
+      {
+        "name": "support-strip-warn",
+        "value": "300ms cubic-bezier(0.215, 0.61, 0.355, 1)",
+        "purpose": "La franja de soporte pasa a ámbar a 5 min o menos con un cambio animado (easeOutCubic); es el único momento en que advierte."
+      },
+      {
+        "name": "support-tick",
+        "value": "5s",
+        "purpose": "La franja de soporte recalcula los minutos cada 5 s; a 0 confirma con el servidor."
+      },
+      {
+        "name": "support-notice",
+        "value": "4s",
+        "purpose": "El aviso de un rechazo ('No se guardó nada') ocupa su lugar en la franja durante 4 s."
+      },
+      {
+        "name": "support-phase-switch",
+        "value": "360ms, Interval(0.5, 1)",
+        "purpose": "Las fases de la pestaña de soporte (abriendo, tienda, terminó) se relevan en secuencia: lo que sale se va en la primera mitad, lo que entra llega en la segunda, con 2 % de desplazamiento vertical."
       }
     ],
     "breakpoints": [
@@ -327,6 +347,10 @@
       {
         "name": "queue-wide",
         "value": "1100px"
+      },
+      {
+        "name": "support-phone-column",
+        "value": "480px"
       }
     ]
   },
@@ -396,6 +420,14 @@
       "css": ".ds-strip { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px 0 16px; background: #1F2747; border-bottom: 1px solid rgba(129,140,248,0.4); font-family: Inter, sans-serif; } .ds-strip-label { color: #818CF8; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; } .ds-strip-op { color: #F1F5F9; font-size: 13px; font-weight: 500; } .ds-strip-session { margin-left: auto; color: #94A3B8; font-size: 13px; font-variant-numeric: tabular-nums; } .ds-strip-out { background: none; border: none; color: #F1F5F9; font-weight: 600; font-size: 14px; padding: 0 12px; cursor: pointer; } .ds-strip-out:focus-visible { outline: 1.5px solid #818CF8; }"
     },
     {
+      "name": "Franja de soporte",
+      "kind": "custom",
+      "refersTo": "support-strip",
+      "description": "Franja fija de la pestaña de soporte: visita de sólo lectura, tienda, tiempo del servidor, extender y Terminar; ámbar a 5 min o menos.",
+      "html": "<div class=\"ds-sstrip\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" class=\"ds-sstrip-icon\"><path d=\"M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z\"/></svg><span class=\"ds-sstrip-label\">MODO SOPORTE · SÓLO LECTURA</span><span class=\"ds-sstrip-tenant\">Abarrotes Rosy</span><span class=\"ds-sstrip-time\">quedan 24&nbsp;min</span><button class=\"ds-sstrip-end\">Terminar</button></div>",
+      "css": ".ds-sstrip { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 16px; background: #1F2747; border-bottom: 1px solid rgba(129,140,248,0.4); font-family: Inter, sans-serif; transition: background 300ms cubic-bezier(0.215,0.61,0.355,1); } .ds-sstrip-icon { color: #818CF8; } .ds-sstrip-label { color: #818CF8; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; } .ds-sstrip-tenant { margin-left: 8px; color: #F1F5F9; font-size: 13.5px; font-weight: 600; } .ds-sstrip-time { margin-left: auto; color: #F1F5F9; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; } .ds-sstrip-end { height: 32px; padding: 0 14px; background: transparent; color: #F1F5F9; border: 1px solid rgba(129,140,248,0.6); border-radius: 8px; font-family: Inter, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; } .ds-sstrip-end:hover { background: rgba(129,140,248,0.12); } .ds-sstrip-end:focus-visible { outline: 1.5px solid #818CF8; outline-offset: 2px; }"
+    },
+    {
       "name": "Fila de cola",
       "kind": "custom",
       "refersTo": "queue-row",
@@ -414,7 +446,7 @@
   ],
   "narrative": {
     "northStar": "El mostrador de noche",
-    "overview": "Un solo mundo oscuro, sobrio y de trabajo, compartido por dos superficies: la app del tendero (Android primero, esmeralda como acción) y el Panel de plataforma de los fundadores (Flutter Web, laptop primero, índigo como firma). El fondo es pizarra profunda, los bloques son superficies planas con borde fino y el texto es claro sobre oscuro. Nada decora: la jerarquía la dan el peso tipográfico, el color semántico y el orden, no la profundidad ni los adornos.\n\nEl panel no inventa un mundo nuevo: hereda `AppTheme.dark` completo y sólo sustituye el esmeralda por el índigo en los lugares donde el operador actúa o se orienta (franja, sección activa, acción principal, foco, selección de texto, cursor). Así el operador nunca confunde \"estoy en el panel\" con \"estoy dentro de una tienda\". Cuando el panel necesita mostrar lo que verá el tendero, lo cita en su propio mundo, con esmeralda incluido, dentro de una vista previa acotada.\n\nEl estado siempre se escribe. El color refuerza, nunca informa solo: \"Esperando a soporte\", \"Suspendida por soporte\", \"1 día espera\". Las cifras son medida: tabulares, con espacio que no parte la línea entre cifra y unidad.",
+    "overview": "Un solo mundo oscuro, sobrio y de trabajo, compartido por dos superficies: la app del tendero (Android primero, esmeralda como acción) y el Panel de plataforma de los fundadores (Flutter Web, laptop primero, índigo como firma). El fondo es pizarra profunda, los bloques son superficies planas con borde fino y el texto es claro sobre oscuro. Nada decora: la jerarquía la dan el peso tipográfico, el color semántico y el orden, no la profundidad ni los adornos.\n\nEl panel no inventa un mundo nuevo: hereda `AppTheme.dark` completo y sólo sustituye el esmeralda por el índigo en los lugares donde el operador actúa o se orienta (franja, sección activa, acción principal, foco, selección de texto, cursor). Así el operador nunca confunde \"estoy en el panel\" con \"estoy dentro de una tienda\". Cuando el panel necesita mostrar lo que verá el tendero, lo cita en su propio mundo, con esmeralda incluido, dentro de una vista previa acotada.\n\nLa pestaña de soporte (sesión de sólo lectura) es la misma cita a tamaño completo: la app real del tendero, intacta, en una columna de teléfono, bajo una franja índigo que nunca se va. Las pantallas de entrada y salida de esa pestaña son del mundo del panel (pizarra profunda, índigo como acción).\n\nEl estado siempre se escribe. El color refuerza, nunca informa solo: \"Esperando a soporte\", \"Suspendida por soporte\", \"1 día espera\". Las cifras son medida: tabulares, con espacio que no parte la línea entre cifra y unidad.",
     "keyCharacteristics": [
       "Tema oscuro único: pizarra de fondo, superficie para bloques, borde fino en lugar de sombra.",
       "Un acento de acción por superficie: esmeralda en la app del tendero, índigo en el panel.",
@@ -431,7 +463,7 @@
       },
       {
         "name": "La Regla del Esmeralda Citado",
-        "body": "El esmeralda no aparece en el cromo del panel. Sólo vive dentro de las vistas previas \"Así lo verá la tienda\" y \"Así lo verá el tendero\", que citan la app del tendero en su propio mundo.",
+        "body": "El esmeralda no aparece en el cromo del panel. Sólo vive dentro de las vistas previas \"Así lo verá la tienda\" y \"Así lo verá el tendero\", y dentro de la columna de la tienda en la pestaña de soporte; todas citan la app del tendero en su propio mundo. La franja de soporte y sus pantallas de entrada y salida no usan esmeralda.",
         "section": "colors"
       },
       {
@@ -463,19 +495,19 @@
     "dos": [
       "Do usar el índigo sólo para orientarse y actuar en el panel: franja, sección activa, acción principal, foco, selección.",
       "Do escribir cada estado con palabras; el color y el ícono sólo lo refuerzan.",
-      "Do reservar el ámbar para lo que vence (sesión a 10 min o menos, espera mayor a 24 h, bloqueo por pago) y el rojo para suspensión, cadena rota o lo irreversible.",
+      "Do reservar el ámbar para lo que vence (sesión del panel a 10 min o menos, sesión de soporte a 5 min o menos, espera mayor a 24 h, bloqueo por pago) y el rojo para suspensión, cadena rota o lo irreversible.",
       "Do confirmar lo irreversible con un botón rojo destructivo (#DC2626) con texto blanco y un verbo en la etiqueta.",
       "Do separar lo superpuesto con velo negro al 54 % y un borde fino.",
       "Do usar cifras tabulares y espacio no separable entre cifra y unidad en esperas, fechas y conteos.",
       "Do declarar Inter en los estilos de botones y chips."
     ],
     "donts": [
-      "Don't usar esmeralda en el cromo del panel; sólo dentro de las vistas previas que citan la app del tendero.",
+      "Don't usar esmeralda en el cromo del panel ni en la franja de soporte; sólo dentro de las vistas previas y de la columna de la tienda que citan la app del tendero.",
       "Don't pintar estados de casos o tiendas con índigo.",
       "Don't anidar tarjetas dentro de tarjetas.",
       "Don't usar gradientes ni sombras de elevación.",
       "Don't poner íconos que no acompañen un texto o no cumplan una función.",
-      "Don't usar etiquetas en mayúsculas con tracking fuera de la franja de plataforma.",
+      "Don't usar etiquetas en mayúsculas con tracking fuera de las franjas fijas (plataforma y soporte).",
       "Don't usar el mono para texto que no se teclea ni se copia."
     ]
   }

@@ -17,6 +17,10 @@ enum NotificationKind {
   /// Soporte respondió un caso tuyo y no lo has abierto → el caso. Uno por
   /// caso (no por mensaje); se lee al abrir el caso, no desde aquí.
   supportReply,
+
+  /// Soporte entró a ver la tienda con tu permiso (etapa 4, sólo el dueño) →
+  /// Acceso de soporte. Uno por entrada; se da por visto al abrir esa pantalla.
+  supportVisit,
 }
 
 /// Aviso personalizado del negocio.

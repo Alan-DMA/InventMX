@@ -138,6 +138,22 @@ components:
   platform-strip-warning:
     backgroundColor: "{colors.strip-warning}"
     textColor: "{colors.warning}"
+  support-strip:
+    backgroundColor: "{colors.strip}"
+    textColor: "{colors.platform-indigo}"
+    typography: "{typography.strip-label}"
+    height: "40px"
+    padding: "0 8px 0 16px"
+  support-strip-warning:
+    backgroundColor: "{colors.strip-warning}"
+    textColor: "{colors.warning}"
+  support-store-column:
+    backgroundColor: "{colors.dark-slate}"
+    width: "480px"
+  support-gate:
+    backgroundColor: "{colors.dark-slate}"
+    textColor: "{colors.on-surface}"
+    width: "420px"
   nav-rail:
     backgroundColor: "{colors.dark-slate}"
     textColor: "{colors.on-surface}"
@@ -164,6 +180,8 @@ Un solo mundo oscuro, sobrio y de trabajo, compartido por dos superficies: la ap
 
 El panel no inventa un mundo nuevo: hereda `AppTheme.dark` completo y sólo sustituye el esmeralda por el índigo en los lugares donde el operador actúa o se orienta (franja, sección activa, acción principal, foco, selección de texto, cursor). Así el operador nunca confunde "estoy en el panel" con "estoy dentro de una tienda". Cuando el panel necesita mostrar lo que verá el tendero, lo cita en su propio mundo, con esmeralda incluido, dentro de una vista previa acotada.
 
+La pestaña de soporte (sesión de sólo lectura) es la misma cita a tamaño completo: la app real del tendero, intacta, en una columna de teléfono, bajo una franja índigo que nunca se va. Las pantallas de entrada y salida de esa pestaña son del mundo del panel (pizarra profunda, índigo como acción).
+
 El estado siempre se escribe. El color refuerza, nunca informa solo: "Esperando a soporte", "Suspendida por soporte", "1 día espera". Las cifras son medida: tabulares, con espacio que no parte la línea entre cifra y unidad.
 
 **Key Characteristics:**
@@ -180,13 +198,13 @@ Pizarra fría de Tailwind (slate) como mundo, con un acento de acción por super
 
 ### Primary
 - **Esmeralda de mostrador** (emerald): acción primaria y éxito en la app del tendero (botón lleno, contorno, chip seleccionado al 20 %). Su variante **Esmeralda presionado** (emerald-dark) es el estado presionado. En el panel sólo existe dentro de las vistas previas que citan la app del tendero.
-- **Índigo de plataforma** (platform-indigo): la única firma del panel. Franja fija, sección activa del riel, pestaña y fila seleccionadas (índigo suave al 16 %), botón Enviar y demás acciones principales, etiqueta flotante, anillo de foco, cursor, selección de texto (al 32 %), casillas marcadas, indicador de progreso, botones de texto. Presionado: **Índigo profundo** (platform-indigo-pressed). Línea de borde de la franja: índigo al 40 %.
+- **Índigo de plataforma** (platform-indigo): la única firma del panel. Franja fija, sección activa del riel, pestaña y fila seleccionadas (índigo suave al 16 %), botón Enviar y demás acciones principales, etiqueta flotante, anillo de foco, cursor, selección de texto (al 32 %), casillas marcadas, indicador de progreso, botones de texto. Presionado: **Índigo profundo** (platform-indigo-pressed). Línea de borde de la franja: índigo al 40 %. Fuera del panel, sólo la pestaña de soporte lo usa: su franja, el indicador de "Abriendo la tienda…" y el botón de sus pantallas de entrada y salida.
 
 ### Secondary
-- **Azul cielo** (sky-blue): información. Borde de foco y etiqueta flotante en la app del tendero, íconos de acción de la barra superior, estado "Respondido" (le toca al tendero), avisos informativos en la ficha (borde al 35 %).
+- **Azul cielo** (sky-blue): información. Borde de foco y etiqueta flotante en la app del tendero, íconos de acción de la barra superior, estado "Respondido" (le toca al tendero), avisos informativos en la ficha (borde al 35 %), tarjeta "Soporte está viendo tu tienda ahora" del dueño (ícono de ojo y borde al 35 %).
 
 ### Tertiary
-- **Ámbar de plazo** (warning): algo vence. Franja con sesión a 10 min o menos, espera de un caso mayor a 24 h, tienda bloqueada por falta de pago o en sólo lectura.
+- **Ámbar de plazo** (warning): algo vence. Franja del panel con sesión a 10 min o menos, franja de soporte a 5 min o menos, espera de un caso mayor a 24 h, tienda bloqueada por falta de pago o en sólo lectura.
 - **Rojo de alarma** (error): suspensión por soporte, cadena de la Bitácora rota, errores de campo; fondos de aviso al 16 %, contornos al 60 %.
 - **Rojo de botón destructivo** (danger): fondo de los botones que ejecutan algo irreversible, con texto blanco (4.8:1, AA). Más oscuro que el rojo de alarma precisamente para que el blanco sea legible.
 
@@ -202,7 +220,7 @@ Pizarra fría de Tailwind (slate) como mundo, con un acento de acción por super
 ### Named Rules
 **La Regla de la Firma Única.** En el panel, el índigo es la única firma de plataforma: franja, sección activa, acción principal y foco. No se usa para estados de casos ni de tiendas; "Esperando a soporte" es neutro.
 
-**La Regla del Esmeralda Citado.** El esmeralda no aparece en el cromo del panel. Sólo vive dentro de las vistas previas "Así lo verá la tienda" y "Así lo verá el tendero", que citan la app del tendero en su propio mundo.
+**La Regla del Esmeralda Citado.** El esmeralda no aparece en el cromo del panel. Sólo vive dentro de las vistas previas "Así lo verá la tienda" y "Así lo verá el tendero", y dentro de la columna de la tienda en la pestaña de soporte; todas citan la app del tendero en su propio mundo. La franja de soporte y sus pantallas de entrada y salida no usan esmeralda.
 
 **La Regla del Semáforo de Plazo.** Ámbar significa que algo vence o espera demasiado; rojo significa suspensión, cadena rota o acción irreversible; azul cielo significa información. Ningún color del semáforo se usa como decoración.
 
@@ -222,7 +240,7 @@ Pizarra fría de Tailwind (slate) como mundo, con un acento de acción por super
 - **Body** (400, 14px, interlineado 1.45): mensajes, explicaciones, errores escritos.
 - **Body small** (400, 13px): metadatos, pistas, línea de contexto de la tienda.
 - **Label** (600, 12.5px): chips de estado y títulos de bloque ("Así lo verá la tienda").
-- **Strip label** (700, 12px, 1.1px de tracking, mayúsculas): exclusivamente "PANEL DE PLATAFORMA" / "PLATAFORMA" en la franja fija.
+- **Strip label** (700, 12px, 1.1px de tracking, mayúsculas): exclusivamente el título de las franjas fijas: "PANEL DE PLATAFORMA" / "PLATAFORMA" en el panel; "MODO SOPORTE · SÓLO LECTURA" / "MODO SOPORTE · TERMINADO" en la pestaña de soporte (compacta, con 0.6px de tracking: "SOPORTE · SÓLO LECTURA", o "SOPORTE" cuando se ve "+30 min").
 - **Button** (600, 14.5px en el principal del panel, 14px en contorno y texto; 15px en los botones anchos del tendero).
 - **Mono code** (600, 28px, 10px de tracking): el código de Authenticator en el acceso; los códigos de respaldo usan la misma familia a 15–16px.
 
@@ -243,6 +261,11 @@ El panel es laptop primero y se apila en pantalla chica:
 - **Diálogo de acción:** ancho máximo 560px.
 
 Ritmo de espaciado sobre múltiplos de 4: 4, 8, 12, 16 y 24px son los pasos reutilizados; rellenos de fila 16×14, de bloque 14×12, de pantalla 24.
+
+La pestaña de soporte:
+- **Franja de soporte** de 40px arriba, fuera de la app del tendero; bajo 640px se compacta (relleno 12/6) y nunca pierde la palabra "SOPORTE".
+- **Columna de la tienda:** la app del tendero a 480px de ancho, centrada sobre pizarra profunda, con un borde fino a cada lado cuando sobra espacio; la tienda mide la columna, no la ventana. En pantalla más angosta ocupa todo el ancho, sin borde.
+- **Pantallas de entrada y salida:** una columna de 420px, alineada a la izquierda dentro del centro, relleno de 24.
 
 **La Regla de la Columna de Espera.** En la cola, la columna que manda va primero y a la izquierda: cuánto lleva esperando (64px, cifras tabulares), neutra y ámbar pasadas 24 h, con la palabra "espera" debajo.
 
@@ -290,6 +313,15 @@ Directos y con verbo: la etiqueta dice lo que va a pasar.
 ### Franja de plataforma
 Barra fija de 40px: escudo de 16px + "PANEL DE PLATAFORMA" en índigo, operador, sesión restante alineada a la derecha y "Salir". A 10 min del vencimiento pasa a fondo ámbar, texto ámbar y la frase "Tu sesión vence en … · lo que escribas se guarda".
 
+### Franja de soporte
+Hermana de la franja de plataforma, con su misma anatomía (escudo de 16px, título en strip label, borde inferior en la tinta al 40 %): título índigo, nombre de la tienda en tinta clara 13.5/600, tiempo restante del servidor en cifras tabulares ("quedan 24 min"; compacta "24 min"), "Seguir 30 min más" (compacta "+30 min") como botón de texto en la tinta de la franja, y "Terminar" como contorno de 32px de alto, radio 8px, borde en la tinta al 60 %. A 5 min o menos pasa a fondo ámbar y tinta ámbar con un cambio animado de 300ms. Un rechazo del servidor se escribe en la franja con ícono de bloqueo, en tinta clara 13/600, en el lugar del nombre de la tienda (en el teléfono, en el del título: "No se guardó nada") durante 4 s. Al terminar, "MODO SOPORTE · TERMINADO" y sin tiempo ni botones.
+
+### Pantallas de entrada y salida de soporte
+Columna de 420px: ícono de 28px en tinta apagada, título headline (24/700), explicación 15px con interlineado 1.5, botón principal del panel ("Cerrar esta pestaña") y una pista en tinta apagada 13px. "Abriendo la tienda…" es un indicador índigo de 28px con el texto 17/600. Las fases se relevan en secuencia, sin encimarse: lo que sale se desvanece en la primera mitad y lo que entra llega en la segunda (360ms, desplazamiento vertical del 2 %).
+
+### Tarjeta "Soporte está viendo tu tienda ahora"
+En la app del tendero, pantalla Acceso de soporte: tarjeta del tendero (pizarra de bloque, radio 16px, relleno 16) con borde azul cielo al 35 %, ícono de ojo azul cielo de 20px y título 16/700; debajo quién, desde qué hora, el motivo y lo que ha revisado. Va justo encima de "Quitar acceso ahora". El historial "Quién entró" son filas sin tarjeta: nombre 14.5/600, momento y duración en cifras tabulares, motivo y secciones revisadas.
+
 ### Fila de cola
 Columna de espera a la izquierda (ver Layout), luego tienda en 600, número y tema en tinta apagada, primera línea del mensaje. Seleccionada: fondo índigo suave.
 
@@ -304,17 +336,17 @@ Carga: bloques del tamaño de lo que viene, en pizarra de bloque, radio 6px, sin
 ### Do:
 - **Do** usar el índigo sólo para orientarse y actuar en el panel: franja, sección activa, acción principal, foco, selección.
 - **Do** escribir cada estado con palabras; el color y el ícono sólo lo refuerzan.
-- **Do** reservar el ámbar para lo que vence (sesión a 10 min o menos, espera mayor a 24 h, bloqueo por pago) y el rojo para suspensión, cadena rota o lo irreversible.
+- **Do** reservar el ámbar para lo que vence (sesión del panel a 10 min o menos, sesión de soporte a 5 min o menos, espera mayor a 24 h, bloqueo por pago) y el rojo para suspensión, cadena rota o lo irreversible.
 - **Do** confirmar lo irreversible con un botón rojo destructivo (#DC2626) con texto blanco y un verbo en la etiqueta.
 - **Do** separar lo superpuesto con velo negro al 54 % y un borde fino.
 - **Do** usar cifras tabulares y espacio no separable entre cifra y unidad en esperas, fechas y conteos.
 - **Do** declarar Inter en los estilos de botones y chips.
 
 ### Don't:
-- **Don't** usar esmeralda en el cromo del panel; sólo dentro de las vistas previas que citan la app del tendero.
+- **Don't** usar esmeralda en el cromo del panel ni en la franja de soporte; sólo dentro de las vistas previas y de la columna de la tienda que citan la app del tendero.
 - **Don't** pintar estados de casos o tiendas con índigo.
 - **Don't** anidar tarjetas dentro de tarjetas.
 - **Don't** usar gradientes ni sombras de elevación.
 - **Don't** poner íconos que no acompañen un texto o no cumplan una función.
-- **Don't** usar etiquetas en mayúsculas con tracking fuera de la franja de plataforma.
+- **Don't** usar etiquetas en mayúsculas con tracking fuera de las franjas fijas (plataforma y soporte).
 - **Don't** usar el mono para texto que no se teclea ni se copia.

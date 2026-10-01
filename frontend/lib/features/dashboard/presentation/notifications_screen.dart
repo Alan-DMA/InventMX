@@ -9,6 +9,7 @@ import '../../purchases/presentation/widgets/phone_launcher.dart';
 import '../../saas_admin/presentation/saas_provider.dart' show clockProvider;
 import '../domain/store_notification.dart';
 import '../../support/presentation/support_provider.dart';
+import '../../support_access/presentation/support_visits_provider.dart';
 import 'dashboard_provider.dart';
 
 /// Avisos del negocio — cosas que importan pero no urgen.
@@ -23,9 +24,10 @@ class NotificationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Respuestas de soporte: se suman aquí, para todos los roles
     final replies = ref.watch(supportRepliesProvider).valueOrNull;
-    final notifications = ref
-        .watch(notificationsProvider)
-        .whenData((items) => NotificationsNotifier.mergeSupportNotifications(items, replies));
+    final visits = ref.watch(supportVisitsProvider).valueOrNull ?? const [];
+    final unseenVisits = ref.watch(unseenSupportVisitsProvider);
+    final notifications = ref.watch(notificationsProvider).whenData((items) => NotificationsNotifier.mergeVisitNotifications(
+          NotificationsNotifier.mergeSupportNotifications(items, replies), visits, unseenVisits));
     // "Marcar leídos" sólo si hay algo que pueda marcar: las respuestas de
     // soporte se leen al abrir el caso
     final canMarkAll = ref.watch(notificationsProvider).valueOrNull?.any((n) => !n.isRead) ?? false;
@@ -191,6 +193,7 @@ class _NotificationTile extends ConsumerWidget {
         NotificationKind.whatsappOrder => Icons.chat_bubble_outline_rounded,
         NotificationKind.payableDue => Icons.receipt_long_outlined,
         NotificationKind.supportReply => Icons.support_agent_rounded,
+        NotificationKind.supportVisit => Icons.visibility_outlined,
       };
 
   Color get _tint => switch (item.kind) {
@@ -199,6 +202,7 @@ class _NotificationTile extends ConsumerWidget {
         NotificationKind.whatsappOrder => AppColors.skyBlue,
         NotificationKind.payableDue => AppColors.error,
         NotificationKind.supportReply => AppColors.skyBlue,
+        NotificationKind.supportVisit => AppColors.skyBlue,
       };
 
   String? get _actionLabel => switch (item.kind) {
@@ -207,6 +211,7 @@ class _NotificationTile extends ConsumerWidget {
         NotificationKind.whatsappOrder => 'Ver el pedido',
         NotificationKind.payableDue => 'Ver cuentas',
         NotificationKind.supportReply => 'Ver respuesta',
+        NotificationKind.supportVisit => 'Ver acceso',
       };
 
   /// Abrir un aviso lo marca leído y lleva a donde se resuelve.
@@ -251,6 +256,9 @@ class _NotificationTile extends ConsumerWidget {
         // aviso se van solos (supportCaseProvider refresca la cuenta).
         final id = item.caseId;
         if (id != null) router?.push(AppRoutes.supportCasePath(id));
+      case NotificationKind.supportVisit:
+        // Abrir Acceso de soporte da por vistas las entradas
+        router?.push(AppRoutes.supportAccess);
     }
   }
 }

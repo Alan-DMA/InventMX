@@ -38,6 +38,7 @@ import 'dashboard_provider.dart';
 import 'quick_actions_preference.dart';
 import 'widgets/app_drawer.dart';
 import '../../support/presentation/support_provider.dart';
+import '../../support_access/presentation/support_visits_provider.dart';
 import 'widgets/currency_selector.dart';
 import 'widgets/customize_actions_modal.dart';
 import 'widgets/quick_stock_adjust_sheet.dart';
@@ -78,8 +79,11 @@ class HomeDashboardScreen extends ConsumerWidget {
         // Botón hamburguesa que abre el AppDrawer
         leading: Builder(
           builder: (scaffoldContext) {
-            // Número de casos con respuesta de soporte sin abrir (P23)
-            final supportUnread = ref.watch(supportUnreadProvider).valueOrNull ?? 0;
+            // Número de casos con respuesta de soporte sin abrir (P23) + entradas
+            // de soporte que el dueño aún no ve (etapa 4)
+            final replies = ref.watch(supportUnreadProvider).valueOrNull ?? 0;
+            final visits = ref.watch(unseenSupportVisitsProvider).length;
+            final supportUnread = replies + visits;
             return IconButton(
               key: const Key('homeDrawerButton'),
               icon: Badge(
@@ -91,11 +95,12 @@ class HomeDashboardScreen extends ConsumerWidget {
                 child: const Icon(Icons.menu_rounded, color: AppColors.onSurface),
               ),
               onPressed: () => Scaffold.of(scaffoldContext).openDrawer(),
-              tooltip: switch (supportUnread) {
-                0 => 'Menú principal',
-                1 => 'Menú principal · 1 respuesta de soporte',
-                _ => 'Menú principal · $supportUnread respuestas de soporte',
-              },
+              tooltip: [
+                'Menú principal',
+                if (replies == 1) '1 respuesta de soporte',
+                if (replies > 1) '$replies respuestas de soporte',
+                if (visits > 0) 'soporte entró a tu tienda',
+              ].join(' · '),
             );
           },
         ),
