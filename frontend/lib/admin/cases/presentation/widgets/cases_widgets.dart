@@ -4,17 +4,18 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../core/admin_colors.dart';
 import '../../domain/desk_case.dart';
 
-/// Estado del caso, escrito (nunca sólo color). Esperando = índigo (le toca
-/// al operador), Respondido = azul cielo (le toca al tendero), Resuelto =
-/// apagado.
+/// Estado del caso, escrito (nunca sólo color). Esperando = neutro, y ámbar
+/// si ya pasó más de un día (`overdue`); Respondido = azul cielo (le toca al
+/// tendero); Resuelto = apagado. El índigo queda sólo para la plataforma.
 class DeskStatusChip extends StatelessWidget {
-  const DeskStatusChip(this.status, {super.key});
+  const DeskStatusChip(this.status, {super.key, this.overdue = false});
   final DeskCaseStatus status;
+  final bool overdue;
 
   @override
   Widget build(BuildContext context) {
     final (Color fg, IconData icon) = switch (status) {
-      DeskCaseStatus.waiting => (AdminColors.indigo, Icons.schedule_rounded),
+      DeskCaseStatus.waiting => (overdue ? AdminColors.amber : AppColors.onSurface, Icons.schedule_rounded),
       DeskCaseStatus.answered => (AppColors.skyBlue, Icons.forum_outlined),
       DeskCaseStatus.resolved => (AppColors.onSurfaceMuted, Icons.check_rounded),
     };

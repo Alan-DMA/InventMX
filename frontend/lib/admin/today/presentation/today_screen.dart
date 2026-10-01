@@ -224,7 +224,7 @@ class _AttentionRow extends StatelessWidget {
   final DateTime now;
 
   (IconData, Color) get _look => switch (item.kind) {
-        'CASE_WAITING' => (Icons.forum_outlined, AdminColors.indigo),
+        'CASE_WAITING' => (Icons.forum_outlined, AppColors.onSurfaceMuted),
         'DELETION_PENDING' => (Icons.delete_outline_rounded, AppColors.error),
         'EXPORT_FAILED' => (Icons.error_outline_rounded, AppColors.error),
         'EXPORT_IN_PROGRESS' => (Icons.download_rounded, AppColors.skyBlue),
@@ -249,6 +249,8 @@ class _AttentionRow extends StatelessWidget {
         ? 'hasta ${adminMoment(item.until!)}'
         : 'desde hace ${adminSpan(now.difference(item.since))}';
     final canOpen = (item.kind == 'CASE_WAITING' && item.refId != null) || item.tenantId != null;
+    // Ámbar = vence: un caso que lleva más de un día esperando
+    final overdue = item.kind == 'CASE_WAITING' && now.difference(item.since) >= const Duration(hours: 24);
     return InkWell(
       key: Key('todayAttention_${item.kind}_${item.refId ?? item.tenantId ?? item.tenantName}'),
       onTap: canOpen ? () => _open(context) : null,
@@ -265,7 +267,11 @@ class _AttentionRow extends StatelessWidget {
                   Text(item.summary, style: const TextStyle(fontSize: 14, color: AppColors.onSurface, height: 1.35)),
                   const SizedBox(height: 3),
                   Text('${item.tenantName} · $when',
-                      style: const TextStyle(fontSize: 12.5, color: AppColors.onSurfaceMuted)),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: overdue ? AdminColors.amber : AppColors.onSurfaceMuted,
+                        fontWeight: overdue ? FontWeight.w600 : FontWeight.w400,
+                      )),
                 ],
               ),
             ),
@@ -274,10 +280,10 @@ class _AttentionRow extends StatelessWidget {
               Container(
                 key: const Key('todayAwaitingYou'),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: AdminColors.indigoSoft, borderRadius: BorderRadius.circular(999)),
+                decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(999)),
                 child: const Text(
                   'Te toca',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AdminColors.indigo),
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.onSurface),
                 ),
               ),
             ],

@@ -240,6 +240,7 @@ class PlatformAdminService:
         action: Optional[str],
         limit: int,
         offset: int,
+        exclude_noise: bool = False,
     ) -> AuditPage:
         rows, total = await self.audit.list(
             tenant_id=tenant_id,
@@ -247,6 +248,7 @@ class PlatformAdminService:
             actions=[action] if action else None,
             limit=limit,
             offset=offset,
+            exclude_actions=AuditAction.FEED_NOISE if exclude_noise and not action else None,
         )
         return AuditPage(items=await self.audit_reads(rows), total=total)
 
@@ -264,13 +266,19 @@ class PlatformAdminService:
 
     async def audit_reads(self, rows: List[PlatformAuditLog], store_name: Optional[str] = None) -> List[AuditEntryRead]:
         names = await self.operators.names_by_id(list({r.operator_id for r in rows if r.operator_id}))
+        # Sin tienda fija (la bitácora general), cada renglón dice la suya; una
+        # tienda eliminada conserva el nombre que guardó la bitácora (`tienda`)
+        stores: Dict[uuid.UUID, str] = {}
+        if store_name is None:
+            ids = list({r.target_tenant_id for r in rows if r.target_tenant_id})
+            stores = await self.reader.tenant_names(ids) if ids else {}
         return [
             AuditEntryRead(
                 id=r.id,
                 occurred_at=r.occurred_at,
                 operator_id=r.operator_id,
                 operator_name=names.get(r.operator_id),
-                summary=operator_summary(r, names.get(r.operator_id), store_name),
+                summary=operator_summary(r, names.get(r.operator_id), store_name or stores.get(r.target_tenant_id)),
                 action=r.action,
                 target_tenant_id=r.target_tenant_id,
                 target_type=r.target_type,

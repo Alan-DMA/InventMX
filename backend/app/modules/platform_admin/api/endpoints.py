@@ -363,9 +363,10 @@ async def audit(
     action: Optional[str] = Query(None, max_length=60),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    exclude_noise: bool = Query(False, description="Sin aperturas de ficha ni accesos al panel (el ruido del feed)"),
     service: PlatformAdminService = Depends(_service),
 ):
-    return await service.audit_page(tenant_id, operator_id, action, limit, offset)
+    return await service.audit_page(tenant_id, operator_id, action, limit, offset, exclude_noise)
 
 
 @router.get("/audit/verify", response_model=ChainVerification, summary="Verificar la cadena de la bitácora")

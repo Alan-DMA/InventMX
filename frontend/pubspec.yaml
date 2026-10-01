@@ -85,3 +85,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Inter empaquetada: google_fonts la toma de aquí sin descargarla (el panel
+  # desactiva la descarga en main_admin.dart; la app del tendero la usa sin red).
+  assets:
+    - assets/google_fonts/

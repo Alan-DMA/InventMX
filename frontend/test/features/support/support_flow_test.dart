@@ -80,6 +80,8 @@ void main() {
     // P26: el acceso de soporte todavía no se ofrece
     expect(find.byKey(const Key('drawerSupportAccess')), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const Key('drawerSupport')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('drawerSupport')));
     await tester.pumpAndSettle();
     expect(find.byType(SupportHomeScreen), findsOneWidget);

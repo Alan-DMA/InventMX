@@ -52,8 +52,11 @@ void main() {
         .map((w) => '${w.key}')
         .toList();
     expect(rows, ["[<'casesRow_b'>]", "[<'casesRow_a'>]", "[<'casesRow_c'>]"]);
-    expect(find.text('espera ${nb('1 día')}'), findsOneWidget);
-    expect(find.text('espera ${nb('3 h')}'), findsOneWidget);
+    // La columna que manda: cuánto lleva esperando, al frente del renglón
+    expect(tester.widget<Text>(find.byKey(const Key('casesRowWhen_b'))).data, nb('1 día'));
+    expect(tester.widget<Text>(find.byKey(const Key('casesRowWhen_a'))).data, nb('3 h'));
+    expect(tester.getTopLeft(find.byKey(const Key('casesRowWhen_b'))).dx,
+        lessThan(tester.getTopLeft(find.text('Abarrotes Luz').first).dx));
     // Pasadas 24 h, en ámbar (y escrito: "espera 1 día")
     expect(tester.widget<Text>(find.byKey(const Key('casesRowWhen_b'))).style!.color, AdminColors.amber);
     expect(tester.widget<Text>(find.byKey(const Key('casesRowWhen_a'))).style!.color, isNot(AdminColors.amber));
@@ -250,6 +253,8 @@ void main() {
     await tester.scrollUntilVisible(find.byKey(const Key('casesLoadMore')), 400,
         scrollable: find.descendant(of: find.byKey(const Key('casesList')), matching: find.byType(Scrollable)));
     expect(find.text('Cargar más (30 de 35)'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('casesLoadMore')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('casesLoadMore')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('casesLoadMore')), findsNothing);

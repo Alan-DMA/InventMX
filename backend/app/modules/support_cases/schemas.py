@@ -171,6 +171,7 @@ class HelpTopicAdmin(HelpTopicRead):
     sort_order: int
     is_active: bool
     updated_at: datetime
+    updated_by_name: Optional[str] = Field(None, description="Operador que lo editó por última vez (nulo: el sembrado)")
 
 
 class HelpTopicUpsert(BaseModel):

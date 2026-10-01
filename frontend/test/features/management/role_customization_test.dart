@@ -150,6 +150,8 @@ void main() {
         300,
         scrollable: find.byType(Scrollable).last,
       );
+      await tester.ensureVisible(find.byKey(const Key('roleResetButton')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('roleResetButton')));
       await _settle(tester);
       await tester.tap(find.byKey(const Key('roleResetConfirm')));

@@ -3,13 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../access/presentation/access_screen.dart';
+import '../audit/presentation/audit_screen.dart';
 import '../cases/presentation/cases_screen.dart';
+import '../help_topics/presentation/help_topics_screen.dart';
 import '../today/presentation/today_screen.dart';
 import '../session/admin_session.dart';
 import '../shell/admin_shell.dart';
 import 'admin_routes.dart';
 
 const _casesPage = ValueKey('casesPage');
+const _topicsPage = ValueKey('topicsPage');
 
 /// Router del panel. Sin sesión todo lleva al acceso con `volver` (la ruta
 /// donde estaba) y `vencio=1` si la sesión terminó sola; al entrar, regresa
@@ -65,22 +68,18 @@ final adminRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: AdminRoutes.audit,
-            pageBuilder: (_, __) => const NoTransitionPage(
-              child: AdminPendingSection(
-                title: 'Bitácora',
-                arrivesIn: 'etapa 3e',
-                what: 'Todo lo que se hizo desde el panel, con filtros y la verificación de integridad.',
-              ),
-            ),
+            pageBuilder: (_, __) => const NoTransitionPage(key: ValueKey('auditPage'), child: AuditScreen()),
           ),
+          // Lista y tema abierto comparten página
           GoRoute(
             path: AdminRoutes.helpTopics,
-            pageBuilder: (_, __) => const NoTransitionPage(
-              child: AdminPendingSection(
-                title: 'Temas de ayuda',
-                arrivesIn: 'etapa 3e',
-                what: 'El texto de la ayuda que ven los tenderos en Soporte.',
-              ),
+            pageBuilder: (_, __) => const NoTransitionPage(key: _topicsPage, child: HelpTopicsScreen()),
+          ),
+          GoRoute(
+            path: '${AdminRoutes.helpTopics}/:key',
+            pageBuilder: (_, state) => NoTransitionPage(
+              key: _topicsPage,
+              child: HelpTopicsScreen(selectedKey: state.pathParameters['key']),
             ),
           ),
         ],

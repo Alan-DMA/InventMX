@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../core/admin_colors.dart';
 import '../../core/admin_format.dart';
 import '../../core/admin_http.dart';
+import '../../core/admin_theme.dart';
 import '../../session/admin_session.dart';
 import '../data/support_actions_repository.dart';
 import '../domain/tenant_models.dart';
@@ -340,14 +341,21 @@ class _SupportActionDialogState extends ConsumerState<SupportActionDialog> {
                       ),
                       if (_kind.needsSlug) ...[
                         const SizedBox(height: 10),
+                        Text.rich(
+                          TextSpan(children: [
+                            const TextSpan(text: 'Para confirmar, escribe el slug de la tienda: '),
+                            TextSpan(text: _t.slug, style: adminMonoStyle.copyWith(fontSize: 13.5)),
+                          ]),
+                          style: const TextStyle(fontSize: 13, color: AppColors.onSurface, height: 1.4),
+                        ),
+                        const SizedBox(height: 6),
                         TextField(
                           key: const Key('actionSlug'),
                           controller: _slug,
                           enabled: !_busy,
                           onChanged: (_) => setState(() => _error = null),
-                          decoration: InputDecoration(
-                            labelText: 'Para confirmar, escribe el slug: ${_t.slug}',
-                          ),
+                          style: adminMonoStyle.copyWith(fontSize: 15),
+                          decoration: InputDecoration(hintText: _t.slug),
                         ),
                       ],
                       if (_kind.preview != null) ...[

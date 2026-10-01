@@ -537,7 +537,8 @@ class CaseDeskService:
 
     async def help_topics(self) -> List[HelpTopicAdmin]:
         rows = (await self.db.execute(select(HelpTopic).order_by(HelpTopic.sort_order, HelpTopic.title))).scalars().all()
-        return [self._topic_admin(t) for t in rows]
+        names = await OperatorRepository(self.db).names_by_id(list({t.updated_by for t in rows if t.updated_by}))
+        return [self._topic_admin(t, names.get(t.updated_by)) for t in rows]
 
     async def upsert_help_topic(self, key: str, data: HelpTopicUpsert) -> HelpTopicAdmin:
         topic = (await self.db.execute(select(HelpTopic).where(HelpTopic.key == key))).scalar_one_or_none()
@@ -566,7 +567,7 @@ class CaseDeskService:
             meta=self.meta,
         )
         await self.db.commit()
-        return self._topic_admin(topic)
+        return self._topic_admin(topic, self.operator.full_name)
 
     # ── Apoyo ──────────────────────────────────────────────────────────────
 
@@ -644,11 +645,12 @@ class CaseDeskService:
         )
 
     @staticmethod
-    def _topic_admin(topic: HelpTopic) -> HelpTopicAdmin:
+    def _topic_admin(topic: HelpTopic, updated_by_name: Optional[str] = None) -> HelpTopicAdmin:
         return HelpTopicAdmin(
             **topic_read(topic).model_dump(),
             audience=topic.audience,
             sort_order=topic.sort_order,
             is_active=topic.is_active,
             updated_at=topic.updated_at,
+            updated_by_name=updated_by_name,
         )

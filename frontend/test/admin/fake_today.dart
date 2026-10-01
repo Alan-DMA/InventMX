@@ -47,6 +47,7 @@ class FakeTenants implements TenantsRepository {
     String? lockReason,
     String? suspensionReason,
     String ownerEmail = 'sol@tiendita.mx',
+    String ownerName = 'Doña Sol',
     String subscriptionSource = 'TRIAL',
     SupportState support = const SupportState(),
   }) {
@@ -59,7 +60,7 @@ class FakeTenants implements TenantsRepository {
         status: status,
         lockReason: lockReason,
         createdAt: DateTime(2026, 8, 12),
-        ownerName: 'Doña Sol',
+        ownerName: ownerName,
         ownerEmail: ownerEmail,
         usersCount: 2,
         usersLimit: 5,
@@ -71,7 +72,7 @@ class FakeTenants implements TenantsRepository {
       warehouses: const [DiagnosticWarehouse(name: 'Almacén Principal', isActive: true, isDefault: true)],
       users: [
         DiagnosticUser(
-          fullName: 'Doña Sol',
+          fullName: ownerName,
           email: ownerEmail,
           role: 'OWNER',
           isActive: true,

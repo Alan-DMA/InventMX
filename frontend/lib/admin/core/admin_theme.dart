@@ -39,7 +39,8 @@ ThemeData buildAdminTheme() {
       fillColor: AppColors.darkSlate,
       enabledBorder: border(AppColors.border),
       focusedBorder: border(AdminColors.indigo, 1.5),
-      floatingLabelStyle: const TextStyle(color: AdminColors.indigo, fontSize: 12),
+      // Material escala la etiqueta flotante a 0.75: 16 px → 12 px legibles
+      floatingLabelStyle: const TextStyle(color: AdminColors.indigo, fontSize: 16),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -78,6 +79,20 @@ ThemeData buildAdminTheme() {
       side: const BorderSide(color: AppColors.onSurfaceMuted, width: 1.5),
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(color: AdminColors.indigo),
+    // Los chips tampoco heredan la familia del tema (los filtros de la Bitácora)
+    // Apagado = contorno; encendido = índigo suave con palomita: se distinguen de un vistazo
+    chipTheme: base.chipTheme.copyWith(
+      labelStyle: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w500, color: AppColors.onSurface),
+      backgroundColor: Colors.transparent,
+      // `color` manda sobre backgroundColor en Material 3: apagado = fondo de la página
+      color: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? AdminColors.indigoSoft : Colors.transparent,
+      ),
+      side: const BorderSide(color: AppColors.border),
+      selectedColor: AdminColors.indigoSoft,
+      checkmarkColor: AdminColors.indigo,
+      showCheckmark: true,
+    ),
   );
 }
 

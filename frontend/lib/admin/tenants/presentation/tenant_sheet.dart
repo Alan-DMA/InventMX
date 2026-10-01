@@ -241,7 +241,7 @@ class _Body extends ConsumerWidget {
             text: 'Suspendida por soporte: ${detail.suspensionReason}',
           ),
         ],
-        if (!detail.support.isEmpty) _InProgress(support: detail.support),
+        if (_InProgress.hasItems(detail.support)) _InProgress(support: detail.support),
         _Actions(
             detail: detail, onAction: onAction, notice: notice, noticeKey: noticeKey, onDismissNotice: onDismissNotice),
         _Section(
@@ -338,17 +338,15 @@ class _InProgress extends StatelessWidget {
   const _InProgress({required this.support});
   final SupportState support;
 
+  /// La eliminación pendiente la dice "Acciones" (con Aprobar/Cancelar): aquí
+  /// sólo lo demás.
+  static bool hasItems(SupportState s) =>
+      s.accessGrantedUntil != null || s.assistedCodeUntil != null || s.lastExportStatus != null;
+
   @override
   Widget build(BuildContext context) => _Section(
         title: 'En curso',
         children: [
-          if (support.deletionExpiresAt != null)
-            _Note(
-              color: AppColors.error,
-              icon: Icons.delete_outline_rounded,
-              text: 'Eliminación pedida por ${support.deletionRequestedBy ?? 'un fundador'}; falta la segunda '
-                  'aprobación (vence el ${adminDate(support.deletionExpiresAt!)}).',
-            ),
           if (support.accessGrantedUntil != null)
             _Note(
               color: AppColors.skyBlue,

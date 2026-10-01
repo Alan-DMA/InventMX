@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../audit/presentation/audit_providers.dart';
 import '../cases/presentation/cases_providers.dart';
 import '../core/admin_colors.dart';
 import '../tenants/presentation/store_search.dart';
@@ -59,6 +60,8 @@ class AdminShell extends ConsumerWidget {
                 Column(
                   children: [
                     const PlatformStrip(),
+                    if (ref.watch(chainProvider) case ChainBroken(:final brokenAtId))
+                      _ChainBrokenAlert(brokenAtId: brokenAtId, showLink: location != AdminRoutes.audit),
                     if (session != null && session.enteredWithRecoveryCode)
                       _RecoveryNotice(
                         remaining: session.recoveryCodesRemaining,
@@ -289,38 +292,39 @@ class _RecoveryNotice extends StatelessWidget {
   }
 }
 
-/// Sección que llega en una sub-etapa posterior: lo dice con honestidad y
-/// señala cuál (el panel se construye por partes, P28).
-class AdminPendingSection extends StatelessWidget {
-  const AdminPendingSection({super.key, required this.title, required this.arrivesIn, required this.what});
-  final String title;
-  final String arrivesIn;
-  final String what;
+/// Cadena de la bitácora rota: alerta roja fija en todo el panel, sin cerrar
+/// (alguien alteró registros por fuera de la app; hay que investigar).
+class _ChainBrokenAlert extends StatelessWidget {
+  const _ChainBrokenAlert({required this.brokenAtId, required this.showLink});
+  final int? brokenAtId;
+  final bool showLink;
 
   @override
-  Widget build(BuildContext context) => Align(
-        alignment: Alignment.topLeft,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(32, 32, 32, 32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Semantics(
-                  header: true,
-                  child: Text(
-                    title,
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.onSurface),
-                  ),
+  Widget build(BuildContext context) => Semantics(
+        liveRegion: true,
+        child: Container(
+          key: const Key('adminChainBroken'),
+          color: AppColors.error.withValues(alpha: 0.16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+          child: Row(
+            children: [
+              const Icon(Icons.gpp_bad_outlined, size: 20, color: AppColors.error),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'La bitácora fue alterada fuera del panel'
+                  '${brokenAtId == null ? '' : ' a partir del registro #$brokenAtId'}. '
+                  'Investígalo antes de seguir con acciones sobre tiendas.',
+                  style: const TextStyle(
+                      fontSize: 13.5, color: AppColors.onSurface, fontWeight: FontWeight.w600, height: 1.35),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  '$what Llega en la $arrivesIn.',
-                  style: const TextStyle(fontSize: 14.5, color: AppColors.onSurfaceMuted, height: 1.5),
+              ),
+              if (showLink)
+                TextButton(
+                  onPressed: () => context.go(AdminRoutes.audit),
+                  child: const Text('Ver bitácora'),
                 ),
-              ],
-            ),
+            ],
           ),
         ),
       );

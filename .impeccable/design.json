@@ -1,0 +1,482 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-30T00:00:00Z",
+  "title": "Design System: Nexus (InvenMX)",
+  "extensions": {
+    "colorMeta": {
+      "dark-slate": {
+        "role": "neutral",
+        "displayName": "Pizarra profunda",
+        "canonical": "#0F172A",
+        "tonalRamp": [
+          "#0F172A",
+          "#1E293B",
+          "#334155",
+          "#475569",
+          "#64748B",
+          "#94A3B8",
+          "#CBD5E1",
+          "#F1F5F9"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Pizarra de bloque",
+        "canonical": "#1E293B",
+        "tonalRamp": [
+          "#0F172A",
+          "#1E293B",
+          "#334155",
+          "#475569",
+          "#64748B",
+          "#94A3B8",
+          "#CBD5E1",
+          "#F1F5F9"
+        ]
+      },
+      "surface-variant": {
+        "role": "neutral",
+        "displayName": "Pizarra de control",
+        "canonical": "#334155",
+        "tonalRamp": [
+          "#0F172A",
+          "#1E293B",
+          "#334155",
+          "#475569",
+          "#64748B",
+          "#94A3B8",
+          "#CBD5E1",
+          "#F1F5F9"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Borde fino",
+        "canonical": "#334155",
+        "tonalRamp": [
+          "#0F172A",
+          "#1E293B",
+          "#334155",
+          "#475569",
+          "#64748B",
+          "#94A3B8",
+          "#CBD5E1",
+          "#F1F5F9"
+        ]
+      },
+      "on-surface": {
+        "role": "neutral",
+        "displayName": "Tinta clara",
+        "canonical": "#F1F5F9",
+        "tonalRamp": [
+          "#0F172A",
+          "#1E293B",
+          "#334155",
+          "#475569",
+          "#64748B",
+          "#94A3B8",
+          "#CBD5E1",
+          "#F1F5F9"
+        ]
+      },
+      "on-surface-muted": {
+        "role": "neutral",
+        "displayName": "Tinta apagada",
+        "canonical": "#94A3B8",
+        "tonalRamp": [
+          "#0F172A",
+          "#1E293B",
+          "#334155",
+          "#475569",
+          "#64748B",
+          "#94A3B8",
+          "#CBD5E1",
+          "#F1F5F9"
+        ]
+      },
+      "emerald": {
+        "role": "primary",
+        "displayName": "Esmeralda de mostrador",
+        "canonical": "#10B981",
+        "tonalRamp": [
+          "#064E3B",
+          "#065F46",
+          "#047857",
+          "#059669",
+          "#10B981",
+          "#34D399",
+          "#6EE7B7",
+          "#D1FAE5"
+        ]
+      },
+      "emerald-dark": {
+        "role": "primary",
+        "displayName": "Esmeralda presionado",
+        "canonical": "#059669",
+        "tonalRamp": [
+          "#064E3B",
+          "#065F46",
+          "#047857",
+          "#059669",
+          "#10B981",
+          "#34D399",
+          "#6EE7B7",
+          "#D1FAE5"
+        ]
+      },
+      "platform-indigo": {
+        "role": "primary",
+        "displayName": "Índigo de plataforma",
+        "canonical": "#818CF8",
+        "tonalRamp": [
+          "#312E81",
+          "#3730A3",
+          "#4338CA",
+          "#4F46E5",
+          "#6366F1",
+          "#818CF8",
+          "#A5B4FC",
+          "#E0E7FF"
+        ]
+      },
+      "platform-indigo-pressed": {
+        "role": "primary",
+        "displayName": "Índigo profundo",
+        "canonical": "#6366F1",
+        "tonalRamp": [
+          "#312E81",
+          "#3730A3",
+          "#4338CA",
+          "#4F46E5",
+          "#6366F1",
+          "#818CF8",
+          "#A5B4FC",
+          "#E0E7FF"
+        ]
+      },
+      "sky-blue": {
+        "role": "secondary",
+        "displayName": "Azul cielo",
+        "canonical": "#38BDF8",
+        "tonalRamp": [
+          "#0C4A6E",
+          "#075985",
+          "#0369A1",
+          "#0284C7",
+          "#0EA5E9",
+          "#38BDF8",
+          "#7DD3FC",
+          "#E0F2FE"
+        ]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Ámbar de plazo",
+        "canonical": "#F59E0B",
+        "tonalRamp": [
+          "#78350F",
+          "#92400E",
+          "#B45309",
+          "#D97706",
+          "#F59E0B",
+          "#FBBF24",
+          "#FCD34D",
+          "#FEF3C7"
+        ]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Rojo de alarma",
+        "canonical": "#EF4444",
+        "tonalRamp": [
+          "#7F1D1D",
+          "#991B1B",
+          "#B91C1C",
+          "#DC2626",
+          "#EF4444",
+          "#F87171",
+          "#FCA5A5",
+          "#FEE2E2"
+        ]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Rojo de botón destructivo",
+        "canonical": "#DC2626",
+        "tonalRamp": [
+          "#7F1D1D",
+          "#991B1B",
+          "#B91C1C",
+          "#DC2626",
+          "#EF4444",
+          "#F87171",
+          "#FCA5A5",
+          "#FEE2E2"
+        ]
+      },
+      "strip": {
+        "role": "neutral",
+        "displayName": "Franja",
+        "canonical": "#1F2747",
+        "tonalRamp": [
+          "#0F172A",
+          "#161D36",
+          "#1F2747",
+          "#2A3360",
+          "#3730A3",
+          "#4F46E5",
+          "#818CF8",
+          "#E0E7FF"
+        ]
+      },
+      "strip-warning": {
+        "role": "neutral",
+        "displayName": "Franja en aviso",
+        "canonical": "#2F2A26",
+        "tonalRamp": [
+          "#0F172A",
+          "#1F1F26",
+          "#2F2A26",
+          "#4A3A22",
+          "#92400E",
+          "#D97706",
+          "#F59E0B",
+          "#FEF3C7"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Títulos de pantalla (Casos, Hoy) y encabezados grandes del tendero."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Nombre de la tienda en la ficha y título del caso."
+      },
+      "title-small": {
+        "displayName": "Title small",
+        "purpose": "Subtítulos de sección en ficha y diálogo."
+      },
+      "body-large": {
+        "displayName": "Body large",
+        "purpose": "Campos y texto principal del tendero."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Mensajes, explicaciones y errores escritos."
+      },
+      "body-small": {
+        "displayName": "Body small",
+        "purpose": "Metadatos, pistas, línea de contexto de la tienda."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Chips de estado y títulos de bloque."
+      },
+      "strip-label": {
+        "displayName": "Strip label",
+        "purpose": "Sólo PANEL DE PLATAFORMA / PLATAFORMA en la franja fija."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Etiquetas de botón; declarada explícitamente con Inter."
+      },
+      "mono-code": {
+        "displayName": "Mono code",
+        "purpose": "Código de Authenticator y códigos de respaldo: lo que se teclea o se copia."
+      }
+    },
+    "shadows": [
+      {
+        "name": "none",
+        "value": "none",
+        "purpose": "Sistema plano: elevación 0 en botones, tarjetas, barra superior y ficha."
+      },
+      {
+        "name": "veil",
+        "value": "rgba(0,0,0,0.54)",
+        "purpose": "Velo modal detrás de la ficha deslizante y del buscador de tiendas (Colors.black54)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "session-tick",
+        "value": "15s",
+        "purpose": "La franja recalcula la sesión restante cada 15 s; pasa a ámbar a 10 min del vencimiento."
+      },
+      {
+        "name": "quiet-refresh",
+        "value": "60s",
+        "purpose": "Novedades en silencio; se avisa 'Hay un mensaje nuevo · Actualizar', nunca se recarga bajo los dedos."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "strip-compact",
+        "value": "640px"
+      },
+      {
+        "name": "sheet-fullscreen",
+        "value": "700px"
+      },
+      {
+        "name": "rail-to-row",
+        "value": "900px"
+      },
+      {
+        "name": "queue-wide",
+        "value": "1100px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botón principal del panel",
+      "kind": "button",
+      "refersTo": "button-platform-primary",
+      "description": "Acción principal del panel (Enviar, Entrar). Índigo con texto pizarra profunda.",
+      "html": "<button class=\"ds-btn-platform\">Enviar</button>",
+      "css": ".ds-btn-platform { background: #818CF8; color: #0F172A; font-family: Inter, sans-serif; font-weight: 600; font-size: 14.5px; height: 44px; padding: 0 20px; border: none; border-radius: 10px; cursor: pointer; } .ds-btn-platform:hover { background: #6366F1; } .ds-btn-platform:focus-visible { outline: 1.5px solid #818CF8; outline-offset: 2px; background: #6366F1; } .ds-btn-platform:disabled { background: #334155; color: #94A3B8; }"
+    },
+    {
+      "name": "Botón destructivo",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Confirmación de lo irreversible (suspender, borrar). Rojo oscuro con texto blanco, etiqueta con verbo.",
+      "html": "<button class=\"ds-btn-danger\">Suspender la tienda</button>",
+      "css": ".ds-btn-danger { background: #DC2626; color: #FFFFFF; font-family: Inter, sans-serif; font-weight: 600; font-size: 14.5px; height: 44px; padding: 0 20px; border: none; border-radius: 10px; cursor: pointer; } .ds-btn-danger:hover { background: #B91C1C; } .ds-btn-danger:focus-visible { outline: 1.5px solid #818CF8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Botón de contorno del panel",
+      "kind": "button",
+      "refersTo": "button-outlined-panel",
+      "description": "Acción secundaria (Enviar y resolver, Reintentar).",
+      "html": "<button class=\"ds-btn-outline\">Enviar y resolver</button>",
+      "css": ".ds-btn-outline { background: transparent; color: #F1F5F9; font-family: Inter, sans-serif; font-weight: 600; font-size: 14px; height: 44px; padding: 0 16px; border: 1px solid #334155; border-radius: 10px; cursor: pointer; } .ds-btn-outline:hover { background: rgba(51,65,85,0.35); } .ds-btn-outline:focus-visible { outline: 1.5px solid #818CF8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Botón principal del tendero",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Acción primaria de la app del tendero: esmeralda a lo ancho, 52 px.",
+      "html": "<button class=\"ds-btn-tendero\">Cobrar</button>",
+      "css": ".ds-btn-tendero { width: 100%; background: #10B981; color: #0F172A; font-family: Inter, sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.3px; height: 52px; border: none; border-radius: 12px; cursor: pointer; } .ds-btn-tendero:hover, .ds-btn-tendero:active { background: #059669; } .ds-btn-tendero:focus-visible { outline: 1.5px solid #38BDF8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Campo del panel",
+      "kind": "input",
+      "refersTo": "input-panel",
+      "description": "Campo lleno sobre pizarra profunda, foco índigo de 1.5 px.",
+      "html": "<input class=\"ds-input\" placeholder=\"Número, correo, tienda o tema\" />",
+      "css": ".ds-input { background: #0F172A; color: #F1F5F9; font-family: Inter, sans-serif; font-size: 14px; padding: 14px 16px; border: 1px solid #334155; border-radius: 12px; outline: none; } .ds-input::placeholder { color: #94A3B8; } .ds-input:focus-visible { border: 1.5px solid #818CF8; }"
+    },
+    {
+      "name": "Riel de navegación",
+      "kind": "nav",
+      "refersTo": "nav-rail",
+      "description": "Riel con texto de 220 px; activa en índigo sobre índigo suave, contador sólo de lo que espera.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\">Hoy</a><a class=\"ds-nav-item ds-nav-active\">Casos <span class=\"ds-nav-count\">2</span></a><a class=\"ds-nav-item\">Bitácora</a><a class=\"ds-nav-item\">Temas de ayuda</a></nav>",
+      "css": ".ds-nav { width: 220px; background: #0F172A; padding: 12px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #334155; font-family: Inter, sans-serif; } .ds-nav-item { display: flex; justify-content: space-between; padding: 10px 14px; border-radius: 8px; color: #F1F5F9; font-size: 14px; cursor: pointer; } .ds-nav-item:hover { background: rgba(51,65,85,0.35); } .ds-nav-item:focus-visible { outline: 1.5px solid #818CF8; } .ds-nav-active { color: #818CF8; background: rgba(129,140,248,0.16); font-weight: 600; } .ds-nav-count { color: #818CF8; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Chip de estado de caso",
+      "kind": "chip",
+      "refersTo": "status-chip",
+      "description": "Estado escrito con ícono y color: Esperando neutro (ámbar > 24 h), Respondido azul cielo, Resuelto apagado con borde.",
+      "html": "<span class=\"ds-chip\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/></svg>Esperando a soporte</span> <span class=\"ds-chip ds-chip-info\">Respondido</span> <span class=\"ds-chip ds-chip-done\">Resuelto</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-family: Inter, sans-serif; font-size: 12.5px; font-weight: 600; color: #F1F5F9; background: rgba(241,245,249,0.14); } .ds-chip-info { color: #38BDF8; background: rgba(56,189,248,0.14); } .ds-chip-done { color: #94A3B8; background: transparent; border: 1px solid #334155; }"
+    },
+    {
+      "name": "Franja de plataforma",
+      "kind": "custom",
+      "refersTo": "platform-strip",
+      "description": "Barra fija de 40 px que dice dónde estás, quién y cuánto queda; ámbar a 10 min del vencimiento.",
+      "html": "<div class=\"ds-strip\"><span class=\"ds-strip-label\">PANEL DE PLATAFORMA</span><span class=\"ds-strip-op\">· Eduardo</span><span class=\"ds-strip-session\">Sesión: 2 h</span><button class=\"ds-strip-out\">Salir</button></div>",
+      "css": ".ds-strip { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px 0 16px; background: #1F2747; border-bottom: 1px solid rgba(129,140,248,0.4); font-family: Inter, sans-serif; } .ds-strip-label { color: #818CF8; font-size: 12px; font-weight: 700; letter-spacing: 1.1px; } .ds-strip-op { color: #F1F5F9; font-size: 13px; font-weight: 500; } .ds-strip-session { margin-left: auto; color: #94A3B8; font-size: 13px; font-variant-numeric: tabular-nums; } .ds-strip-out { background: none; border: none; color: #F1F5F9; font-weight: 600; font-size: 14px; padding: 0 12px; cursor: pointer; } .ds-strip-out:focus-visible { outline: 1.5px solid #818CF8; }"
+    },
+    {
+      "name": "Fila de cola",
+      "kind": "custom",
+      "refersTo": "queue-row",
+      "description": "Columna de espera a la izquierda (neutra; ámbar > 24 h), luego tienda, número y tema, primera línea; seleccionada en índigo suave.",
+      "html": "<div class=\"ds-row\"><div class=\"ds-wait ds-wait-over\">1 día<small>espera</small></div><div class=\"ds-row-body\"><strong>Abarrotes Luz</strong><span>1038 · Mi inventario no cuadra</span><span>Desde el martes el conteo de refrescos…</span></div></div>",
+      "css": ".ds-row { display: flex; gap: 10px; padding: 14px 16px; background: #0F172A; border-bottom: 1px solid #334155; font-family: Inter, sans-serif; cursor: pointer; } .ds-row:hover { background: rgba(51,65,85,0.35); } .ds-row:focus-visible { background: rgba(129,140,248,0.16); outline: none; } .ds-wait { width: 64px; display: flex; flex-direction: column; color: #F1F5F9; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; } .ds-wait small { font-size: 12px; font-weight: 400; color: #94A3B8; } .ds-wait-over, .ds-wait-over small { color: #F59E0B; font-weight: 700; } .ds-row-body { display: flex; flex-direction: column; gap: 2px; color: #94A3B8; font-size: 13px; } .ds-row-body strong { color: #F1F5F9; font-size: 14px; }"
+    },
+    {
+      "name": "Vista previa citada",
+      "kind": "card",
+      "refersTo": "action-dialog",
+      "description": "\"Así lo verá la tienda\": el texto exacto del servidor en el mundo del tendero; único lugar del panel con esmeralda.",
+      "html": "<div class=\"ds-preview\"><div class=\"ds-preview-title\">Así lo verá la tienda</div><div class=\"ds-preview-box\"><p>Tu tienda fue suspendida por soporte.</p><p class=\"ds-preview-reason\">\"Actividad inusual en la cuenta\"</p><span class=\"ds-preview-by\">Soporte Nexus</span></div></div>",
+      "css": ".ds-preview { font-family: Inter, sans-serif; } .ds-preview-title { color: #94A3B8; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; } .ds-preview-box { background: #0F172A; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #F1F5F9; font-size: 14px; line-height: 1.4; } .ds-preview-box p { margin: 0 0 4px; } .ds-preview-reason { color: #94A3B8; font-size: 13.5px; } .ds-preview-by { color: #10B981; font-size: 12px; font-weight: 600; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El mostrador de noche",
+    "overview": "Un solo mundo oscuro, sobrio y de trabajo, compartido por dos superficies: la app del tendero (Android primero, esmeralda como acción) y el Panel de plataforma de los fundadores (Flutter Web, laptop primero, índigo como firma). El fondo es pizarra profunda, los bloques son superficies planas con borde fino y el texto es claro sobre oscuro. Nada decora: la jerarquía la dan el peso tipográfico, el color semántico y el orden, no la profundidad ni los adornos.\n\nEl panel no inventa un mundo nuevo: hereda `AppTheme.dark` completo y sólo sustituye el esmeralda por el índigo en los lugares donde el operador actúa o se orienta (franja, sección activa, acción principal, foco, selección de texto, cursor). Así el operador nunca confunde \"estoy en el panel\" con \"estoy dentro de una tienda\". Cuando el panel necesita mostrar lo que verá el tendero, lo cita en su propio mundo, con esmeralda incluido, dentro de una vista previa acotada.\n\nEl estado siempre se escribe. El color refuerza, nunca informa solo: \"Esperando a soporte\", \"Suspendida por soporte\", \"1 día espera\". Las cifras son medida: tabulares, con espacio que no parte la línea entre cifra y unidad.",
+    "keyCharacteristics": [
+      "Tema oscuro único: pizarra de fondo, superficie para bloques, borde fino en lugar de sombra.",
+      "Un acento de acción por superficie: esmeralda en la app del tendero, índigo en el panel.",
+      "Semáforo de plazo: ámbar = algo vence; rojo = suspensión, cadena rota o irreversible; azul cielo = información.",
+      "Estados escritos con texto, ícono funcional y color, nunca color solo.",
+      "Inter en toda la interfaz; mono del sistema sólo para lo que se teclea o se copia.",
+      "Teclado primero en el panel: foco índigo visible, Esc, Ctrl K, J/K, R, Ctrl+Enter."
+    ],
+    "rules": [
+      {
+        "name": "La Regla de la Firma Única",
+        "body": "En el panel, el índigo es la única firma de plataforma: franja, sección activa, acción principal y foco. No se usa para estados de casos ni de tiendas; \"Esperando a soporte\" es neutro.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla del Esmeralda Citado",
+        "body": "El esmeralda no aparece en el cromo del panel. Sólo vive dentro de las vistas previas \"Así lo verá la tienda\" y \"Así lo verá el tendero\", que citan la app del tendero en su propio mundo.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla del Semáforo de Plazo",
+        "body": "Ámbar significa que algo vence o espera demasiado; rojo significa suspensión, cadena rota o acción irreversible; azul cielo significa información. Ningún color del semáforo se usa como decoración.",
+        "section": "colors"
+      },
+      {
+        "name": "La Regla de la Familia Declarada",
+        "body": "Botones y chips declaran Inter explícitamente (`GoogleFonts.inter`): en Flutter su estilo no hereda la familia del tema y caería en la fuente del motor.",
+        "section": "typography"
+      },
+      {
+        "name": "La Regla de la Cifra Medida",
+        "body": "Esperas, conteos, horas y sesión restante usan cifras tabulares; entre cifra y unidad va un espacio que no parte la línea (\"3 h\", \"27 oct 2026\"). El mono se reserva para lo que se teclea o se copia; no es disfraz de \"técnico\".",
+        "section": "typography"
+      },
+      {
+        "name": "La Regla de la Columna de Espera",
+        "body": "En la cola, la columna que manda va primero y a la izquierda: cuánto lleva esperando (64px, cifras tabulares), neutra y ámbar pasadas 24 h, con la palabra \"espera\" debajo.",
+        "section": "layout"
+      },
+      {
+        "name": "La Regla del Velo y el Borde",
+        "body": "Lo que se superpone se separa con velo y borde, nunca con sombra: la ficha deslizante es pizarra profunda con un borde izquierdo fino sobre el velo.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do usar el índigo sólo para orientarse y actuar en el panel: franja, sección activa, acción principal, foco, selección.",
+      "Do escribir cada estado con palabras; el color y el ícono sólo lo refuerzan.",
+      "Do reservar el ámbar para lo que vence (sesión a 10 min o menos, espera mayor a 24 h, bloqueo por pago) y el rojo para suspensión, cadena rota o lo irreversible.",
+      "Do confirmar lo irreversible con un botón rojo destructivo (#DC2626) con texto blanco y un verbo en la etiqueta.",
+      "Do separar lo superpuesto con velo negro al 54 % y un borde fino.",
+      "Do usar cifras tabulares y espacio no separable entre cifra y unidad en esperas, fechas y conteos.",
+      "Do declarar Inter en los estilos de botones y chips."
+    ],
+    "donts": [
+      "Don't usar esmeralda en el cromo del panel; sólo dentro de las vistas previas que citan la app del tendero.",
+      "Don't pintar estados de casos o tiendas con índigo.",
+      "Don't anidar tarjetas dentro de tarjetas.",
+      "Don't usar gradientes ni sombras de elevación.",
+      "Don't poner íconos que no acompañen un texto o no cumplan una función.",
+      "Don't usar etiquetas en mayúsculas con tracking fuera de la franja de plataforma.",
+      "Don't usar el mono para texto que no se teclea ni se copia."
+    ]
+  }
+}

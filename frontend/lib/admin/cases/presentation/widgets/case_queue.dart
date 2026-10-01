@@ -200,7 +200,10 @@ class _CaseRow extends StatelessWidget {
     final waiting = c.status == DeskCaseStatus.waiting;
     final waited = now.difference(c.lastMessageAt);
     final overdue = waiting && waited >= CaseQueue.overdueAfter;
-    final when = waiting ? 'espera ${adminSpan(waited)}' : adminAgo(c.lastMessageAt, now);
+    // La columna que manda (tesis del contrato): cuánto lleva esperando
+    final span = now.difference(c.lastMessageAt);
+    final when = span.inMinutes < 1 ? 'ahora' : adminSpan(span);
+    final whenLabel = waiting ? 'espera' : 'hace';
     final preview = c.lastMessagePreview;
 
     return Material(
@@ -210,58 +213,70 @@ class _CaseRow extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    '${c.number}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.onSurface,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
+              SizedBox(
+                width: 64,
+                child: Semantics(
+                  label: '$whenLabel $when${overdue ? ', más de un día' : ''}',
+                  excludeSemantics: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        when,
+                        key: Key('casesRowWhen_${c.id}'),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: overdue ? FontWeight.w700 : FontWeight.w600,
+                          color: overdue ? AdminColors.amber : AppColors.onSurface,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          height: 1.25,
+                        ),
+                      ),
+                      Text(
+                        whenLabel,
+                        style: TextStyle(fontSize: 12, color: overdue ? AdminColors.amber : AppColors.onSurfaceMuted),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
                       c.fromApp ? c.storeLabel : 'Sin sesión · ${c.storeLabel}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.onSurface),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    when,
-                    key: Key('casesRowWhen_${c.id}'),
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: overdue ? FontWeight.w600 : FontWeight.w400,
-                      color: overdue ? AdminColors.amber : AppColors.onSurfaceMuted,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                    const SizedBox(height: 2),
+                    Text(
+                      '${c.number} · ${c.topicTitle}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.onSurfaceMuted,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                c.topicTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13, color: AppColors.onSurfaceMuted),
-              ),
-              if (preview != null && preview.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(
-                  c.lastMessageBySupport == true ? 'Soporte: $preview' : preview,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: AppColors.onSurface, height: 1.35),
+                    if (preview != null && preview.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        c.lastMessageBySupport == true ? 'Soporte: $preview' : preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, color: AppColors.onSurface, height: 1.35),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
+              ),
             ],
           ),
         ),

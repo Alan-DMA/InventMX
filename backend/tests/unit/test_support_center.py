@@ -169,6 +169,14 @@ async def test_assisted_recovery_requires_validation_and_operator_never_sees_the
     assert sent["summary"].startswith("Operadora de Prueba envió un código de recuperación")
     # La ficha no se llena de "abrió la ficha" (ruido del feed)
     assert not any(a["action"] == "TENANT_VIEWED" for a in detail["activity"])
+    # En la bitácora general cada acción dice su tienda; sin ruido si se pide
+    page = (await client.get(f"{P}/audit", params={"tenant_id": str(tenant_id)}, headers=headers)).json()["items"]
+    [logged] = [a for a in page if a["action"] == "ASSISTED_RECOVERY_SENT"]
+    assert "una tienda" not in logged["summary"] and "Abarrotes" in logged["summary"]
+    quiet = (await client.get(f"{P}/audit", params={"tenant_id": str(tenant_id), "exclude_noise": "true"},
+                              headers=headers)).json()["items"]
+    assert quiet and not any(a["action"] == "TENANT_VIEWED" for a in quiet)
+    assert any(a["action"] == "TENANT_VIEWED" for a in page)
     assert code not in str(detail)
 
     owner = await client.post("/api/v1/auth/login-with-code", json={"email": email, "code": code})

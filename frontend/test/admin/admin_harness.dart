@@ -6,7 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nexus_app/admin/access/data/access_repository.dart';
 import 'package:nexus_app/admin/access/domain/access_models.dart';
 import 'package:nexus_app/admin/admin_app.dart';
+import 'package:nexus_app/admin/audit/data/audit_repository.dart';
 import 'package:nexus_app/admin/cases/data/cases_repository.dart';
+import 'package:nexus_app/admin/help_topics/data/help_topics_repository.dart';
 import 'package:nexus_app/admin/tenants/data/support_actions_repository.dart';
 import 'package:nexus_app/admin/tenants/data/tenants_repository.dart';
 import 'package:nexus_app/admin/today/data/today_repository.dart';
@@ -15,6 +17,7 @@ import 'package:nexus_app/admin/core/browser/session_store.dart';
 import 'package:nexus_app/admin/router/admin_router.dart';
 import 'package:nexus_app/admin/session/admin_session.dart';
 
+import 'fake_audit.dart';
 import 'fake_cases.dart';
 import 'fake_today.dart';
 
@@ -107,6 +110,8 @@ Future<AdminTestApp> pumpAdmin(
   TodayRepository? today,
   TenantsRepository? tenants,
   SupportActionsRepository? actions,
+  AuditRepository? audit,
+  HelpTopicsRepository? topics,
   List<Override> overrides = const [],
 }) async {
   tester.view.physicalSize = size;
@@ -128,6 +133,8 @@ Future<AdminTestApp> pumpAdmin(
       supportActionsRepositoryProvider.overrideWithValue(
         actions ?? FakeActions(tenants is FakeTenants ? tenants : FakeTenants(), () => testClock.now),
       ),
+      auditRepositoryProvider.overrideWithValue(audit ?? FakeAudit()),
+      helpTopicsRepositoryProvider.overrideWithValue(topics ?? FakeTopics()),
       ...overrides,
     ],
   );

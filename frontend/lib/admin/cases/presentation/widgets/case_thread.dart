@@ -178,7 +178,11 @@ class _Header extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           // El estado en su propia línea: el título largo nunca lo empuja fuera
-          DeskStatusChip(c.status),
+          DeskStatusChip(
+            c.status,
+            overdue: c.status == DeskCaseStatus.waiting &&
+                ref.read(adminClockProvider)().difference(c.lastMessageAt) >= const Duration(hours: 24),
+          ),
           const SizedBox(height: 10),
           _StoreLine(detail: detail),
           if (detail.store != null)
@@ -275,11 +279,17 @@ class _Conversation extends StatelessWidget {
       if (detail.answers.isNotEmpty) _Answers(answers: detail.answers),
       for (final m in detail.messages) _Bubble(message: m),
     ];
-    return ListView(
-      key: const Key('caseConversation'),
-      reverse: true,
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-      children: children.reversed.toList(),
+    // shrinkWrap + arriba: un hilo corto queda pegado al encabezado, sin hueco;
+    // uno largo llena el alto y abre en el último mensaje (hilos de decenas)
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ListView(
+        key: const Key('caseConversation'),
+        reverse: true,
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+        children: children.reversed.toList(),
+      ),
     );
   }
 }

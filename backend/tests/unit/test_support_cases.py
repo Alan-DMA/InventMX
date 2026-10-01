@@ -315,7 +315,10 @@ async def test_help_topics_are_edited_from_the_panel(client: AsyncClient, db_ses
             headers=desk,
         )
         assert bad.status_code == 422
-        assert (await client.put(f"{P}/help-topics/{key}", json=body, headers=desk)).status_code == 200
+        saved = await client.put(f"{P}/help-topics/{key}", json=body, headers=desk)
+        assert saved.status_code == 200 and saved.json()["updated_by_name"] == "Operadora de Prueba"
+        listed = {t["key"]: t for t in (await client.get(f"{P}/help-topics", headers=desk)).json()}
+        assert listed[key]["updated_by_name"] == "Operadora de Prueba"
 
         topics = {t["key"]: t for t in (await client.get(f"{S}/topics", headers=owner)).json()}
         assert topics[key]["title"] == "Impresora de tickets"
