@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../core/widgets/barcode_scan_sheet.dart';
@@ -176,8 +175,8 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
     return dotIndex == -1 ? fileName : fileName.substring(0, dotIndex);
   }
 
-  /// Sube (o cae a Base64 si falla) los bytes de una imagen ya elegida, sin
-  /// importar si vinieron del selector de archivos o de la cámara.
+  /// Sube los bytes de una imagen ya elegida, sin importar si vinieron del
+  /// selector de archivos o de la cámara.
   ///
   /// El usuario no controla cuántos megapixeles dispara su cámara ni el peso
   /// del archivo que elige de su galería — comprimir es responsabilidad de
@@ -198,7 +197,6 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
     // completa de la cámara para verse igual de bien ahí.
     var uploadBytes = bytes;
     var uploadFileName = fileName;
-    var uploadExtension = extension;
     try {
       uploadBytes = await FlutterImageCompress.compressWithList(
         bytes,
@@ -208,7 +206,6 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
         format: CompressFormat.jpeg,
       );
       uploadFileName = '${_withoutExtension(fileName)}.jpg';
-      uploadExtension = 'jpg';
     } catch (_) {
       // Códec no pudo procesar este formato (raro) — sigue con el original
       // y deja que la validación de abajo decida.
@@ -232,24 +229,39 @@ class _EditProductScreenState extends ConsumerState<EditProductScreen> {
       return;
     }
 
-    String finalImageUrl;
+    // Sin respaldo en Base64 (despliegue de prueba, Oct 2026): la foto dentro
+    // de la base pesaba ~300 KB por producto en cada listado y llenaba la
+    // cuota gratuita. Si falla, el producto conserva su foto y se reintenta.
+    final String finalImageUrl;
     try {
-      // 1. Intentar subir al servidor para obtener URL estática ligera (/uploads/images/...)
-      final uploadedUrl = await ref.read(inventoryProvider.notifier).uploadImage(
+      finalImageUrl = await ref.read(inventoryProvider.notifier).uploadImage(
             fileBytes: uploadBytes,
             fileName: uploadFileName,
           );
-      finalImageUrl = uploadedUrl;
     } catch (_) {
-      // 2. Fallback a binario Base64 Data URI si la carga falla o sin conexión
-      final ext = (uploadExtension ?? 'jpg').toLowerCase();
-      final mimeType = (ext == 'png')
-          ? 'image/png'
-          : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
-      final base64String = base64Encode(uploadBytes);
-      finalImageUrl = 'data:$mimeType;base64,$base64String';
+      if (!mounted) return;
+      setState(() {
+        _isUploadingImage = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'No se pudo subir la foto. Revisa tu conexión e intenta de nuevo.',
+          ),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'Reintentar',
+            textColor: Colors.white,
+            onPressed: () => _uploadPickedBytes(bytes, fileName, extension),
+          ),
+        ),
+      );
+      return;
     }
 
+    if (!mounted) return;
     setState(() {
       _imageUrlCon.text = finalImageUrl;
       _isUploadingImage = false;

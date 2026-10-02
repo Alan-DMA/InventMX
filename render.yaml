@@ -1,0 +1,89 @@
+# Blueprint de Render — despliegue de prueba (Oct 2026).
+#
+# Un Blueprint es "infraestructura como código": Render lee este archivo y crea
+# los servicios con esta configuración. Paso a paso, y el porqué de cada
+# valor, en docs/deployment/despliegue_prueba.md.
+#
+# Variables con `sync: false`: Render las pide al crear el Blueprint y nunca
+# viven en el repositorio (contraseñas, llaves). `generateValue: true`: Render
+# genera un secreto aleatorio una sola vez.
+services:
+  # ── API (FastAPI) ─────────────────────────────────────────────────────────
+  # Render construye la MISMA imagen que probaste en tu PC (backend/Dockerfile)
+  # y la arranca con su CMD: Python, dependencias, usuario sin privilegios y
+  # puerto ($PORT) ya vienen definidos ahí. Mudarse de proveedor = llevar la
+  # imagen a otro lado.
+  - type: web
+    name: nexus-api
+    runtime: docker
+    plan: free
+    region: virginia            # junto a Supabase us-east-1: menos latencia a la base
+    # Rama propia del despliegue: los pushes a main no publican nada hasta que
+    # se lleven aquí a propósito
+    branch: deploy/prueba
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend    # igual que `docker build ... backend`
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production       # CORS cerrado, sin correo "console", sin SQL en el log
+      # Base de datos: pooler de Supabase en MODO SESIÓN (puerto 5432), usuario
+      # nexus_app.<ref>. Nunca el puerto 6543 (modo transacción): el contexto
+      # de RLS se fija por sesión y se cruzaría entre comercios.
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_POOL_SIZE
+        value: "5"              # 5 + 5 = 10 de las ~15 conexiones del pooler gratis
+      - key: DB_MAX_OVERFLOW
+        value: "5"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PLATFORM_JWT_SECRET
+        generateValue: true
+      - key: PLATFORM_TOTP_KEY
+        generateValue: true
+      # Fotos de productos → Supabase Storage (el disco de Render se borra en
+      # cada deploy)
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: product-images
+      # Orígenes web permitidos (la vitrina de abajo), separados por coma
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Correo (recuperación de cuenta, soporte): Brevo, 300 correos/día gratis
+      - key: EMAIL_BACKEND
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+
+  # ── Vitrina web (Flutter Web compilado) ───────────────────────────────────
+  # Sitio estático: archivos servidos por CDN, no se duerme y no gasta horas
+  # del plan gratis. Render no trae Flutter, así que el script lo descarga en
+  # cada build (~5–8 min).
+  - type: web
+    name: nexus-tienda
+    runtime: static
+    branch: deploy/prueba
+    rootDir: frontend
+    buildCommand: bash ../tools/render_build_web.sh
+    staticPublishPath: build/web
+    # Rutas limpias (/tienda/<slug>/pedido/<folio>): cualquier ruta que no sea
+    # un archivo devuelve index.html y Flutter decide qué pantalla mostrar.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: FLUTTER_VERSION
+        value: 3.47.2           # la misma de tu `flutter --version`
+      - key: API_URL
+        sync: false             # https://nexus-api.onrender.com
+      - key: CATALOG_BASE_URL
+        sync: false             # https://nexus-tienda.onrender.com/tienda

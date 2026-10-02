@@ -21,6 +21,10 @@ wheels/
 .installed.cfg
 *.egg
 .env
+# Variantes con secretos reales (.env.supabase, .env.prueba...); las plantillas sí se versionan
+.env.*
+!.env.example
+!.env.production.example
 .venv
 venv/
 ENV/

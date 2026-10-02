@@ -1,7 +1,7 @@
 import os
-from typing import List, Union
+from typing import Annotated, List, Union
 from pydantic import AnyHttpUrl, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -12,8 +12,24 @@ class Settings(BaseSettings):
     # Static uploads storage
     UPLOAD_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads"))
 
+    # Dónde se guardan las fotos de productos (`app/core/storage.py`).
+    # "local" = disco del servidor bajo UPLOAD_DIR (desarrollo). "supabase" =
+    # bucket público de Supabase Storage (despliegue de prueba): el disco de
+    # Render se borra en cada deploy, y así las fotos las sirve el CDN de
+    # Supabase y no el API. Otro proveedor = otra rama en `storage.py`.
+    STORAGE_BACKEND: str = "local"
+    SUPABASE_URL: str = ""
+    # Llave secreta del proyecto (service_role o sb_secret_...). Sólo vive en
+    # el servidor: la app nunca la recibe.
+    SUPABASE_SERVICE_KEY: str = ""
+    SUPABASE_STORAGE_BUCKET: str = "product-images"
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://nexus_app:Admin@localhost:5432/nexus"
+    # Pool de conexiones por proceso. El pooler gratuito de Supabase en modo
+    # sesión admite ~15 clientes: en producción se baja por variable de entorno.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
 
     # Security
     SECRET_KEY: str = "e6f0b4dca83f4f13b63ee9f3a971239c894595e1eb29976371c6183e8fa2981b"
@@ -66,6 +82,18 @@ class Settings(BaseSettings):
 
     # Eliminación de un comercio: la segunda aprobación vence si nadie la da
     TENANT_DELETION_APPROVAL_HOURS: int = 72
+
+    # CORS en producción (`main.py`): orígenes web permitidos — vitrina, panel —
+    # separados por coma. La app Android no los necesita: CORS sólo aplica a
+    # navegadores. En desarrollo se acepta cualquier origen.
+    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = []
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def _split_allowed_origins(cls, value):
+        if isinstance(value, str):
+            return [origin.strip().rstrip("/") for origin in value.split(",") if origin.strip()]
+        return value
 
     # CORS
     BACKEND_CORS_ORIGINS: List[Union[str, AnyHttpUrl]] = [

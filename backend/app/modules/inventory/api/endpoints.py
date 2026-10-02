@@ -1,18 +1,19 @@
-# Importación del módulo de sistema operativo
+# Importación del módulo de sistema operativo y del log
+import logging
 import os
 # Importación de tipado estático
 from typing import List, Optional
 # Importación de UUID para tipado de parámetros de ruta
 import uuid
 # Importación de FastAPI, cargas de archivos y dependencias
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 # Importación de la sesión asíncrona de base de datos
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Importación de la configuración centralizada
-from app.core.config.settings import settings
 # Importación de la dependencia del pool de conexiones
 from app.core.database.session import get_db
+# Importación del guardado de fotos (disco local o Supabase Storage)
+from app.core.storage import ImageStorageError, save_image
 # Importación de dependencias de autenticación y autorización RBAC
 from app.core.security.deps import (
     get_current_user,
@@ -695,6 +696,18 @@ async def execute_import_file(
 # ENDPOINT DE SUBIDA DE IMÁGENES DE PRODUCTOS
 # =============================================================================
 
+logger = logging.getLogger(__name__)
+
+# Extensión → tipo MIME con que se guarda (el bucket de Supabase sólo acepta estos)
+_IMAGE_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+# Mismo tope que la app valida antes de subir (y que el límite del bucket)
+_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
 @router.post(
     "/upload-image",
     summary="Subir imagen de producto o artículo de inventario",
@@ -704,22 +717,33 @@ async def upload_product_image(
     current_user: User = Depends(require_active_tenant),
 ):
     """
-    Recibe una imagen (PNG, JPG, WEBP), la almacena en el servidor y retorna
-    la ruta relativa (/uploads/images/...) para asociarla a cualquier producto.
+    Recibe una imagen (PNG, JPG, WEBP), la guarda donde diga `STORAGE_BACKEND`
+    y retorna la URL para asociarla a cualquier producto: ruta relativa
+    (/uploads/images/...) en local, URL absoluta del CDN en Supabase.
     """
     ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+    if ext not in _IMAGE_CONTENT_TYPES:
         ext = ".jpg"
 
-    unique_filename = f"{uuid.uuid4().hex}{ext}"
-    images_dir = os.path.join(settings.UPLOAD_DIR, "images")
-    os.makedirs(images_dir, exist_ok=True)
-    file_path = os.path.join(images_dir, unique_filename)
-
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La imagen está vacía.")
+    if len(content) > _MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="La imagen pesa más de 5 MB.",
+        )
 
-    return {"url": f"/uploads/images/{unique_filename}"}
+    try:
+        # Carpeta por comercio: la arma el servidor desde el token, nunca el cliente
+        url = await save_image(content, ext, _IMAGE_CONTENT_TYPES[ext], folder=str(current_user.tenant_id))
+    except ImageStorageError as exc:
+        logger.error("No se pudo guardar la imagen: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo guardar la foto. Intenta de nuevo.",
+        ) from exc
+
+    return {"url": url}
 
 
